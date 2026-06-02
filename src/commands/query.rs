@@ -1,6 +1,7 @@
 use crate::api::splitwise::schema::ExpensesResponse;
 use crate::api::splitwise::schema::GroupResponse;
 use crate::style::*;
+use anstream::println;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
@@ -58,13 +59,13 @@ pub async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseWindowAr
 
     let bar = "─".repeat(92);
 
-    anstream::println! {};
-    anstream::println! { "{STYLE_HEADER}🔍 Querying Splitwise Expenses{STYLE_HEADER:#}" };
-    anstream::println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
-    anstream::println! { "{STYLE_INFO}📅 Window boundary:{STYLE_INFO:#} {}", start_window_str };
-    anstream::println! {};
+    println! {};
+    println! { "{STYLE_HEADER}🔍 Querying Splitwise Expenses{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
+    println! { "{STYLE_INFO}📅 Window boundary:{STYLE_INFO:#} {}", start_window_str };
+    println! {};
 
-    anstream::println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
+    println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
     let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
     let group_map: HashMap<u64, String> = groups_res
         .groups
@@ -76,13 +77,13 @@ pub async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseWindowAr
     let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
 
     if expenses_res.expenses.is_empty() {
-        anstream::println! { "{STYLE_SUCCESS}✨ No expenses found in this window.{STYLE_SUCCESS:#}" };
-        anstream::println! {};
+        println! { "{STYLE_SUCCESS}✨ No expenses found in this window.{STYLE_SUCCESS:#}" };
+        println! {};
         return;
     }
 
-    anstream::println! { "  {:<10}  {:<30}  {:<30}  {:>12}", "Date", "Group/Person", "Description", "Net Balance" };
-    anstream::println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
+    println! { "  {:<10}  {:<30}  {:<30}  {:>12}", "Date", "Group/Person", "Description", "Net Balance" };
+    println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     let mut has_uninvolved = false;
 
@@ -177,14 +178,14 @@ pub async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseWindowAr
             expense.currency_code.to_uppercase()
         };
 
-        anstream::println! { "  {:<10}  {:<30}  {}  {} {}", date_str, clean_payee, desc_colored, balance_colored, currency_suffix };
+        println! { "  {:<10}  {:<30}  {}  {} {}", date_str, clean_payee, desc_colored, balance_colored, currency_suffix };
     }
 
     if has_uninvolved {
-        anstream::println! { "  {STYLE_DIM}* = uninvolved transaction (net balance is zero){STYLE_DIM:#}" };
-        anstream::println! {};
+        println! { "  {STYLE_DIM}* = uninvolved transaction (net balance is zero){STYLE_DIM:#}" };
+        println! {};
     } else {
-        anstream::println! {};
+        println! {};
     }
 }
 
@@ -197,11 +198,11 @@ pub async fn run_query_splitwise_group(args: crate::cli::QuerySplitwiseGroupArgs
 
     let bar = "─".repeat(92);
 
-    anstream::println! {};
-    anstream::println! { "{STYLE_HEADER}🔍 Querying Splitwise Group Expenses{STYLE_HEADER:#}" };
-    anstream::println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
+    println! {};
+    println! { "{STYLE_HEADER}🔍 Querying Splitwise Group Expenses{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
-    anstream::println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
+    println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
     let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
     let group_map: HashMap<u64, String> = groups_res
         .groups
@@ -215,25 +216,25 @@ pub async fn run_query_splitwise_group(args: crate::cli::QuerySplitwiseGroupArgs
         .map(|g| g.name.clone())
         .unwrap_or_else(|| "Unknown Group".to_string());
 
-    anstream::println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", group_name, args.group_id };
+    println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", group_name, args.group_id };
     if let Some(g) = target_group {
         let balance_str = format_group_balances(g, config.splitwise.user_id);
-        anstream::println! { "{STYLE_INFO}💰 Balance:{STYLE_INFO:#} {}", balance_str };
+        println! { "{STYLE_INFO}💰 Balance:{STYLE_INFO:#} {}", balance_str };
     }
-    anstream::println! {};
+    println! {};
 
     let group_id_str = args.group_id.to_string();
     let sw_query = [("group_id", group_id_str.as_str()), ("limit", "0")];
     let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
 
     if expenses_res.expenses.is_empty() {
-        anstream::println! { "{STYLE_SUCCESS}✨ No expenses found for this group.{STYLE_SUCCESS:#}" };
-        anstream::println! {};
+        println! { "{STYLE_SUCCESS}✨ No expenses found for this group.{STYLE_SUCCESS:#}" };
+        println! {};
         return;
     }
 
-    anstream::println! { "  {:<10}  {:<30}  {:<30}  {:>12}", "Date", "Group/Person", "Description", "Net Balance" };
-    anstream::println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
+    println! { "  {:<10}  {:<30}  {:<30}  {:>12}", "Date", "Group/Person", "Description", "Net Balance" };
+    println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     let mut has_uninvolved = false;
 
@@ -328,14 +329,14 @@ pub async fn run_query_splitwise_group(args: crate::cli::QuerySplitwiseGroupArgs
             expense.currency_code.to_uppercase()
         };
 
-        anstream::println! { "  {:<10}  {:<30}  {}  {} {}", date_str, clean_payee, desc_colored, balance_colored, currency_suffix };
+        println! { "  {:<10}  {:<30}  {}  {} {}", date_str, clean_payee, desc_colored, balance_colored, currency_suffix };
     }
 
     if has_uninvolved {
-        anstream::println! { "  {STYLE_DIM}* = uninvolved transaction (net balance is zero){STYLE_DIM:#}" };
-        anstream::println! {};
+        println! { "  {STYLE_DIM}* = uninvolved transaction (net balance is zero){STYLE_DIM:#}" };
+        println! {};
     } else {
-        anstream::println! {};
+        println! {};
     }
 }
 
@@ -348,20 +349,20 @@ pub async fn run_query_splitwise_get_groups() {
 
     let bar = "─".repeat(110);
 
-    anstream::println! {};
-    anstream::println! { "{STYLE_HEADER}🔍 Querying Splitwise Groups{STYLE_HEADER:#}" };
-    anstream::println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
+    println! {};
+    println! { "{STYLE_HEADER}🔍 Querying Splitwise Groups{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
 
     if groups_res.groups.is_empty() {
-        anstream::println! { "{STYLE_WARNING}No groups found.{STYLE_WARNING:#}" };
-        anstream::println! {};
+        println! { "{STYLE_WARNING}No groups found.{STYLE_WARNING:#}" };
+        println! {};
         return;
     }
 
-    anstream::println! { "  {:<15}  {:<15}  {:<40}  {}", "Last Updated", "Group ID", "Group Name", "Balance" };
-    anstream::println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
+    println! { "  {:<15}  {:<15}  {:<40}  {}", "Last Updated", "Group ID", "Group Name", "Balance" };
+    println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     let mut groups = groups_res.groups;
     groups.sort_by_key(|b| std::cmp::Reverse(b.updated_at));
@@ -379,9 +380,9 @@ pub async fn run_query_splitwise_get_groups() {
             .strftime("%Y-%m-%d")
             .to_string();
         let balance_str = format_group_balances(&g, config.splitwise.user_id);
-        anstream::println! { "  {:<15}  {:<15}  {:<40}  {}", date_str, g.id, clean_name, balance_str };
+        println! { "  {:<15}  {:<15}  {:<40}  {}", date_str, g.id, clean_name, balance_str };
     }
-    anstream::println! {};
+    println! {};
 }
 
 pub async fn run_query_lunchmoney_categories() {
@@ -393,9 +394,9 @@ pub async fn run_query_lunchmoney_categories() {
 
     let bar = "─".repeat(80);
 
-    anstream::println! {};
-    anstream::println! { "{STYLE_HEADER}🔍 Querying Lunch Money Categories{STYLE_HEADER:#}" };
-    anstream::println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
+    println! {};
+    println! { "{STYLE_HEADER}🔍 Querying Lunch Money Categories{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     let categories_res: crate::api::lunch_money::schema::CategoriesResponse = lm_client
         .fetch("categories", &[("format", "nested")] as &[(&str, &str)])
@@ -404,13 +405,13 @@ pub async fn run_query_lunchmoney_categories() {
     let categories: Vec<_> = categories_res.categories;
 
     if categories.is_empty() {
-        anstream::println! { "{STYLE_WARNING}No categories found.{STYLE_WARNING:#}" };
-        anstream::println! {};
+        println! { "{STYLE_WARNING}No categories found.{STYLE_WARNING:#}" };
+        println! {};
         return;
     }
 
-    anstream::println! { "  {:<10} {}", "ID", "Category Name" };
-    anstream::println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
+    println! { "  {:<10} {}", "ID", "Category Name" };
+    println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     let mut has_archived = false;
 
@@ -420,9 +421,9 @@ pub async fn run_query_lunchmoney_categories() {
         if cat.archived {
             has_archived = true;
             display_name.push_str(" *");
-            anstream::println! { "  {STYLE_DIM}{:<10} {}{STYLE_DIM:#}", id_bracket, display_name };
+            println! { "  {STYLE_DIM}{:<10} {}{STYLE_DIM:#}", id_bracket, display_name };
         } else {
-            anstream::println! { "  {:<10} {}", id_bracket, display_name };
+            println! { "  {:<10} {}", id_bracket, display_name };
         }
 
         if cat.is_group {
@@ -439,18 +440,18 @@ pub async fn run_query_lunchmoney_categories() {
                     if child.archived {
                         has_archived = true;
                         child_display_name.push_str(" *");
-                        anstream::println! { "  {STYLE_DIM}{} {:<9} {}{STYLE_DIM:#}", branch, child_id_bracket, child_display_name };
+                        println! { "  {STYLE_DIM}{} {:<9} {}{STYLE_DIM:#}", branch, child_id_bracket, child_display_name };
                     } else {
-                        anstream::println! { "  {} {:<9} {}", branch, child_id_bracket, child_display_name };
+                        println! { "  {} {:<9} {}", branch, child_id_bracket, child_display_name };
                     }
                 }
             }
         }
     }
-    anstream::println! {};
+    println! {};
 
     if has_archived {
-        anstream::println! { "  {STYLE_DIM}* denotes archived categories{STYLE_DIM:#}" };
-        anstream::println! {};
+        println! { "  {STYLE_DIM}* denotes archived categories{STYLE_DIM:#}" };
+        println! {};
     }
 }

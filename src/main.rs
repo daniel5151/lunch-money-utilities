@@ -1,3 +1,5 @@
+use anstream::eprintln;
+
 pub mod style;
 
 mod api;
@@ -72,9 +74,9 @@ pub fn load_config() -> config::Config {
 
     use crate::style::STYLE_ERROR;
 
-    anstream::eprintln! {};
-    anstream::eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configuration file 'splitwise-lunchmoney.toml' not found in current directory or executable directory." };
-    anstream::eprintln! { "Please run 'splitwise-lunchmoney init' to configure." };
-    anstream::eprintln! {};
+    eprintln! {};
+    eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configuration file 'splitwise-lunchmoney.toml' not found in current directory or executable directory." };
+    eprintln! { "Please run 'splitwise-lunchmoney init' to configure." };
+    eprintln! {};
     std::process::exit(1);
 }

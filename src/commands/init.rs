@@ -1,5 +1,7 @@
 use crate::api::lunch_money::schema::ManualAccountsResponse;
 use crate::style::*;
+use anstream::eprintln;
+use anstream::println;
 use std::collections::HashMap;
 use std::fs;
 
@@ -24,17 +26,17 @@ struct CurrentUserResponse {
 
 pub async fn run_init() {
     if std::path::Path::new("splitwise-lunchmoney.toml").exists() {
-        anstream::eprintln! {};
-        anstream::eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} splitwise-lunchmoney.toml already exists in this directory." };
-        anstream::eprintln! {};
+        eprintln! {};
+        eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} splitwise-lunchmoney.toml already exists in this directory." };
+        eprintln! {};
         std::process::exit(1);
     }
 
-    anstream::println! {};
-    anstream::println! { "{STYLE_HEADER}⚙️  Configuring Splitwise & Lunch Money Integration{STYLE_HEADER:#}" };
-    anstream::println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
-    anstream::println! { "{STYLE_INFO}This wizard will help you set up splitwise-lunchmoney.toml.{STYLE_INFO:#}" };
-    anstream::println! {};
+    println! {};
+    println! { "{STYLE_HEADER}⚙️  Configuring Splitwise & Lunch Money Integration{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
+    println! { "{STYLE_INFO}This wizard will help you set up splitwise-lunchmoney.toml.{STYLE_INFO:#}" };
+    println! {};
 
     let splitwise_api_key = inquire::Password::new("Splitwise API Key:")
         .with_help_message("Your Splitwise personal API key / Bearer token")
@@ -45,8 +47,8 @@ pub async fn run_init() {
 
     let http_client = reqwest::Client::new();
 
-    anstream::println! {};
-    anstream::println! { "{STYLE_INFO}🔗 Connecting to Splitwise API...{STYLE_INFO:#}" };
+    println! {};
+    println! { "{STYLE_INFO}🔗 Connecting to Splitwise API...{STYLE_INFO:#}" };
     let sw_user_response = http_client
         .get("https://secure.splitwise.com/api/v3.0/get_current_user")
         .header("Authorization", format!("Bearer {splitwise_api_key}"))
@@ -57,9 +59,9 @@ pub async fn run_init() {
         );
 
     if !sw_user_response.status().is_success() {
-        anstream::eprintln! {};
-        anstream::eprintln! { "{STYLE_ERROR}❌ Error querying Splitwise:{STYLE_ERROR:#} {}", sw_user_response.status() };
-        anstream::eprintln! {};
+        eprintln! {};
+        eprintln! { "{STYLE_ERROR}❌ Error querying Splitwise:{STYLE_ERROR:#} {}", sw_user_response.status() };
+        eprintln! {};
         std::process::exit(1);
     }
 
@@ -89,8 +91,8 @@ pub async fn run_init() {
         .prompt()
         .expect("Failed to get Lunch Money API Key");
 
-    anstream::println! {};
-    anstream::println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API...{STYLE_INFO:#}" };
+    println! {};
+    println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API...{STYLE_INFO:#}" };
     let response = http_client
         .get("https://api.lunchmoney.dev/v2/manual_accounts")
         .header("Authorization", format!("Bearer {lunch_money_api_key}"))
@@ -99,9 +101,9 @@ pub async fn run_init() {
         .expect("Failed to query Lunch Money manual accounts. Please check your API key and internet connection.");
 
     if !response.status().is_success() {
-        anstream::eprintln! {};
-        anstream::eprintln! { "{STYLE_ERROR}❌ Error querying Lunch Money:{STYLE_ERROR:#} {}", response.status() };
-        anstream::eprintln! {};
+        eprintln! {};
+        eprintln! { "{STYLE_ERROR}❌ Error querying Lunch Money:{STYLE_ERROR:#} {}", response.status() };
+        eprintln! {};
         std::process::exit(1);
     }
 
@@ -111,9 +113,9 @@ pub async fn run_init() {
         .expect("Failed to parse Lunch Money manual accounts response");
 
     let mut supported_currencies = Vec::new();
-    anstream::println! {};
-    anstream::println! { "{STYLE_INFO}💱 Supported Currencies Setup{STYLE_INFO:#}" };
-    anstream::println! { "{STYLE_DIM}Please enter the currencies you want to support (e.g. USD, CAD, GBP).{STYLE_DIM:#}" };
+    println! {};
+    println! { "{STYLE_INFO}💱 Supported Currencies Setup{STYLE_INFO:#}" };
+    println! { "{STYLE_DIM}Please enter the currencies you want to support (e.g. USD, CAD, GBP).{STYLE_DIM:#}" };
     loop {
         let prompt_msg = if supported_currencies.is_empty() {
             "Enter a currency code you would like to support:"
@@ -126,13 +128,13 @@ pub async fn run_init() {
         let trimmed = currency.trim().to_uppercase();
         if trimmed.is_empty() {
             if supported_currencies.is_empty() {
-                anstream::println! { "At least one currency must be specified." };
+                println! { "At least one currency must be specified." };
                 continue;
             }
             break;
         }
         if trimmed.len() != 3 || !trimmed.chars().all(|c| c.is_ascii_alphabetic()) {
-            anstream::println! { "Please enter a valid 3-letter ISO currency code (e.g. USD)." };
+            println! { "Please enter a valid 3-letter ISO currency code (e.g. USD)." };
             continue;
         }
         if !supported_currencies.contains(&trimmed) {
@@ -157,14 +159,14 @@ pub async fn run_init() {
     }
 
     if !missing_accounts.is_empty() {
-        anstream::eprintln! {};
-        anstream::eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} The following required Lunch Money manual accounts are missing:" };
+        eprintln! {};
+        eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} The following required Lunch Money manual accounts are missing:" };
         for acc_name in &missing_accounts {
-            anstream::eprintln! { "  • {STYLE_HEADER}{}{STYLE_HEADER:#}", acc_name };
+            eprintln! { "  • {STYLE_HEADER}{}{STYLE_HEADER:#}", acc_name };
         }
-        anstream::eprintln! {};
-        anstream::eprintln! { "{STYLE_WARNING}⚠️  Action Required:{STYLE_WARNING:#} Please set up manually managed accounts with these exact names in your Lunch Money account before continuing." };
-        anstream::eprintln! {};
+        eprintln! {};
+        eprintln! { "{STYLE_WARNING}⚠️  Action Required:{STYLE_WARNING:#} Please set up manually managed accounts with these exact names in your Lunch Money account before continuing." };
+        eprintln! {};
         std::process::exit(1);
     }
 
@@ -197,10 +199,10 @@ api_key = "{lunch_money_api_key}"
     fs::write("splitwise-lunchmoney.toml", template)
         .expect("Failed to write splitwise-lunchmoney.toml");
 
-    anstream::println! {};
-    anstream::println! { "{STYLE_SUCCESS}🎉 Configuration created successfully!{STYLE_SUCCESS:#}" };
-    anstream::println! { "{STYLE_INFO}Saved to:{STYLE_INFO:#} splitwise-lunchmoney.toml" };
-    anstream::println! {};
-    anstream::println! { "{STYLE_DIM}Run {STYLE_DIM:#}{STYLE_HEADER}splitwise-lunchmoney sync window --window \"3 days\"{STYLE_HEADER:#}{STYLE_DIM} to begin syncing.{STYLE_DIM:#}" };
-    anstream::println! {};
+    println! {};
+    println! { "{STYLE_SUCCESS}🎉 Configuration created successfully!{STYLE_SUCCESS:#}" };
+    println! { "{STYLE_INFO}Saved to:{STYLE_INFO:#} splitwise-lunchmoney.toml" };
+    println! {};
+    println! { "{STYLE_DIM}Run {STYLE_DIM:#}{STYLE_HEADER}splitwise-lunchmoney sync window --window \"3 days\"{STYLE_HEADER:#}{STYLE_DIM} to begin syncing.{STYLE_DIM:#}" };
+    println! {};
 }

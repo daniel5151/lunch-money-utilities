@@ -9,6 +9,8 @@ use crate::api::lunch_money::schema::UpdatePayload;
 use crate::api::splitwise::schema::ExpensesResponse;
 use crate::api::splitwise::schema::GroupResponse;
 use crate::style::*;
+use anstream::eprintln;
+use anstream::println;
 use reqwest::Method;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
@@ -90,14 +92,14 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     } else {
         "".to_string()
     };
-    anstream::println! {};
-    anstream::println! { "{STYLE_HEADER}⚡ Splitwise to Lunch Money Sync{}{STYLE_HEADER:#}", dry_run_suffix };
-    anstream::println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
-    anstream::println! { "{STYLE_INFO}📅 Sync window boundary:{STYLE_INFO:#} {} to {}", start_window_str, end_window_str };
-    anstream::println! {};
+    println! {};
+    println! { "{STYLE_HEADER}⚡ Splitwise to Lunch Money Sync{}{STYLE_HEADER:#}", dry_run_suffix };
+    println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
+    println! { "{STYLE_INFO}📅 Sync window boundary:{STYLE_INFO:#} {} to {}", start_window_str, end_window_str };
+    println! {};
 
     // Fetch dependencies
-    anstream::println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
+    println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
     let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
     let group_map: HashMap<u64, String> = groups_res
         .groups
@@ -118,10 +120,10 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
             .iter()
             .any(|acc| acc.id == account_id)
         {
-            anstream::eprintln! {};
-            anstream::eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
-            anstream::eprintln! { "Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'." };
-            anstream::eprintln! {};
+            eprintln! {};
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
+            eprintln! { "Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'." };
+            eprintln! {};
             std::process::exit(1);
         }
     }
@@ -143,7 +145,7 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         "Unknown Account".to_string()
     };
 
-    anstream::println! { "  {STYLE_DIM}Fetching Lunch Money transactions...{STYLE_DIM:#}" };
+    println! { "  {STYLE_DIM}Fetching Lunch Money transactions...{STYLE_DIM:#}" };
     let mut lm_transactions = Vec::new();
     for &account_id in config.lunch_money.target_accounts.values() {
         let account_id_str = account_id.to_string();
@@ -172,8 +174,8 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         lm_transactions.extend(txs);
     }
 
-    anstream::println! { "  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}" };
-    anstream::println! {};
+    println! { "  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}" };
+    println! {};
 
     // Theory of Operation (External IDs, Grouping, and Splitting):
     // 1. Transactions imported from Splitwise are tagged with a unique `external_id` matching `splitwise_<expense_id>`.
@@ -229,10 +231,10 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
             .target_accounts
             .contains_key(&currency_upper)
         {
-            anstream::eprintln! {};
-            anstream::eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No manual account configured for currency '{}'.", currency_upper };
-            anstream::eprintln! { "Please run 'splitwise-lunchmoney init' or set up 'Splitwise {}' manual account.", currency_upper };
-            anstream::eprintln! {};
+            eprintln! {};
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No manual account configured for currency '{}'.", currency_upper };
+            eprintln! { "Please run 'splitwise-lunchmoney init' or set up 'Splitwise {}' manual account.", currency_upper };
+            eprintln! {};
             std::process::exit(1);
         }
 
@@ -300,12 +302,12 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
 
     // Execute batches
     if !deletes.is_empty() {
-        anstream::println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", deletes.len() };
+        println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", deletes.len() };
         for t in &deletes {
             let acc_name = get_account_name(t.manual_account_id, &t.currency);
-            anstream::println! { "   {STYLE_ERROR}-{STYLE_ERROR:#} {}", format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), &acc_name) };
+            println! { "   {STYLE_ERROR}-{STYLE_ERROR:#} {}", format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), &acc_name) };
         }
-        anstream::println! {};
+        println! {};
 
         if !sync_args.dry_run {
             let delete_ids: Vec<u64> = deletes.iter().map(|t| t.id).collect();
@@ -320,12 +322,12 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     }
 
     if !updates.is_empty() {
-        anstream::println! { "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:", updates.len() };
+        println! { "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:", updates.len() };
         for u in &updates {
             let acc_name = get_account_name(None, &u.currency);
-            anstream::println! { "   {STYLE_INFO}~{STYLE_INFO:#} {}", format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, &acc_name) };
+            println! { "   {STYLE_INFO}~{STYLE_INFO:#} {}", format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, &acc_name) };
         }
-        anstream::println! {};
+        println! {};
 
         if !sync_args.dry_run {
             for chunk in updates.chunks(500) {
@@ -360,12 +362,12 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     }
 
     if !inserts.is_empty() {
-        anstream::println! { "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:", inserts.len() };
+        println! { "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:", inserts.len() };
         for ins in &inserts {
             let acc_name = get_account_name(Some(ins.manual_account_id), &ins.currency);
-            anstream::println! { "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}", format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, &acc_name) };
+            println! { "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}", format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, &acc_name) };
         }
-        anstream::println! {};
+        println! {};
 
         if !sync_args.dry_run {
             for chunk in inserts.chunks(500) {
@@ -397,14 +399,14 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     }
 
     if deletes.is_empty() && updates.is_empty() && inserts.is_empty() {
-        anstream::println! { "{STYLE_SUCCESS}✨ No changes detected. Lunch Money manual account is up-to-date!{STYLE_SUCCESS:#}" };
-        anstream::println! {};
+        println! { "{STYLE_SUCCESS}✨ No changes detected. Lunch Money manual account is up-to-date!{STYLE_SUCCESS:#}" };
+        println! {};
     } else if sync_args.dry_run {
-        anstream::println! { "{STYLE_WARNING}⚠️ Dry run complete! No changes were made to Lunch Money.{STYLE_WARNING:#}" };
-        anstream::println! {};
+        println! { "{STYLE_WARNING}⚠️ Dry run complete! No changes were made to Lunch Money.{STYLE_WARNING:#}" };
+        println! {};
     } else {
-        anstream::println! { "{STYLE_SUCCESS}✨ Synchronization cycle complete!{STYLE_SUCCESS:#}" };
-        anstream::println! {};
+        println! { "{STYLE_SUCCESS}✨ Synchronization cycle complete!{STYLE_SUCCESS:#}" };
+        println! {};
     }
 }
 
@@ -422,12 +424,12 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     } else {
         "".to_string()
     };
-    anstream::println! {};
-    anstream::println! { "{STYLE_HEADER}⚡ Splitwise to Lunch Money Sync Group{}{STYLE_HEADER:#}", dry_run_suffix };
-    anstream::println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
+    println! {};
+    println! { "{STYLE_HEADER}⚡ Splitwise to Lunch Money Sync Group{}{STYLE_HEADER:#}", dry_run_suffix };
+    println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
 
     // Fetch dependencies
-    anstream::println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
+    println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
     let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
     let group_map: HashMap<u64, String> = groups_res
         .groups
@@ -443,13 +445,13 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         .map(|g| g.name.clone())
         .unwrap_or_else(|| "Unknown Group".to_string());
 
-    anstream::println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", group_name, sync_args.group_id };
+    println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", group_name, sync_args.group_id };
     if let Some(g) = target_group {
         let balance_str =
             crate::commands::query::format_group_balances(g, config.splitwise.user_id);
-        anstream::println! { "{STYLE_INFO}💰 Balance:{STYLE_INFO:#} {}", balance_str };
+        println! { "{STYLE_INFO}💰 Balance:{STYLE_INFO:#} {}", balance_str };
     }
-    anstream::println! {};
+    println! {};
 
     let group_id_str = sync_args.group_id.to_string();
     let sw_query = [("group_id", group_id_str.as_str()), ("limit", "0")];
@@ -465,17 +467,17 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
             .iter()
             .any(|acc| acc.id == account_id)
         {
-            anstream::eprintln! {};
-            anstream::eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
-            anstream::eprintln! { "Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'." };
-            anstream::eprintln! {};
+            eprintln! {};
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
+            eprintln! { "Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'." };
+            eprintln! {};
             std::process::exit(1);
         }
     }
 
     let mut tag_id = None;
     if let Some(ref tag_name) = sync_args.tag {
-        anstream::println! { "  {STYLE_DIM}Resolving Lunch Money tag '{}'...{STYLE_DIM:#}", tag_name };
+        println! { "  {STYLE_DIM}Resolving Lunch Money tag '{}'...{STYLE_DIM:#}", tag_name };
         let tags_res: crate::api::lunch_money::schema::TagsResponse =
             lm_client.fetch("tags", &[] as &[(&str, &str)]).await;
 
@@ -487,10 +489,10 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
             tag_id = Some(existing_tag.id);
         } else {
             if sync_args.dry_run {
-                anstream::println! { "   {STYLE_WARNING}Would create tag:{STYLE_WARNING:#} '{}'", tag_name };
+                println! { "   {STYLE_WARNING}Would create tag:{STYLE_WARNING:#} '{}'", tag_name };
                 tag_id = Some(0);
             } else {
-                anstream::println! { "  {STYLE_DIM}Creating new tag '{}'...{STYLE_DIM:#}", tag_name };
+                println! { "  {STYLE_DIM}Creating new tag '{}'...{STYLE_DIM:#}", tag_name };
                 let new_tag: crate::api::lunch_money::schema::Tag = lm_client
                     .exec_with_response(
                         Method::POST,
@@ -522,7 +524,7 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         "Unknown Account".to_string()
     };
 
-    anstream::println! { "  {STYLE_DIM}Fetching Lunch Money transactions...{STYLE_DIM:#}" };
+    println! { "  {STYLE_DIM}Fetching Lunch Money transactions...{STYLE_DIM:#}" };
     let end_window_str = jiff::Timestamp::now()
         .to_zoned(jiff::tz::TimeZone::UTC)
         .strftime("%Y-%m-%d")
@@ -555,8 +557,8 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         lm_transactions.extend(txs);
     }
 
-    anstream::println! { "  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}" };
-    anstream::println! {};
+    println! { "  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}" };
+    println! {};
 
     // Theory of Operation (External IDs, Grouping, and Splitting):
     // 1. Transactions imported from Splitwise are tagged with a unique `external_id` matching `splitwise_<expense_id>`.
@@ -612,10 +614,10 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
             .target_accounts
             .contains_key(&currency_upper)
         {
-            anstream::eprintln! {};
-            anstream::eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No manual account configured for currency '{}'.", currency_upper };
-            anstream::eprintln! { "Please run 'splitwise-lunchmoney init' or set up 'Splitwise {}' manual account.", currency_upper };
-            anstream::eprintln! {};
+            eprintln! {};
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No manual account configured for currency '{}'.", currency_upper };
+            eprintln! { "Please run 'splitwise-lunchmoney init' or set up 'Splitwise {}' manual account.", currency_upper };
+            eprintln! {};
             std::process::exit(1);
         }
 
@@ -702,12 +704,12 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
 
     // Execute batches
     if !deletes.is_empty() {
-        anstream::println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", deletes.len() };
+        println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", deletes.len() };
         for t in &deletes {
             let acc_name = get_account_name(t.manual_account_id, &t.currency);
-            anstream::println! { "   {STYLE_ERROR}-{STYLE_ERROR:#} {}", format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), &acc_name) };
+            println! { "   {STYLE_ERROR}-{STYLE_ERROR:#} {}", format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), &acc_name) };
         }
-        anstream::println! {};
+        println! {};
 
         if !sync_args.dry_run {
             let delete_ids: Vec<u64> = deletes.iter().map(|t| t.id).collect();
@@ -722,12 +724,12 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     }
 
     if !updates.is_empty() {
-        anstream::println! { "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:", updates.len() };
+        println! { "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:", updates.len() };
         for u in &updates {
             let acc_name = get_account_name(None, &u.currency);
-            anstream::println! { "   {STYLE_INFO}~{STYLE_INFO:#} {}", format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, &acc_name) };
+            println! { "   {STYLE_INFO}~{STYLE_INFO:#} {}", format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, &acc_name) };
         }
-        anstream::println! {};
+        println! {};
 
         if !sync_args.dry_run {
             for chunk in updates.chunks(500) {
@@ -762,12 +764,12 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     }
 
     if !inserts.is_empty() {
-        anstream::println! { "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:", inserts.len() };
+        println! { "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:", inserts.len() };
         for ins in &inserts {
             let acc_name = get_account_name(Some(ins.manual_account_id), &ins.currency);
-            anstream::println! { "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}", format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, &acc_name) };
+            println! { "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}", format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, &acc_name) };
         }
-        anstream::println! {};
+        println! {};
 
         if !sync_args.dry_run {
             for chunk in inserts.chunks(500) {
@@ -799,13 +801,13 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     }
 
     if deletes.is_empty() && updates.is_empty() && inserts.is_empty() {
-        anstream::println! { "{STYLE_SUCCESS}✨ No changes detected. Lunch Money manual account is up-to-date!{STYLE_SUCCESS:#}" };
-        anstream::println! {};
+        println! { "{STYLE_SUCCESS}✨ No changes detected. Lunch Money manual account is up-to-date!{STYLE_SUCCESS:#}" };
+        println! {};
     } else if sync_args.dry_run {
-        anstream::println! { "{STYLE_WARNING}⚠️ Dry run complete! No changes were made to Lunch Money.{STYLE_WARNING:#}" };
-        anstream::println! {};
+        println! { "{STYLE_WARNING}⚠️ Dry run complete! No changes were made to Lunch Money.{STYLE_WARNING:#}" };
+        println! {};
     } else {
-        anstream::println! { "{STYLE_SUCCESS}✨ Synchronization cycle complete!{STYLE_SUCCESS:#}" };
-        anstream::println! {};
+        println! { "{STYLE_SUCCESS}✨ Synchronization cycle complete!{STYLE_SUCCESS:#}" };
+        println! {};
     }
 }
