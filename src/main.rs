@@ -416,7 +416,7 @@ api_key = "{lunch_money_api_key}"
 
 fn load_config() -> config::Config {
     let filename = "splitwise-lunchmoney.toml";
-    
+
     // 1. Check current working directory
     let path = std::path::Path::new(filename);
     if path.exists() {
@@ -842,7 +842,14 @@ fn format_transaction_summary(
 
     format!(
         "{}  {:<35}  {}{:>9} {}{:#}{}{}",
-        date_str, clean_payee, amount_style, amount, currency_upper, amount_style, account_display, notes_suffix
+        date_str,
+        clean_payee,
+        amount_style,
+        amount,
+        currency_upper,
+        amount_style,
+        account_display,
+        notes_suffix
     )
 }
 
@@ -901,7 +908,11 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
         .fetch("manual_accounts", &[] as &[(&str, &str)])
         .await;
     for (currency, &account_id) in &config.lunch_money.target_accounts {
-        if !accounts_res.manual_accounts.iter().any(|acc| acc.id == account_id) {
+        if !accounts_res
+            .manual_accounts
+            .iter()
+            .any(|acc| acc.id == account_id)
+        {
             eprintln!(
                 "\n{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.\n\
                  Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'.\n",
@@ -914,7 +925,11 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
     let get_account_name = |manual_account_id: Option<u64>, currency: &str| -> String {
         let id = manual_account_id.or_else(|| {
             let currency_upper = currency.to_uppercase();
-            config.lunch_money.target_accounts.get(&currency_upper).copied()
+            config
+                .lunch_money
+                .target_accounts
+                .get(&currency_upper)
+                .copied()
         });
         if let Some(id) = id {
             if let Some(acc) = accounts_res.manual_accounts.iter().find(|acc| acc.id == id) {
@@ -1089,7 +1104,14 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
             let acc_name = get_account_name(t.manual_account_id, &t.currency);
             println!(
                 "   {STYLE_ERROR}-{STYLE_ERROR:#} {}",
-                format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), &acc_name)
+                format_transaction_summary(
+                    &t.payee,
+                    t.amount,
+                    &t.currency,
+                    t.date,
+                    t.notes.as_deref().unwrap_or(""),
+                    &acc_name
+                )
             );
         }
         println!();
@@ -1115,7 +1137,14 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
             let acc_name = get_account_name(None, &u.currency);
             println!(
                 "   {STYLE_INFO}~{STYLE_INFO:#} {}",
-                format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, &acc_name)
+                format_transaction_summary(
+                    &u.payee,
+                    u.amount,
+                    &u.currency,
+                    u.date,
+                    &u.notes,
+                    &acc_name
+                )
             );
         }
         println!();
@@ -1159,7 +1188,14 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
             let acc_name = get_account_name(Some(ins.manual_account_id), &ins.currency);
             println!(
                 "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}",
-                format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, &acc_name)
+                format_transaction_summary(
+                    &ins.payee,
+                    ins.amount,
+                    &ins.currency,
+                    ins.date,
+                    &ins.notes,
+                    &acc_name
+                )
             );
         }
         println!();
@@ -1259,7 +1295,11 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
         .fetch("manual_accounts", &[] as &[(&str, &str)])
         .await;
     for (currency, &account_id) in &config.lunch_money.target_accounts {
-        if !accounts_res.manual_accounts.iter().any(|acc| acc.id == account_id) {
+        if !accounts_res
+            .manual_accounts
+            .iter()
+            .any(|acc| acc.id == account_id)
+        {
             eprintln!(
                 "\n{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.\n\
                  Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'.\n",
@@ -1271,12 +1311,18 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
 
     let mut tag_id = None;
     if let Some(ref tag_name) = sync_args.tag {
-        println!("  {STYLE_DIM}Resolving Lunch Money tag '{}'...{STYLE_DIM:#}", tag_name);
-        let tags_res: api::lunch_money::schema::TagsResponse = lm_client
-            .fetch("tags", &[] as &[(&str, &str)])
-            .await;
+        println!(
+            "  {STYLE_DIM}Resolving Lunch Money tag '{}'...{STYLE_DIM:#}",
+            tag_name
+        );
+        let tags_res: api::lunch_money::schema::TagsResponse =
+            lm_client.fetch("tags", &[] as &[(&str, &str)]).await;
 
-        if let Some(existing_tag) = tags_res.tags.iter().find(|t| t.name.eq_ignore_ascii_case(tag_name)) {
+        if let Some(existing_tag) = tags_res
+            .tags
+            .iter()
+            .find(|t| t.name.eq_ignore_ascii_case(tag_name))
+        {
             tag_id = Some(existing_tag.id);
         } else {
             if sync_args.dry_run {
@@ -1286,7 +1332,10 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
                 );
                 tag_id = Some(0);
             } else {
-                println!("  {STYLE_DIM}Creating new tag '{}'...{STYLE_DIM:#}", tag_name);
+                println!(
+                    "  {STYLE_DIM}Creating new tag '{}'...{STYLE_DIM:#}",
+                    tag_name
+                );
                 let new_tag: api::lunch_money::schema::Tag = lm_client
                     .exec_with_response(
                         Method::POST,
@@ -1304,7 +1353,11 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
     let get_account_name = |manual_account_id: Option<u64>, currency: &str| -> String {
         let id = manual_account_id.or_else(|| {
             let currency_upper = currency.to_uppercase();
-            config.lunch_money.target_accounts.get(&currency_upper).copied()
+            config
+                .lunch_money
+                .target_accounts
+                .get(&currency_upper)
+                .copied()
         });
         if let Some(id) = id {
             if let Some(acc) = accounts_res.manual_accounts.iter().find(|acc| acc.id == id) {
@@ -1502,7 +1555,14 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
             let acc_name = get_account_name(t.manual_account_id, &t.currency);
             println!(
                 "   {STYLE_ERROR}-{STYLE_ERROR:#} {}",
-                format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), &acc_name)
+                format_transaction_summary(
+                    &t.payee,
+                    t.amount,
+                    &t.currency,
+                    t.date,
+                    t.notes.as_deref().unwrap_or(""),
+                    &acc_name
+                )
             );
         }
         println!();
@@ -1528,7 +1588,14 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
             let acc_name = get_account_name(None, &u.currency);
             println!(
                 "   {STYLE_INFO}~{STYLE_INFO:#} {}",
-                format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, &acc_name)
+                format_transaction_summary(
+                    &u.payee,
+                    u.amount,
+                    &u.currency,
+                    u.date,
+                    &u.notes,
+                    &acc_name
+                )
             );
         }
         println!();
@@ -1572,7 +1639,14 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
             let acc_name = get_account_name(Some(ins.manual_account_id), &ins.currency);
             println!(
                 "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}",
-                format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, &acc_name)
+                format_transaction_summary(
+                    &ins.payee,
+                    ins.amount,
+                    &ins.currency,
+                    ins.date,
+                    &ins.notes,
+                    &acc_name
+                )
             );
         }
         println!();
