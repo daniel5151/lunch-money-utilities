@@ -19,6 +19,7 @@ Sync Splitwise transactions into Lunch Money.
 - **Subcommands**:
   - `sync window`: Syncs all transactions within a specified time frame (e.g., `3 days`, `1 week`, `30 days`).
   - `sync group`: Syncs all transactions associated with a specific Splitwise Group ID.
+  - `sync balances`: Syncs your global Splitwise balances into Lunch Money's manual accounts.
   - `query splitwise get-groups`: Queries and prints all Splitwise groups you belong to, including outstanding balances in all active currencies.
   - `query splitwise window` and `query splitwise group`: Fetches and lists raw Splitwise expenses for review.
 - **Dry-Run Operations**: Run any sync command with the `--dry-run` flag to preview changes without modifying Lunch Money.
@@ -77,8 +78,15 @@ cargo run -- sync group 82559678 --dry-run
 
 ### Executing Sync
 Remove the `--dry-run` flag to push changes to Lunch Money:
+
+**Sync last 7 days of transactions:**
 ```bash
 cargo run -- sync window "7 days"
+```
+
+**Sync global balances into manual accounts:**
+```bash
+cargo run -- sync balances
 ```
 
 ### Querying Splitwise Groups

@@ -208,6 +208,11 @@ pub mod schema {
         pub ids: Vec<u64>,
     }
 
+    #[derive(Serialize, Clone, Debug)]
+    pub struct UpdateManualAccountObject {
+        pub balance: Decimal,
+    }
+
     #[derive(Deserialize, Debug)]
     pub struct CategoriesResponse {
         pub categories: Vec<Category>,

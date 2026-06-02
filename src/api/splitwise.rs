@@ -39,6 +39,22 @@ pub mod schema {
     use rust_decimal::Decimal;
     use serde::Deserialize;
 
+    #[derive(Deserialize, Debug)]
+    pub struct FriendsResponse {
+        pub friends: Vec<Friend>,
+    }
+
+    #[derive(Deserialize, Debug)]
+    pub struct Friend {
+        #[allow(dead_code)]
+        pub id: u64,
+        #[allow(dead_code)]
+        pub first_name: String,
+        #[allow(dead_code)]
+        pub last_name: Option<String>,
+        pub balance: Vec<Balance>,
+    }
+
     #[derive(Deserialize)]
     pub struct GroupResponse {
         pub groups: Vec<Group>,

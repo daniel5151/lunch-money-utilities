@@ -149,6 +149,15 @@ pub enum SyncSubcommands {
     Window(SyncWindowArgs),
     /// Sync all transactions corresponding to a specific Splitwise group
     Group(SyncGroupArgs),
+    /// Sync user's global Splitwise balances into Lunch Money's manual accounts
+    Balances(SyncBalancesArgs),
+}
+
+#[derive(Parser, Debug)]
+pub struct SyncBalancesArgs {
+    /// Print what would be synced without modifying Lunch Money
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -202,6 +211,8 @@ struct ManualAccount {
     display_name: Option<String>,
     #[serde(rename = "type")]
     account_type: api::lunch_money::schema::AccountType,
+    #[serde(with = "rust_decimal::serde::str")]
+    balance: Decimal,
 }
 
 impl std::fmt::Display for ManualAccount {
@@ -412,6 +423,9 @@ api_key = "{lunch_money_api_key}"
             }
             SyncSubcommands::Group(args) => {
                 run_sync_group(args).await;
+            }
+            SyncSubcommands::Balances(args) => {
+                run_sync_balances(args).await;
             }
         },
         Commands::Query(query_args) => match query_args.command {
@@ -1823,5 +1837,153 @@ fn format_group_balances(group: &api::splitwise::schema::Group, user_id: u64) ->
         format!("{}—{}", STYLE_DIM, STYLE_DIM.render_reset())
     } else {
         parts.join(", ")
+    }
+}
+
+async fn run_sync_balances(args: SyncBalancesArgs) {
+    let config = load_config();
+
+    let http_pool = reqwest::Client::new();
+    let sw_client =
+        api::splitwise::Client::new(http_pool.clone(), config.splitwise.api_key.clone());
+    let lm_client =
+        api::lunch_money::Client::new(http_pool.clone(), config.lunch_money.api_key.clone());
+
+    println!("\n{STYLE_HEADER}🔄 Syncing Splitwise Balances to Lunch Money{STYLE_HEADER:#}");
+    if args.dry_run {
+        println!("{STYLE_WARNING}⚠️  Running in DRY RUN mode. No changes will be made to Lunch Money.{STYLE_WARNING:#}");
+    }
+    println!("{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}");
+
+    println!("  {STYLE_DIM}Fetching Splitwise friends...{STYLE_DIM:#}");
+    let friends_res: api::splitwise::schema::FriendsResponse =
+        sw_client.fetch("get_friends", &[] as &[(&str, &str)]).await;
+
+    let mut global_balances: HashMap<String, Decimal> = HashMap::new();
+    for friend in friends_res.friends {
+        for bal in friend.balance {
+            let currency = bal.currency_code.to_uppercase();
+            *global_balances.entry(currency).or_insert(Decimal::ZERO) += bal.amount;
+        }
+    }
+
+    println!("  {STYLE_DIM}Fetching Lunch Money manual accounts...{STYLE_DIM:#}");
+    let accounts_res: ManualAccountsResponse =
+        lm_client.fetch("manual_accounts", &[] as &[(&str, &str)]).await;
+
+    // Normalize config keys to uppercase
+    let target_accounts: HashMap<String, u64> = config
+        .lunch_money
+        .target_accounts
+        .iter()
+        .map(|(k, v)| (k.to_uppercase(), *v))
+        .collect();
+
+    let mut has_updates = false;
+
+    for (currency, &account_id) in &target_accounts {
+        let acc = match accounts_res.manual_accounts.iter().find(|a| a.id == account_id) {
+            Some(a) => a,
+            None => {
+                eprintln!(
+                    "\n{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.",
+                    account_id, currency
+                );
+                std::process::exit(1);
+            }
+        };
+
+        let splitwise_balance = global_balances.get(currency).copied().unwrap_or(Decimal::ZERO);
+
+        let is_liability = match acc.account_type {
+            api::lunch_money::schema::AccountType::Credit |
+            api::lunch_money::schema::AccountType::Loan |
+            api::lunch_money::schema::AccountType::OtherLiability => true,
+            _ => false,
+        };
+
+        let target_balance = if is_liability {
+            -splitwise_balance
+        } else {
+            splitwise_balance
+        };
+
+        let acc_name = acc.display_name.as_deref().unwrap_or(&acc.name);
+
+        if acc.balance != target_balance {
+            has_updates = true;
+            if args.dry_run {
+                println!(
+                    "  {} ({})  {}~ Would update balance: {} -> {}{}",
+                    acc_name,
+                    currency,
+                    STYLE_WARNING,
+                    acc.balance,
+                    target_balance,
+                    STYLE_WARNING.render_reset()
+                );
+            } else {
+                println!(
+                    "  {} ({})  ~ Updating balance: {} -> {}...",
+                    acc_name,
+                    currency,
+                    acc.balance,
+                    target_balance
+                );
+                lm_client
+                    .exec(
+                        Method::PUT,
+                        &format!("manual_accounts/{}", account_id),
+                        &api::lunch_money::schema::UpdateManualAccountObject {
+                            balance: target_balance,
+                        },
+                    )
+                    .await;
+            }
+        } else {
+            println!(
+                "  {} ({})  {}✓ Up to date: {}{}",
+                acc_name,
+                currency,
+                STYLE_SUCCESS,
+                acc.balance,
+                STYLE_SUCCESS.render_reset()
+            );
+        }
+    }
+
+    // List unmapped non-zero balances
+    let mut unmapped = Vec::new();
+    for (currency, &balance) in &global_balances {
+        if !target_accounts.contains_key(currency) && !balance.is_zero() {
+            unmapped.push((currency, balance));
+        }
+    }
+
+    if !unmapped.is_empty() {
+        println!("\n{STYLE_WARNING}⚠️  Unmapped Splitwise balances:{STYLE_WARNING:#}");
+        for (curr, bal) in unmapped {
+            println!("  • {} {}", bal, curr);
+        }
+        println!("  {STYLE_DIM}To sync these, configure target accounts in splitwise-lunchmoney.toml.{STYLE_DIM:#}");
+    }
+
+    println!("{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}");
+    if args.dry_run {
+        if has_updates {
+            println!(
+                "{STYLE_WARNING}⚠️  Dry run complete! Changes would be applied to Lunch Money.{STYLE_WARNING:#}\n"
+            );
+        } else {
+            println!(
+                "{STYLE_SUCCESS}✨ Dry run complete! All accounts are already up to date.{STYLE_SUCCESS:#}\n"
+            );
+        }
+    } else {
+        if has_updates {
+            println!("{STYLE_SUCCESS}✨ Balance synchronization complete!{STYLE_SUCCESS:#}\n");
+        } else {
+            println!("{STYLE_SUCCESS}✨ No balance updates needed. Lunch Money accounts are up to date!{STYLE_SUCCESS:#}\n");
+        }
     }
 }
