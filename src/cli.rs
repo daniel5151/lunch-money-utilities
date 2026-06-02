@@ -23,6 +23,7 @@ fn cli_styles() -> clap::builder::styling::Styles {
         )
 }
 
+/// Synchronize Splitwise transactions and global outstanding balances into Lunch Money manual accounts
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None, styles = cli_styles())]
 pub struct Args {
@@ -32,9 +33,9 @@ pub struct Args {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Sync Splitwise transactions to Lunch Money
+    /// Sync Splitwise transactions or global balances to Lunch Money
     Sync(SyncArgs),
-    /// Initialize a new splitwise-lunchmoney.toml file with template data
+    /// Run the interactive setup wizard to configure splitwise-lunchmoney.toml
     Init,
     /// Query data from Splitwise or Lunch Money
     Query(QueryArgs),
@@ -79,7 +80,7 @@ pub enum QuerySplitwiseSubcommands {
     Window(QuerySplitwiseWindowArgs),
     /// Query Splitwise expenses for a specific group
     Group(QuerySplitwiseGroupArgs),
-    /// Get Splitwise groups as {id} - {friendlyname} pairs
+    /// List all Splitwise groups you belong to, including their ID, name, last updated date, and outstanding balances
     #[command(name = "get-groups")]
     GetGroups,
 }
@@ -87,7 +88,7 @@ pub enum QuerySplitwiseSubcommands {
 #[derive(Parser, Debug)]
 pub struct QuerySplitwiseWindowArgs {
     /// Window duration for querying (e.g., "3 days", "24h", "1 week")
-    #[arg(short, long, value_parser = humantime::parse_duration)]
+    #[arg(value_parser = humantime::parse_duration)]
     pub window: std::time::Duration,
 }
 
