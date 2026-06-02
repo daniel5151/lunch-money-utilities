@@ -1,3 +1,5 @@
+use crate::style::*;
+
 pub struct Client {
     http: reqwest::Client,
     api_key: String,
@@ -24,7 +26,6 @@ impl Client {
             .expect("Splitwise HTTP call failed");
 
         if !res.status().is_success() {
-            use crate::STYLE_ERROR;
             anstream::eprintln!(
                 "\n{STYLE_ERROR}❌ Splitwise request failed:{STYLE_ERROR:#} {}\n",
                 res.status()

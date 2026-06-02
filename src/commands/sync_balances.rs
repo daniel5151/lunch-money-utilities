@@ -1,5 +1,5 @@
 use crate::api::lunch_money::schema::ManualAccountsResponse;
-use crate::{STYLE_DIM, STYLE_ERROR, STYLE_HEADER, STYLE_SUCCESS, STYLE_WARNING};
+use crate::style::*;
 use reqwest::Method;
 use rust_decimal::Decimal;
 use std::collections::HashMap;

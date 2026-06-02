@@ -1,5 +1,6 @@
-use crate::api::splitwise::schema::{ExpensesResponse, GroupResponse};
-use crate::{STYLE_DIM, STYLE_ERROR, STYLE_HEADER, STYLE_INFO, STYLE_SUCCESS, STYLE_WARNING};
+use crate::api::splitwise::schema::ExpensesResponse;
+use crate::api::splitwise::schema::GroupResponse;
+use crate::style::*;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 

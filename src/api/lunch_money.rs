@@ -1,3 +1,5 @@
+use crate::style::*;
+
 pub struct Client {
     http: reqwest::Client,
     api_key: String,
@@ -24,7 +26,6 @@ impl Client {
             .expect("Lunch Money HTTP call failed");
 
         if !res.status().is_success() {
-            use crate::STYLE_ERROR;
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
             anstream::eprintln!(
@@ -54,7 +55,6 @@ impl Client {
             .expect("Lunch Money HTTP call failed");
 
         if !res.status().is_success() {
-            use crate::STYLE_ERROR;
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
             anstream::eprintln!(
@@ -83,7 +83,6 @@ impl Client {
             .expect("Lunch Money HTTP call failed");
 
         if !res.status().is_success() {
-            use crate::STYLE_ERROR;
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
             anstream::eprintln!(
