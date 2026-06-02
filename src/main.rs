@@ -1069,7 +1069,7 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
                 notes: expense.description,
                 external_id,
                 manual_account_id,
-                status: "reviewed".to_string(),
+                status: "unreviewed".to_string(),
             });
         }
     }
@@ -1429,7 +1429,7 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
                 notes: expense.description,
                 external_id,
                 manual_account_id,
-                status: "reviewed".to_string(),
+                status: "unreviewed".to_string(),
             });
         }
     }
