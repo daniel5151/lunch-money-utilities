@@ -1,0 +1,8 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+imports_granularity = "Item"
+newline_style="Unix"
+style_edition="2024"
+unstable_features = true
+use_field_init_shorthand=true

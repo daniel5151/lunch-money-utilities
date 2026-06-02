@@ -1,0 +1,2 @@
+# Vendor the .agents folder so that its metadata, OpenAPI schemas, and JSON/YAML assets are excluded from language statistics.
+.agents/** linguist-vendored
