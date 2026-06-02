@@ -237,4 +237,27 @@ pub mod schema {
         pub group_id: Option<u64>,
         pub archived: bool,
     }
+
+    #[derive(serde::Deserialize, Clone, Debug)]
+    pub struct ManualAccount {
+        pub id: u64,
+        pub name: String,
+        pub display_name: Option<String>,
+        #[serde(rename = "type")]
+        pub account_type: AccountType,
+        #[serde(with = "rust_decimal::serde::str")]
+        pub balance: Decimal,
+    }
+
+    impl std::fmt::Display for ManualAccount {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let name = self.display_name.as_deref().unwrap_or(&self.name);
+            write!(f, "{} (ID: {})", name, self.id)
+        }
+    }
+
+    #[derive(serde::Deserialize, Debug)]
+    pub struct ManualAccountsResponse {
+        pub manual_accounts: Vec<ManualAccount>,
+    }
 }
