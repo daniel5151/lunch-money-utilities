@@ -102,6 +102,34 @@ pub mod schema {
     use serde::Deserialize;
     use serde::Serialize;
 
+    #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+    #[serde(rename_all = "lowercase")]
+    pub enum TransactionStatus {
+        Reviewed,
+        Unreviewed,
+        #[serde(rename = "delete_pending")]
+        DeletePending,
+    }
+
+    #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+    #[serde(rename_all = "lowercase")]
+    pub enum AccountType {
+        Cash,
+        Credit,
+        Cryptocurrency,
+        #[serde(rename = "employee compensation")]
+        EmployeeCompensation,
+        Investment,
+        Loan,
+        #[serde(rename = "other liability")]
+        OtherLiability,
+        #[serde(rename = "other asset")]
+        OtherAsset,
+        #[serde(rename = "real estate")]
+        RealEstate,
+        Vehicle,
+    }
+
     #[derive(Deserialize)]
     pub struct TransactionsResponse {
         pub transactions: Vec<Transaction>,
@@ -121,6 +149,8 @@ pub mod schema {
         pub is_split_parent: Option<bool>,
         #[allow(dead_code)]
         pub group_parent_id: Option<u64>,
+        #[allow(dead_code)]
+        pub status: TransactionStatus,
     }
 
     #[derive(Serialize, Debug)]
@@ -137,7 +167,7 @@ pub mod schema {
         pub notes: String,
         pub external_id: String,
         pub manual_account_id: u64,
-        pub status: String,
+        pub status: TransactionStatus,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub tag_ids: Option<Vec<u64>>,
     }

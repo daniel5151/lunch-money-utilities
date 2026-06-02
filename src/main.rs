@@ -201,7 +201,7 @@ struct ManualAccount {
     name: String,
     display_name: Option<String>,
     #[serde(rename = "type")]
-    account_type: String,
+    account_type: api::lunch_money::schema::AccountType,
 }
 
 impl std::fmt::Display for ManualAccount {
@@ -1055,7 +1055,7 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
             .manual_accounts
             .iter()
             .find(|acc| acc.id == account_id)
-            .map(|acc| acc.account_type == "loan")
+            .map(|acc| acc.account_type == api::lunch_money::schema::AccountType::Loan)
             .unwrap_or(false);
 
         let mut txs = lm_res.transactions;
@@ -1187,7 +1187,7 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
                 notes: expense.description,
                 external_id,
                 manual_account_id,
-                status: "unreviewed".to_string(),
+                status: api::lunch_money::schema::TransactionStatus::Unreviewed,
                 tag_ids: None,
             });
         }
@@ -1259,7 +1259,7 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
                             let curr = u.currency.to_uppercase();
                             config.lunch_money.target_accounts.get(&curr).copied() == Some(acc.id)
                         })
-                        .map(|acc| acc.account_type == "loan")
+                        .map(|acc| acc.account_type == api::lunch_money::schema::AccountType::Loan)
                         .unwrap_or(false);
                     if is_loan {
                         u.amount = -u.amount;
@@ -1307,7 +1307,7 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
                         .manual_accounts
                         .iter()
                         .find(|acc| acc.id == ins.manual_account_id)
-                        .map(|acc| acc.account_type == "loan")
+                        .map(|acc| acc.account_type == api::lunch_money::schema::AccountType::Loan)
                         .unwrap_or(false);
                     if is_loan {
                         ins.amount = -ins.amount;
@@ -1487,7 +1487,7 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
             .manual_accounts
             .iter()
             .find(|acc| acc.id == account_id)
-            .map(|acc| acc.account_type == "loan")
+            .map(|acc| acc.account_type == api::lunch_money::schema::AccountType::Loan)
             .unwrap_or(false);
 
         let mut txs = lm_res.transactions;
@@ -1618,7 +1618,7 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
                 notes: expense.description,
                 external_id,
                 manual_account_id,
-                status: "unreviewed".to_string(),
+                status: api::lunch_money::schema::TransactionStatus::Unreviewed,
                 tag_ids: tag_id.map(|id| vec![id]),
             });
         }
@@ -1710,7 +1710,7 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
                             let curr = u.currency.to_uppercase();
                             config.lunch_money.target_accounts.get(&curr).copied() == Some(acc.id)
                         })
-                        .map(|acc| acc.account_type == "loan")
+                        .map(|acc| acc.account_type == api::lunch_money::schema::AccountType::Loan)
                         .unwrap_or(false);
                     if is_loan {
                         u.amount = -u.amount;
@@ -1758,7 +1758,7 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
                         .manual_accounts
                         .iter()
                         .find(|acc| acc.id == ins.manual_account_id)
-                        .map(|acc| acc.account_type == "loan")
+                        .map(|acc| acc.account_type == api::lunch_money::schema::AccountType::Loan)
                         .unwrap_or(false);
                     if is_loan {
                         ins.amount = -ins.amount;
