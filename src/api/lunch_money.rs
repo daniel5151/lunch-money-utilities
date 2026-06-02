@@ -143,12 +143,11 @@ pub mod schema {
         pub payee: String,
         pub notes: Option<String>,
         pub external_id: Option<String>,
-        #[allow(dead_code)]
         pub manual_account_id: Option<u64>,
         pub is_split_parent: Option<bool>,
-        #[allow(dead_code)]
+        #[expect(dead_code)]
         pub group_parent_id: Option<u64>,
-        #[allow(dead_code)]
+        #[expect(dead_code)]
         pub status: TransactionStatus,
     }
 
@@ -222,7 +221,7 @@ pub mod schema {
         pub id: u64,
         pub name: String,
         pub is_group: bool,
-        #[allow(dead_code)]
+        #[expect(dead_code)]
         pub group_id: Option<u64>,
         pub archived: bool,
         pub children: Option<Vec<ChildCategory>>,
@@ -232,7 +231,7 @@ pub mod schema {
     pub struct ChildCategory {
         pub id: u64,
         pub name: String,
-        #[allow(dead_code)]
+        #[expect(dead_code)]
         pub group_id: Option<u64>,
         pub archived: bool,
     }

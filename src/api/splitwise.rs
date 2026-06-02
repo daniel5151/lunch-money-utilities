@@ -47,11 +47,11 @@ pub mod schema {
 
     #[derive(Deserialize, Debug)]
     pub struct Friend {
-        #[allow(dead_code)]
+        #[expect(dead_code)]
         pub id: u64,
-        #[allow(dead_code)]
+        #[expect(dead_code)]
         pub first_name: String,
-        #[allow(dead_code)]
+        #[expect(dead_code)]
         pub last_name: Option<String>,
         pub balance: Vec<Balance>,
     }

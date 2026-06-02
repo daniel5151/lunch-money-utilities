@@ -30,6 +30,7 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 ] }
 
 [lints.clippy]
+allow_attributes = "warn"
 dbg_macro = "warn"
 debug_assert_with_mut_call = "warn"
 filter_map_next = "warn"
