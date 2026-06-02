@@ -234,21 +234,17 @@ async fn main() {
     match args.command {
         Commands::Init => {
             if std::path::Path::new("splitwise-lunchmoney.toml").exists() {
-                eprintln!(
-                    "\n{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} splitwise-lunchmoney.toml already exists in this directory.\n"
-                );
+                eprintln! {};
+                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} splitwise-lunchmoney.toml already exists in this directory." };
+                eprintln! {};
                 std::process::exit(1);
             }
 
-            println!(
-                "\n{STYLE_HEADER}⚙️  Configuring Splitwise & Lunch Money Integration{STYLE_HEADER:#}"
-            );
-            println!(
-                "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}"
-            );
-            println!(
-                "{STYLE_INFO}This wizard will help you set up splitwise-lunchmoney.toml.{STYLE_INFO:#}\n"
-            );
+            println! {};
+            println! { "{STYLE_HEADER}⚙️  Configuring Splitwise & Lunch Money Integration{STYLE_HEADER:#}" };
+            println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
+            println! { "{STYLE_INFO}This wizard will help you set up splitwise-lunchmoney.toml.{STYLE_INFO:#}" };
+            println! {};
 
             let splitwise_api_key = inquire::Password::new("Splitwise API Key:")
                 .with_help_message("Your Splitwise personal API key / Bearer token")
@@ -259,7 +255,8 @@ async fn main() {
 
             let http_client = reqwest::Client::new();
 
-            println!("\n{STYLE_INFO}🔗 Connecting to Splitwise API...{STYLE_INFO:#}");
+            println! {};
+            println! { "{STYLE_INFO}🔗 Connecting to Splitwise API...{STYLE_INFO:#}" };
             let sw_user_response = http_client
                 .get("https://secure.splitwise.com/api/v3.0/get_current_user")
                 .header("Authorization", format!("Bearer {splitwise_api_key}"))
@@ -268,10 +265,9 @@ async fn main() {
                 .expect("Failed to query Splitwise API. Please check your API key and internet connection.");
 
             if !sw_user_response.status().is_success() {
-                eprintln!(
-                    "\n{STYLE_ERROR}❌ Error querying Splitwise:{STYLE_ERROR:#} {}\n",
-                    sw_user_response.status()
-                );
+                eprintln! {};
+                eprintln! { "{STYLE_ERROR}❌ Error querying Splitwise:{STYLE_ERROR:#} {}", sw_user_response.status() };
+                eprintln! {};
                 std::process::exit(1);
             }
 
@@ -301,7 +297,8 @@ async fn main() {
                 .prompt()
                 .expect("Failed to get Lunch Money API Key");
 
-            println!("\n{STYLE_INFO}🔗 Connecting to Lunch Money API...{STYLE_INFO:#}");
+            println! {};
+            println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API...{STYLE_INFO:#}" };
             let response = http_client
                 .get("https://api.lunchmoney.dev/v2/manual_accounts")
                 .header("Authorization", format!("Bearer {lunch_money_api_key}"))
@@ -310,10 +307,9 @@ async fn main() {
                 .expect("Failed to query Lunch Money manual accounts. Please check your API key and internet connection.");
 
             if !response.status().is_success() {
-                eprintln!(
-                    "\n{STYLE_ERROR}❌ Error querying Lunch Money:{STYLE_ERROR:#} {}\n",
-                    response.status()
-                );
+                eprintln! {};
+                eprintln! { "{STYLE_ERROR}❌ Error querying Lunch Money:{STYLE_ERROR:#} {}", response.status() };
+                eprintln! {};
                 std::process::exit(1);
             }
 
@@ -323,10 +319,9 @@ async fn main() {
                 .expect("Failed to parse Lunch Money manual accounts response");
 
             let mut supported_currencies = Vec::new();
-            println!("\n{STYLE_INFO}💱 Supported Currencies Setup{STYLE_INFO:#}");
-            println!(
-                "{STYLE_DIM}Please enter the currencies you want to support (e.g. USD, CAD, GBP).{STYLE_DIM:#}"
-            );
+            println! {};
+            println! { "{STYLE_INFO}💱 Supported Currencies Setup{STYLE_INFO:#}" };
+            println! { "{STYLE_DIM}Please enter the currencies you want to support (e.g. USD, CAD, GBP).{STYLE_DIM:#}" };
             loop {
                 let prompt_msg = if supported_currencies.is_empty() {
                     "Enter a currency code you would like to support:"
@@ -339,13 +334,13 @@ async fn main() {
                 let trimmed = currency.trim().to_uppercase();
                 if trimmed.is_empty() {
                     if supported_currencies.is_empty() {
-                        println!("At least one currency must be specified.");
+                        println! { "At least one currency must be specified." };
                         continue;
                     }
                     break;
                 }
                 if trimmed.len() != 3 || !trimmed.chars().all(|c| c.is_ascii_alphabetic()) {
-                    println!("Please enter a valid 3-letter ISO currency code (e.g. USD).");
+                    println! { "Please enter a valid 3-letter ISO currency code (e.g. USD)." };
                     continue;
                 }
                 if !supported_currencies.contains(&trimmed) {
@@ -370,15 +365,14 @@ async fn main() {
             }
 
             if !missing_accounts.is_empty() {
-                eprintln!(
-                    "\n{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} The following required Lunch Money manual accounts are missing:"
-                );
+                eprintln! {};
+                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} The following required Lunch Money manual accounts are missing:" };
                 for acc_name in &missing_accounts {
-                    eprintln!("  • {STYLE_HEADER}{}{STYLE_HEADER:#}", acc_name);
+                    eprintln! { "  • {STYLE_HEADER}{}{STYLE_HEADER:#}", acc_name };
                 }
-                eprintln!(
-                    "\n{STYLE_WARNING}⚠️  Action Required:{STYLE_WARNING:#} Please set up manually managed accounts with these exact names in your Lunch Money account before continuing.\n"
-                );
+                eprintln! {};
+                eprintln! { "{STYLE_WARNING}⚠️  Action Required:{STYLE_WARNING:#} Please set up manually managed accounts with these exact names in your Lunch Money account before continuing." };
+                eprintln! {};
                 std::process::exit(1);
             }
 
@@ -411,11 +405,12 @@ api_key = "{lunch_money_api_key}"
             fs::write("splitwise-lunchmoney.toml", template)
                 .expect("Failed to write splitwise-lunchmoney.toml");
 
-            println!(
-                "\n{STYLE_SUCCESS}🎉 Configuration created successfully!{STYLE_SUCCESS:#}\n\
-                 {STYLE_INFO}Saved to:{STYLE_INFO:#} splitwise-lunchmoney.toml\n\n\
-                 {STYLE_DIM}Run {STYLE_DIM:#}{STYLE_HEADER}splitwise-lunchmoney sync window --window \"3 days\"{STYLE_HEADER:#}{STYLE_DIM} to begin syncing.{STYLE_DIM:#}\n"
-            );
+            println! {};
+            println! { "{STYLE_SUCCESS}🎉 Configuration created successfully!{STYLE_SUCCESS:#}" };
+            println! { "{STYLE_INFO}Saved to:{STYLE_INFO:#} splitwise-lunchmoney.toml" };
+            println! {};
+            println! { "{STYLE_DIM}Run {STYLE_DIM:#}{STYLE_HEADER}splitwise-lunchmoney sync window --window \"3 days\"{STYLE_HEADER:#}{STYLE_DIM} to begin syncing.{STYLE_DIM:#}" };
+            println! {};
         }
         Commands::Sync(sync_args) => match sync_args.command {
             SyncSubcommands::Window(args) => {
@@ -444,7 +439,7 @@ api_key = "{lunch_money_api_key}"
                 QueryLunchMoneySubcommands::Categories => {
                     run_query_lunchmoney_categories().await;
                 }
-            }
+            },
         },
     }
 }
@@ -472,10 +467,10 @@ fn load_config() -> config::Config {
         }
     }
 
-    eprintln!(
-        "\n{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configuration file 'splitwise-lunchmoney.toml' not found in current directory or executable directory.\n\
-         Please run 'splitwise-lunchmoney init' to configure.\n"
-    );
+    eprintln! {};
+    eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configuration file 'splitwise-lunchmoney.toml' not found in current directory or executable directory." };
+    eprintln! { "Please run 'splitwise-lunchmoney init' to configure." };
+    eprintln! {};
     std::process::exit(1);
 }
 
@@ -497,15 +492,13 @@ async fn run_query_splitwise_window(args: QuerySplitwiseWindowArgs) {
 
     let bar = "─".repeat(92);
 
-    println!("\n{STYLE_HEADER}🔍 Querying Splitwise Expenses{STYLE_HEADER:#}");
-    println!("{STYLE_DIM}{bar}{STYLE_DIM:#}");
-    println!(
-        "{STYLE_INFO}📅 Window boundary:{STYLE_INFO:#} {}",
-        start_window_str
-    );
-    println!();
+    println! {};
+    println! { "{STYLE_HEADER}🔍 Querying Splitwise Expenses{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
+    println! { "{STYLE_INFO}📅 Window boundary:{STYLE_INFO:#} {}", start_window_str };
+    println! {};
 
-    println!("  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}");
+    println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
     let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
     let group_map: HashMap<u64, String> = groups_res
         .groups
@@ -517,15 +510,13 @@ async fn run_query_splitwise_window(args: QuerySplitwiseWindowArgs) {
     let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
 
     if expenses_res.expenses.is_empty() {
-        println!("{STYLE_SUCCESS}✨ No expenses found in this window.{STYLE_SUCCESS:#}\n");
+        println! { "{STYLE_SUCCESS}✨ No expenses found in this window.{STYLE_SUCCESS:#}" };
+        println! {};
         return;
     }
 
-    println!(
-        "  {:<10}  {:<30}  {:<30}  {:>12}",
-        "Date", "Group/Person", "Description", "Net Balance"
-    );
-    println!("  {STYLE_DIM}{bar}{STYLE_DIM:#}");
+    println! { "  {:<10}  {:<30}  {:<30}  {:>12}", "Date", "Group/Person", "Description", "Net Balance" };
+    println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     let mut has_uninvolved = false;
 
@@ -620,16 +611,14 @@ async fn run_query_splitwise_window(args: QuerySplitwiseWindowArgs) {
             expense.currency_code.to_uppercase()
         };
 
-        println!(
-            "  {:<10}  {:<30}  {}  {} {}",
-            date_str, clean_payee, desc_colored, balance_colored, currency_suffix
-        );
+        println! { "  {:<10}  {:<30}  {}  {} {}", date_str, clean_payee, desc_colored, balance_colored, currency_suffix };
     }
 
     if has_uninvolved {
-        println!("  {STYLE_DIM}* = uninvolved transaction (net balance is zero){STYLE_DIM:#}\n");
+        println! { "  {STYLE_DIM}* = uninvolved transaction (net balance is zero){STYLE_DIM:#}" };
+        println! {};
     } else {
-        println!();
+        println! {};
     }
 }
 
@@ -642,10 +631,11 @@ async fn run_query_splitwise_group(args: QuerySplitwiseGroupArgs) {
 
     let bar = "─".repeat(92);
 
-    println!("\n{STYLE_HEADER}🔍 Querying Splitwise Group Expenses{STYLE_HEADER:#}");
-    println!("{STYLE_DIM}{bar}{STYLE_DIM:#}");
+    println! {};
+    println! { "{STYLE_HEADER}🔍 Querying Splitwise Group Expenses{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
-    println!("  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}");
+    println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
     let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
     let group_map: HashMap<u64, String> = groups_res
         .groups
@@ -659,30 +649,25 @@ async fn run_query_splitwise_group(args: QuerySplitwiseGroupArgs) {
         .map(|g| g.name.clone())
         .unwrap_or_else(|| "Unknown Group".to_string());
 
-    println!(
-        "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})",
-        group_name, args.group_id
-    );
+    println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", group_name, args.group_id };
     if let Some(g) = target_group {
         let balance_str = format_group_balances(g, config.splitwise.user_id);
-        println!("{STYLE_INFO}💰 Balance:{STYLE_INFO:#} {}", balance_str);
+        println! { "{STYLE_INFO}💰 Balance:{STYLE_INFO:#} {}", balance_str };
     }
-    println!();
+    println! {};
 
     let group_id_str = args.group_id.to_string();
     let sw_query = [("group_id", group_id_str.as_str()), ("limit", "0")];
     let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
 
     if expenses_res.expenses.is_empty() {
-        println!("{STYLE_SUCCESS}✨ No expenses found for this group.{STYLE_SUCCESS:#}\n");
+        println! { "{STYLE_SUCCESS}✨ No expenses found for this group.{STYLE_SUCCESS:#}" };
+        println! {};
         return;
     }
 
-    println!(
-        "  {:<10}  {:<30}  {:<30}  {:>12}",
-        "Date", "Group/Person", "Description", "Net Balance"
-    );
-    println!("  {STYLE_DIM}{bar}{STYLE_DIM:#}");
+    println! { "  {:<10}  {:<30}  {:<30}  {:>12}", "Date", "Group/Person", "Description", "Net Balance" };
+    println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     let mut has_uninvolved = false;
 
@@ -777,16 +762,14 @@ async fn run_query_splitwise_group(args: QuerySplitwiseGroupArgs) {
             expense.currency_code.to_uppercase()
         };
 
-        println!(
-            "  {:<10}  {:<30}  {}  {} {}",
-            date_str, clean_payee, desc_colored, balance_colored, currency_suffix
-        );
+        println! { "  {:<10}  {:<30}  {}  {} {}", date_str, clean_payee, desc_colored, balance_colored, currency_suffix };
     }
 
     if has_uninvolved {
-        println!("  {STYLE_DIM}* = uninvolved transaction (net balance is zero){STYLE_DIM:#}\n");
+        println! { "  {STYLE_DIM}* = uninvolved transaction (net balance is zero){STYLE_DIM:#}" };
+        println! {};
     } else {
-        println!();
+        println! {};
     }
 }
 
@@ -799,21 +782,20 @@ async fn run_query_splitwise_get_groups() {
 
     let bar = "─".repeat(110);
 
-    println!("\n{STYLE_HEADER}🔍 Querying Splitwise Groups{STYLE_HEADER:#}");
-    println!("{STYLE_DIM}{bar}{STYLE_DIM:#}");
+    println! {};
+    println! { "{STYLE_HEADER}🔍 Querying Splitwise Groups{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
 
     if groups_res.groups.is_empty() {
-        println!("{STYLE_WARNING}No groups found.{STYLE_WARNING:#}\n");
+        println! { "{STYLE_WARNING}No groups found.{STYLE_WARNING:#}" };
+        println! {};
         return;
     }
 
-    println!(
-        "  {:<15}  {:<15}  {:<40}  {}",
-        "Last Updated", "Group ID", "Group Name", "Balance"
-    );
-    println!("  {STYLE_DIM}{bar}{STYLE_DIM:#}");
+    println! { "  {:<15}  {:<15}  {:<40}  {}", "Last Updated", "Group ID", "Group Name", "Balance" };
+    println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     let mut groups = groups_res.groups;
     groups.sort_by_key(|b| std::cmp::Reverse(b.updated_at));
@@ -831,12 +813,9 @@ async fn run_query_splitwise_get_groups() {
             .strftime("%Y-%m-%d")
             .to_string();
         let balance_str = format_group_balances(&g, config.splitwise.user_id);
-        println!(
-            "  {:<15}  {:<15}  {:<40}  {}",
-            date_str, g.id, clean_name, balance_str
-        );
+        println! { "  {:<15}  {:<15}  {:<40}  {}", date_str, g.id, clean_name, balance_str };
     }
-    println!();
+    println! {};
 }
 
 async fn run_query_lunchmoney_categories() {
@@ -847,8 +826,9 @@ async fn run_query_lunchmoney_categories() {
 
     let bar = "─".repeat(80);
 
-    println!("\n{STYLE_HEADER}🔍 Querying Lunch Money Categories{STYLE_HEADER:#}");
-    println!("{STYLE_DIM}{bar}{STYLE_DIM:#}");
+    println! {};
+    println! { "{STYLE_HEADER}🔍 Querying Lunch Money Categories{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     let categories_res: api::lunch_money::schema::CategoriesResponse = lm_client
         .fetch("categories", &[("format", "nested")] as &[(&str, &str)])
@@ -857,15 +837,13 @@ async fn run_query_lunchmoney_categories() {
     let categories: Vec<_> = categories_res.categories;
 
     if categories.is_empty() {
-        println!("{STYLE_WARNING}No categories found.{STYLE_WARNING:#}\n");
+        println! { "{STYLE_WARNING}No categories found.{STYLE_WARNING:#}" };
+        println! {};
         return;
     }
 
-    println!(
-        "  {:<10} {}",
-        "ID", "Category Name"
-    );
-    println!("  {STYLE_DIM}{bar}{STYLE_DIM:#}");
+    println! { "  {:<10} {}", "ID", "Category Name" };
+    println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     let mut has_archived = false;
 
@@ -875,45 +853,38 @@ async fn run_query_lunchmoney_categories() {
         if cat.archived {
             has_archived = true;
             display_name.push_str(" *");
-            println!(
-                "  {STYLE_DIM}{:<10} {}{STYLE_DIM:#}",
-                id_bracket, display_name
-            );
+            println! { "  {STYLE_DIM}{:<10} {}{STYLE_DIM:#}", id_bracket, display_name };
         } else {
-            println!(
-                "  {:<10} {}",
-                id_bracket, display_name
-            );
+            println! { "  {:<10} {}", id_bracket, display_name };
         }
 
         if cat.is_group {
             if let Some(children) = cat.children {
                 let count = children.len();
                 for (idx, child) in children.into_iter().enumerate() {
-                    let branch = if idx == count - 1 { "└──" } else { "├──" };
+                    let branch = if idx == count - 1 {
+                        "└──"
+                    } else {
+                        "├──"
+                    };
                     let child_id_bracket = format!("[{}]", child.id);
                     let mut child_display_name = child.name.clone();
                     if child.archived {
                         has_archived = true;
                         child_display_name.push_str(" *");
-                        println!(
-                            "  {STYLE_DIM}{} {:<9} {}{STYLE_DIM:#}",
-                            branch, child_id_bracket, child_display_name
-                        );
+                        println! { "  {STYLE_DIM}{} {:<9} {}{STYLE_DIM:#}", branch, child_id_bracket, child_display_name };
                     } else {
-                        println!(
-                            "  {} {:<9} {}",
-                            branch, child_id_bracket, child_display_name
-                        );
+                        println! { "  {} {:<9} {}", branch, child_id_bracket, child_display_name };
                     }
                 }
             }
         }
     }
-    println!();
+    println! {};
 
     if has_archived {
-        println!("  {STYLE_DIM}* denotes archived categories{STYLE_DIM:#}\n");
+        println! { "  {STYLE_DIM}* denotes archived categories{STYLE_DIM:#}" };
+        println! {};
     }
 }
 
@@ -993,19 +964,14 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
     } else {
         "".to_string()
     };
-    println!(
-        "\n{STYLE_HEADER}⚡ Splitwise to Lunch Money Sync{}{STYLE_HEADER:#}",
-        dry_run_suffix
-    );
-    println!("{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}");
-    println!(
-        "{STYLE_INFO}📅 Sync window boundary:{STYLE_INFO:#} {} to {}",
-        start_window_str, end_window_str
-    );
-    println!();
+    println! {};
+    println! { "{STYLE_HEADER}⚡ Splitwise to Lunch Money Sync{}{STYLE_HEADER:#}", dry_run_suffix };
+    println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
+    println! { "{STYLE_INFO}📅 Sync window boundary:{STYLE_INFO:#} {} to {}", start_window_str, end_window_str };
+    println! {};
 
     // Fetch dependencies
-    println!("  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}");
+    println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
     let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
     let group_map: HashMap<u64, String> = groups_res
         .groups
@@ -1026,11 +992,10 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
             .iter()
             .any(|acc| acc.id == account_id)
         {
-            eprintln!(
-                "\n{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.\n\
-                 Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'.\n",
-                account_id, currency
-            );
+            eprintln! {};
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
+            eprintln! { "Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'." };
+            eprintln! {};
             std::process::exit(1);
         }
     }
@@ -1052,7 +1017,7 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
         "Unknown Account".to_string()
     };
 
-    println!("  {STYLE_DIM}Fetching Lunch Money transactions...{STYLE_DIM:#}");
+    println! { "  {STYLE_DIM}Fetching Lunch Money transactions...{STYLE_DIM:#}" };
     let mut lm_transactions = Vec::new();
     for &account_id in config.lunch_money.target_accounts.values() {
         let account_id_str = account_id.to_string();
@@ -1081,7 +1046,8 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
         lm_transactions.extend(txs);
     }
 
-    println!("  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}\n");
+    println! { "  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}" };
+    println! {};
 
     // Theory of Operation (External IDs, Grouping, and Splitting):
     // 1. Transactions imported from Splitwise are tagged with a unique `external_id` matching `splitwise_<expense_id>`.
@@ -1137,11 +1103,10 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
             .target_accounts
             .contains_key(&currency_upper)
         {
-            eprintln!(
-                "\n{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No manual account configured for currency '{}'.\n\
-                 Please run 'splitwise-lunchmoney init' or set up 'Splitwise {}' manual account.\n",
-                currency_upper, currency_upper
-            );
+            eprintln! {};
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No manual account configured for currency '{}'.", currency_upper };
+            eprintln! { "Please run 'splitwise-lunchmoney init' or set up 'Splitwise {}' manual account.", currency_upper };
+            eprintln! {};
             std::process::exit(1);
         }
 
@@ -1209,25 +1174,12 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
 
     // Execute batches
     if !deletes.is_empty() {
-        println!(
-            "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:",
-            deletes.len()
-        );
+        println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", deletes.len() };
         for t in &deletes {
             let acc_name = get_account_name(t.manual_account_id, &t.currency);
-            println!(
-                "   {STYLE_ERROR}-{STYLE_ERROR:#} {}",
-                format_transaction_summary(
-                    &t.payee,
-                    t.amount,
-                    &t.currency,
-                    t.date,
-                    t.notes.as_deref().unwrap_or(""),
-                    &acc_name
-                )
-            );
+            println! { "   {STYLE_ERROR}-{STYLE_ERROR:#} {}", format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), &acc_name) };
         }
-        println!();
+        println! {};
 
         if !sync_args.dry_run {
             let delete_ids: Vec<u64> = deletes.iter().map(|t| t.id).collect();
@@ -1242,25 +1194,12 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
     }
 
     if !updates.is_empty() {
-        println!(
-            "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:",
-            updates.len()
-        );
+        println! { "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:", updates.len() };
         for u in &updates {
             let acc_name = get_account_name(None, &u.currency);
-            println!(
-                "   {STYLE_INFO}~{STYLE_INFO:#} {}",
-                format_transaction_summary(
-                    &u.payee,
-                    u.amount,
-                    &u.currency,
-                    u.date,
-                    &u.notes,
-                    &acc_name
-                )
-            );
+            println! { "   {STYLE_INFO}~{STYLE_INFO:#} {}", format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, &acc_name) };
         }
-        println!();
+        println! {};
 
         if !sync_args.dry_run {
             for chunk in updates.chunks(500) {
@@ -1293,25 +1232,12 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
     }
 
     if !inserts.is_empty() {
-        println!(
-            "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:",
-            inserts.len()
-        );
+        println! { "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:", inserts.len() };
         for ins in &inserts {
             let acc_name = get_account_name(Some(ins.manual_account_id), &ins.currency);
-            println!(
-                "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}",
-                format_transaction_summary(
-                    &ins.payee,
-                    ins.amount,
-                    &ins.currency,
-                    ins.date,
-                    &ins.notes,
-                    &acc_name
-                )
-            );
+            println! { "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}", format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, &acc_name) };
         }
-        println!();
+        println! {};
 
         if !sync_args.dry_run {
             for chunk in inserts.chunks(500) {
@@ -1341,15 +1267,14 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
     }
 
     if deletes.is_empty() && updates.is_empty() && inserts.is_empty() {
-        println!(
-            "{STYLE_SUCCESS}✨ No changes detected. Lunch Money manual account is up-to-date!{STYLE_SUCCESS:#}\n"
-        );
+        println! { "{STYLE_SUCCESS}✨ No changes detected. Lunch Money manual account is up-to-date!{STYLE_SUCCESS:#}" };
+        println! {};
     } else if sync_args.dry_run {
-        println!(
-            "{STYLE_WARNING}⚠️ Dry run complete! No changes were made to Lunch Money.{STYLE_WARNING:#}\n"
-        );
+        println! { "{STYLE_WARNING}⚠️ Dry run complete! No changes were made to Lunch Money.{STYLE_WARNING:#}" };
+        println! {};
     } else {
-        println!("{STYLE_SUCCESS}✨ Synchronization cycle complete!{STYLE_SUCCESS:#}\n");
+        println! { "{STYLE_SUCCESS}✨ Synchronization cycle complete!{STYLE_SUCCESS:#}" };
+        println! {};
     }
 }
 
@@ -1366,14 +1291,12 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
     } else {
         "".to_string()
     };
-    println!(
-        "\n{STYLE_HEADER}⚡ Splitwise to Lunch Money Sync Group{}{STYLE_HEADER:#}",
-        dry_run_suffix
-    );
-    println!("{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}");
+    println! {};
+    println! { "{STYLE_HEADER}⚡ Splitwise to Lunch Money Sync Group{}{STYLE_HEADER:#}", dry_run_suffix };
+    println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
 
     // Fetch dependencies
-    println!("  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}");
+    println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
     let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
     let group_map: HashMap<u64, String> = groups_res
         .groups
@@ -1389,15 +1312,12 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
         .map(|g| g.name.clone())
         .unwrap_or_else(|| "Unknown Group".to_string());
 
-    println!(
-        "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})",
-        group_name, sync_args.group_id
-    );
+    println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", group_name, sync_args.group_id };
     if let Some(g) = target_group {
         let balance_str = format_group_balances(g, config.splitwise.user_id);
-        println!("{STYLE_INFO}💰 Balance:{STYLE_INFO:#} {}", balance_str);
+        println! { "{STYLE_INFO}💰 Balance:{STYLE_INFO:#} {}", balance_str };
     }
-    println!();
+    println! {};
 
     let group_id_str = sync_args.group_id.to_string();
     let sw_query = [("group_id", group_id_str.as_str()), ("limit", "0")];
@@ -1413,21 +1333,17 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
             .iter()
             .any(|acc| acc.id == account_id)
         {
-            eprintln!(
-                "\n{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.\n\
-                 Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'.\n",
-                account_id, currency
-            );
+            eprintln! {};
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
+            eprintln! { "Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'." };
+            eprintln! {};
             std::process::exit(1);
         }
     }
 
     let mut tag_id = None;
     if let Some(ref tag_name) = sync_args.tag {
-        println!(
-            "  {STYLE_DIM}Resolving Lunch Money tag '{}'...{STYLE_DIM:#}",
-            tag_name
-        );
+        println! { "  {STYLE_DIM}Resolving Lunch Money tag '{}'...{STYLE_DIM:#}", tag_name };
         let tags_res: api::lunch_money::schema::TagsResponse =
             lm_client.fetch("tags", &[] as &[(&str, &str)]).await;
 
@@ -1439,16 +1355,10 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
             tag_id = Some(existing_tag.id);
         } else {
             if sync_args.dry_run {
-                println!(
-                    "   {STYLE_WARNING}Would create tag:{STYLE_WARNING:#} '{}'",
-                    tag_name
-                );
+                println! { "   {STYLE_WARNING}Would create tag:{STYLE_WARNING:#} '{}'", tag_name };
                 tag_id = Some(0);
             } else {
-                println!(
-                    "  {STYLE_DIM}Creating new tag '{}'...{STYLE_DIM:#}",
-                    tag_name
-                );
+                println! { "  {STYLE_DIM}Creating new tag '{}'...{STYLE_DIM:#}", tag_name };
                 let new_tag: api::lunch_money::schema::Tag = lm_client
                     .exec_with_response(
                         Method::POST,
@@ -1480,7 +1390,7 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
         "Unknown Account".to_string()
     };
 
-    println!("  {STYLE_DIM}Fetching Lunch Money transactions...{STYLE_DIM:#}");
+    println! { "  {STYLE_DIM}Fetching Lunch Money transactions...{STYLE_DIM:#}" };
     let end_window_str = jiff::Timestamp::now()
         .to_zoned(jiff::tz::TimeZone::UTC)
         .strftime("%Y-%m-%d")
@@ -1513,7 +1423,8 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
         lm_transactions.extend(txs);
     }
 
-    println!("  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}\n");
+    println! { "  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}" };
+    println! {};
 
     // Theory of Operation (External IDs, Grouping, and Splitting):
     // 1. Transactions imported from Splitwise are tagged with a unique `external_id` matching `splitwise_<expense_id>`.
@@ -1569,11 +1480,10 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
             .target_accounts
             .contains_key(&currency_upper)
         {
-            eprintln!(
-                "\n{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No manual account configured for currency '{}'.\n\
-                 Please run 'splitwise-lunchmoney init' or set up 'Splitwise {}' manual account.\n",
-                currency_upper, currency_upper
-            );
+            eprintln! {};
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No manual account configured for currency '{}'.", currency_upper };
+            eprintln! { "Please run 'splitwise-lunchmoney init' or set up 'Splitwise {}' manual account.", currency_upper };
+            eprintln! {};
             std::process::exit(1);
         }
 
@@ -1660,25 +1570,12 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
 
     // Execute batches
     if !deletes.is_empty() {
-        println!(
-            "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:",
-            deletes.len()
-        );
+        println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", deletes.len() };
         for t in &deletes {
             let acc_name = get_account_name(t.manual_account_id, &t.currency);
-            println!(
-                "   {STYLE_ERROR}-{STYLE_ERROR:#} {}",
-                format_transaction_summary(
-                    &t.payee,
-                    t.amount,
-                    &t.currency,
-                    t.date,
-                    t.notes.as_deref().unwrap_or(""),
-                    &acc_name
-                )
-            );
+            println! { "   {STYLE_ERROR}-{STYLE_ERROR:#} {}", format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), &acc_name) };
         }
-        println!();
+        println! {};
 
         if !sync_args.dry_run {
             let delete_ids: Vec<u64> = deletes.iter().map(|t| t.id).collect();
@@ -1693,25 +1590,12 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
     }
 
     if !updates.is_empty() {
-        println!(
-            "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:",
-            updates.len()
-        );
+        println! { "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:", updates.len() };
         for u in &updates {
             let acc_name = get_account_name(None, &u.currency);
-            println!(
-                "   {STYLE_INFO}~{STYLE_INFO:#} {}",
-                format_transaction_summary(
-                    &u.payee,
-                    u.amount,
-                    &u.currency,
-                    u.date,
-                    &u.notes,
-                    &acc_name
-                )
-            );
+            println! { "   {STYLE_INFO}~{STYLE_INFO:#} {}", format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, &acc_name) };
         }
-        println!();
+        println! {};
 
         if !sync_args.dry_run {
             for chunk in updates.chunks(500) {
@@ -1744,25 +1628,12 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
     }
 
     if !inserts.is_empty() {
-        println!(
-            "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:",
-            inserts.len()
-        );
+        println! { "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:", inserts.len() };
         for ins in &inserts {
             let acc_name = get_account_name(Some(ins.manual_account_id), &ins.currency);
-            println!(
-                "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}",
-                format_transaction_summary(
-                    &ins.payee,
-                    ins.amount,
-                    &ins.currency,
-                    ins.date,
-                    &ins.notes,
-                    &acc_name
-                )
-            );
+            println! { "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}", format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, &acc_name) };
         }
-        println!();
+        println! {};
 
         if !sync_args.dry_run {
             for chunk in inserts.chunks(500) {
@@ -1792,15 +1663,14 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
     }
 
     if deletes.is_empty() && updates.is_empty() && inserts.is_empty() {
-        println!(
-            "{STYLE_SUCCESS}✨ No changes detected. Lunch Money manual account is up-to-date!{STYLE_SUCCESS:#}\n"
-        );
+        println! { "{STYLE_SUCCESS}✨ No changes detected. Lunch Money manual account is up-to-date!{STYLE_SUCCESS:#}" };
+        println! {};
     } else if sync_args.dry_run {
-        println!(
-            "{STYLE_WARNING}⚠️ Dry run complete! No changes were made to Lunch Money.{STYLE_WARNING:#}\n"
-        );
+        println! { "{STYLE_WARNING}⚠️ Dry run complete! No changes were made to Lunch Money.{STYLE_WARNING:#}" };
+        println! {};
     } else {
-        println!("{STYLE_SUCCESS}✨ Synchronization cycle complete!{STYLE_SUCCESS:#}\n");
+        println! { "{STYLE_SUCCESS}✨ Synchronization cycle complete!{STYLE_SUCCESS:#}" };
+        println! {};
     }
 }
 
@@ -1849,13 +1719,14 @@ async fn run_sync_balances(args: SyncBalancesArgs) {
     let lm_client =
         api::lunch_money::Client::new(http_pool.clone(), config.lunch_money.api_key.clone());
 
-    println!("\n{STYLE_HEADER}🔄 Syncing Splitwise Balances to Lunch Money{STYLE_HEADER:#}");
+    println! {};
+    println! { "{STYLE_HEADER}🔄 Syncing Splitwise Balances to Lunch Money{STYLE_HEADER:#}" };
     if args.dry_run {
-        println!("{STYLE_WARNING}⚠️  Running in DRY RUN mode. No changes will be made to Lunch Money.{STYLE_WARNING:#}");
+        println! { "{STYLE_WARNING}⚠️  Running in DRY RUN mode. No changes will be made to Lunch Money.{STYLE_WARNING:#}" };
     }
-    println!("{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}");
+    println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
 
-    println!("  {STYLE_DIM}Fetching Splitwise friends...{STYLE_DIM:#}");
+    println! { "  {STYLE_DIM}Fetching Splitwise friends...{STYLE_DIM:#}" };
     let friends_res: api::splitwise::schema::FriendsResponse =
         sw_client.fetch("get_friends", &[] as &[(&str, &str)]).await;
 
@@ -1867,9 +1738,10 @@ async fn run_sync_balances(args: SyncBalancesArgs) {
         }
     }
 
-    println!("  {STYLE_DIM}Fetching Lunch Money manual accounts...{STYLE_DIM:#}");
-    let accounts_res: ManualAccountsResponse =
-        lm_client.fetch("manual_accounts", &[] as &[(&str, &str)]).await;
+    println! { "  {STYLE_DIM}Fetching Lunch Money manual accounts...{STYLE_DIM:#}" };
+    let accounts_res: ManualAccountsResponse = lm_client
+        .fetch("manual_accounts", &[] as &[(&str, &str)])
+        .await;
 
     // Normalize config keys to uppercase
     let target_accounts: HashMap<String, u64> = config
@@ -1882,25 +1754,30 @@ async fn run_sync_balances(args: SyncBalancesArgs) {
     let mut has_updates = false;
 
     for (currency, &account_id) in &target_accounts {
-        let acc = match accounts_res.manual_accounts.iter().find(|a| a.id == account_id) {
+        let acc = match accounts_res
+            .manual_accounts
+            .iter()
+            .find(|a| a.id == account_id)
+        {
             Some(a) => a,
             None => {
-                eprintln!(
-                    "\n{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.",
-                    account_id, currency
-                );
+                eprintln! {};
+                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
                 std::process::exit(1);
             }
         };
 
-        let splitwise_balance = global_balances.get(currency).copied().unwrap_or(Decimal::ZERO);
+        let splitwise_balance = global_balances
+            .get(currency)
+            .copied()
+            .unwrap_or(Decimal::ZERO);
 
-        let is_liability = match acc.account_type {
-            api::lunch_money::schema::AccountType::Credit |
-            api::lunch_money::schema::AccountType::Loan |
-            api::lunch_money::schema::AccountType::OtherLiability => true,
-            _ => false,
-        };
+        let is_liability = matches!(
+            acc.account_type,
+            api::lunch_money::schema::AccountType::Credit
+                | api::lunch_money::schema::AccountType::Loan
+                | api::lunch_money::schema::AccountType::OtherLiability
+        );
 
         let target_balance = if is_liability {
             -splitwise_balance
@@ -1913,23 +1790,9 @@ async fn run_sync_balances(args: SyncBalancesArgs) {
         if acc.balance != target_balance {
             has_updates = true;
             if args.dry_run {
-                println!(
-                    "  {} ({})  {}~ Would update balance: {} -> {}{}",
-                    acc_name,
-                    currency,
-                    STYLE_WARNING,
-                    acc.balance,
-                    target_balance,
-                    STYLE_WARNING.render_reset()
-                );
+                println! { "  {} ({})  {}~ Would update balance: {} -> {}{}", acc_name, currency, STYLE_WARNING, acc.balance, target_balance, STYLE_WARNING.render_reset() };
             } else {
-                println!(
-                    "  {} ({})  ~ Updating balance: {} -> {}...",
-                    acc_name,
-                    currency,
-                    acc.balance,
-                    target_balance
-                );
+                println! { "  {} ({})  ~ Updating balance: {} -> {}...", acc_name, currency, acc.balance, target_balance };
                 lm_client
                     .exec(
                         Method::PUT,
@@ -1941,14 +1804,7 @@ async fn run_sync_balances(args: SyncBalancesArgs) {
                     .await;
             }
         } else {
-            println!(
-                "  {} ({})  {}✓ Up to date: {}{}",
-                acc_name,
-                currency,
-                STYLE_SUCCESS,
-                acc.balance,
-                STYLE_SUCCESS.render_reset()
-            );
+            println! { "  {} ({})  {}✓ Up to date: {}{}", acc_name, currency, STYLE_SUCCESS, acc.balance, STYLE_SUCCESS.render_reset() };
         }
     }
 
@@ -1961,29 +1817,28 @@ async fn run_sync_balances(args: SyncBalancesArgs) {
     }
 
     if !unmapped.is_empty() {
-        println!("\n{STYLE_WARNING}⚠️  Unmapped Splitwise balances:{STYLE_WARNING:#}");
+        println! {};
+        println! { "{STYLE_WARNING}⚠️  Unmapped Splitwise balances:{STYLE_WARNING:#}" };
         for (curr, bal) in unmapped {
-            println!("  • {} {}", bal, curr);
+            println! { "  • {} {}", bal, curr };
         }
-        println!("  {STYLE_DIM}To sync these, configure target accounts in splitwise-lunchmoney.toml.{STYLE_DIM:#}");
+        println! { "  {STYLE_DIM}To sync these, configure target accounts in splitwise-lunchmoney.toml.{STYLE_DIM:#}" };
     }
 
-    println!("{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}");
+    println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
     if args.dry_run {
         if has_updates {
-            println!(
-                "{STYLE_WARNING}⚠️  Dry run complete! Changes would be applied to Lunch Money.{STYLE_WARNING:#}\n"
-            );
+            println! { "{STYLE_WARNING}⚠️  Dry run complete! Changes would be applied to Lunch Money.{STYLE_WARNING:#}" };
         } else {
-            println!(
-                "{STYLE_SUCCESS}✨ Dry run complete! All accounts are already up to date.{STYLE_SUCCESS:#}\n"
-            );
+            println! { "{STYLE_SUCCESS}✨ Dry run complete! All accounts are already up to date.{STYLE_SUCCESS:#}" };
         }
     } else {
         if has_updates {
-            println!("{STYLE_SUCCESS}✨ Balance synchronization complete!{STYLE_SUCCESS:#}\n");
+            println! { "{STYLE_SUCCESS}✨ Balance synchronization complete!{STYLE_SUCCESS:#}" };
         } else {
-            println!("{STYLE_SUCCESS}✨ No balance updates needed. Lunch Money accounts are up to date!{STYLE_SUCCESS:#}\n");
+            println! { "{STYLE_SUCCESS}✨ No balance updates needed. Lunch Money accounts are up to date!{STYLE_SUCCESS:#}" };
         }
     }
+
+    println! {};
 }
