@@ -410,14 +410,41 @@ api_key = "{lunch_money_api_key}"
     }
 }
 
+fn load_config() -> config::Config {
+    let filename = "splitwise-lunchmoney.toml";
+    
+    // 1. Check current working directory
+    let path = std::path::Path::new(filename);
+    if path.exists() {
+        let content = fs::read_to_string(path)
+            .expect("Failed to read splitwise-lunchmoney.toml from current working directory");
+        return toml::from_str(&content).expect("Malformed splitwise-lunchmoney.toml file");
+    }
+
+    // 2. Check directory of the running executable
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let candidate = exe_dir.join(filename);
+            if candidate.exists() {
+                let content = fs::read_to_string(&candidate)
+                    .expect("Failed to read splitwise-lunchmoney.toml from executable directory");
+                return toml::from_str(&content).expect("Malformed splitwise-lunchmoney.toml file");
+            }
+        }
+    }
+
+    eprintln!(
+        "\n{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configuration file 'splitwise-lunchmoney.toml' not found in current directory or executable directory.\n\
+         Please run 'splitwise-lunchmoney init' to configure.\n"
+    );
+    std::process::exit(1);
+}
+
 async fn run_query_splitwise_window(args: QuerySplitwiseWindowArgs) {
     let window_duration =
         jiff::SignedDuration::try_from(args.window).expect("window duration is too large");
 
-    let config_content = fs::read_to_string("splitwise-lunchmoney.toml")
-        .expect("Failed to read splitwise-lunchmoney.toml from current working directory");
-    let config: config::Config =
-        toml::from_str(&config_content).expect("Malformed splitwise-lunchmoney.toml file");
+    let config = load_config();
 
     let http_pool = reqwest::Client::new();
     let sw_client =
@@ -568,10 +595,7 @@ async fn run_query_splitwise_window(args: QuerySplitwiseWindowArgs) {
 }
 
 async fn run_query_splitwise_group(args: QuerySplitwiseGroupArgs) {
-    let config_content = fs::read_to_string("splitwise-lunchmoney.toml")
-        .expect("Failed to read splitwise-lunchmoney.toml from current working directory");
-    let config: config::Config =
-        toml::from_str(&config_content).expect("Malformed splitwise-lunchmoney.toml file");
+    let config = load_config();
 
     let http_pool = reqwest::Client::new();
     let sw_client =
@@ -728,10 +752,7 @@ async fn run_query_splitwise_group(args: QuerySplitwiseGroupArgs) {
 }
 
 async fn run_query_splitwise_get_groups() {
-    let config_content = fs::read_to_string("splitwise-lunchmoney.toml")
-        .expect("Failed to read splitwise-lunchmoney.toml from current working directory");
-    let config: config::Config =
-        toml::from_str(&config_content).expect("Malformed splitwise-lunchmoney.toml file");
+    let config = load_config();
 
     let http_pool = reqwest::Client::new();
     let sw_client =
@@ -825,10 +846,7 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
     let window_duration =
         jiff::SignedDuration::try_from(sync_args.window).expect("window duration is too large");
 
-    let config_content = fs::read_to_string("splitwise-lunchmoney.toml")
-        .expect("Failed to read splitwise-lunchmoney.toml from current working directory");
-    let config: config::Config =
-        toml::from_str(&config_content).expect("Malformed splitwise-lunchmoney.toml file");
+    let config = load_config();
 
     let http_pool = reqwest::Client::new();
     let sw_client =
@@ -1167,10 +1185,7 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
 }
 
 async fn run_sync_group(sync_args: SyncGroupArgs) {
-    let config_content = fs::read_to_string("splitwise-lunchmoney.toml")
-        .expect("Failed to read splitwise-lunchmoney.toml from current working directory");
-    let config: config::Config =
-        toml::from_str(&config_content).expect("Malformed splitwise-lunchmoney.toml file");
+    let config = load_config();
 
     let http_pool = reqwest::Client::new();
     let sw_client =
