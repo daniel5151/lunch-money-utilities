@@ -155,6 +155,10 @@ pub struct SyncGroupArgs {
     /// Print what would be synced without modifying Lunch Money
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Optional tag to associate with imported transactions in Lunch Money
+    #[arg(long)]
+    pub tag: Option<String>,
 }
 
 #[derive(serde::Deserialize, Clone)]
@@ -1070,6 +1074,7 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
                 external_id,
                 manual_account_id,
                 status: "unreviewed".to_string(),
+                tag_ids: None,
             });
         }
     }
@@ -1264,6 +1269,38 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
         }
     }
 
+    let mut tag_id = None;
+    if let Some(ref tag_name) = sync_args.tag {
+        println!("  {STYLE_DIM}Resolving Lunch Money tag '{}'...{STYLE_DIM:#}", tag_name);
+        let tags_res: api::lunch_money::schema::TagsResponse = lm_client
+            .fetch("tags", &[] as &[(&str, &str)])
+            .await;
+
+        if let Some(existing_tag) = tags_res.tags.iter().find(|t| t.name.eq_ignore_ascii_case(tag_name)) {
+            tag_id = Some(existing_tag.id);
+        } else {
+            if sync_args.dry_run {
+                println!(
+                    "   {STYLE_WARNING}Would create tag:{STYLE_WARNING:#} '{}'",
+                    tag_name
+                );
+                tag_id = Some(0);
+            } else {
+                println!("  {STYLE_DIM}Creating new tag '{}'...{STYLE_DIM:#}", tag_name);
+                let new_tag: api::lunch_money::schema::Tag = lm_client
+                    .exec_with_response(
+                        Method::POST,
+                        "tags",
+                        &api::lunch_money::schema::CreateTagPayload {
+                            name: tag_name.clone(),
+                        },
+                    )
+                    .await;
+                tag_id = Some(new_tag.id);
+            }
+        }
+    }
+
     let get_account_name = |manual_account_id: Option<u64>, currency: &str| -> String {
         let id = manual_account_id.or_else(|| {
             let currency_upper = currency.to_uppercase();
@@ -1430,6 +1467,7 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
                 external_id,
                 manual_account_id,
                 status: "unreviewed".to_string(),
+                tag_ids: tag_id.map(|id| vec![id]),
             });
         }
     }

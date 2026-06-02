@@ -65,6 +65,36 @@ impl Client {
             std::process::exit(1);
         }
     }
+
+    pub async fn exec_with_response<T: serde::de::DeserializeOwned, P: serde::Serialize>(
+        &self,
+        method: reqwest::Method,
+        endpoint: &str,
+        payload: &P,
+    ) -> T {
+        let url = format!("https://api.lunchmoney.dev/v2/{}", endpoint);
+        let res = self
+            .http
+            .request(method, &url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(payload)
+            .send()
+            .await
+            .expect("Lunch Money HTTP call failed");
+
+        if !res.status().is_success() {
+            use crate::STYLE_ERROR;
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            anstream::eprintln!(
+                "\n{STYLE_ERROR}❌ Lunch Money request failed:{STYLE_ERROR:#} {} - {}\n",
+                status,
+                body
+            );
+            std::process::exit(1);
+        }
+        res.json().await.expect("Failed parsing Lunch Money JSON")
+    }
 }
 
 pub mod schema {
@@ -108,6 +138,24 @@ pub mod schema {
         pub external_id: String,
         pub manual_account_id: u64,
         pub status: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub tag_ids: Option<Vec<u64>>,
+    }
+
+    #[derive(Deserialize, Debug)]
+    pub struct TagsResponse {
+        pub tags: Vec<Tag>,
+    }
+
+    #[derive(Deserialize, Clone, Debug)]
+    pub struct Tag {
+        pub id: u64,
+        pub name: String,
+    }
+
+    #[derive(Serialize, Debug)]
+    pub struct CreateTagPayload {
+        pub name: String,
     }
 
     #[derive(Serialize, Debug)]
