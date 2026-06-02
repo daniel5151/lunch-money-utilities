@@ -67,7 +67,7 @@ Always preview changes first using the `--dry-run` flag.
 
 **Sync last 3 days of transactions:**
 ```bash
-cargo run -- sync window --window "3 days" --dry-run
+cargo run -- sync window "3 days" --dry-run
 ```
 
 **Sync Stockholm 2025 Group expenses:**
@@ -78,7 +78,7 @@ cargo run -- sync group 82559678 --dry-run
 ### Executing Sync
 Remove the `--dry-run` flag to push changes to Lunch Money:
 ```bash
-cargo run -- sync window --window "7 days"
+cargo run -- sync window "7 days"
 ```
 
 ### Querying Splitwise Groups
@@ -102,7 +102,7 @@ To keep Lunch Money up-to-date, you can schedule the synchronization command to 
 
 2. Add a cron job. For example, to run the sync every day at 3:00 AM with a rolling window of 7 days:
    ```cron
-   0 3 * * * cd /path/to/splitwise-lunchmoney && ./target/release/splitwise-lunchmoney sync window --window "7 days" >> ./sync.log 2>&1
+   0 3 * * * cd /path/to/splitwise-lunchmoney && ./target/release/splitwise-lunchmoney sync window "7 days" >> ./sync.log 2>&1
    ```
 
    > [!TIP]

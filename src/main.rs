@@ -139,7 +139,7 @@ pub enum SyncSubcommands {
 #[derive(Parser, Debug)]
 pub struct SyncWindowArgs {
     /// Window duration for synchronization (e.g., "3 days", "24h", "1 week")
-    #[arg(short, long, value_parser = humantime::parse_duration)]
+    #[arg(value_parser = humantime::parse_duration)]
     pub window: std::time::Duration,
 
     /// Print what would be synced without modifying Lunch Money
