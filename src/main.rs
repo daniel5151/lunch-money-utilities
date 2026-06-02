@@ -90,6 +90,21 @@ pub struct QueryArgs {
 pub enum QuerySubcommands {
     /// Query Splitwise expenses
     Splitwise(QuerySplitwiseArgs),
+    /// Query Lunch Money data
+    #[command(name = "lunchmoney")]
+    LunchMoney(QueryLunchMoneyArgs),
+}
+
+#[derive(Parser, Debug)]
+pub struct QueryLunchMoneyArgs {
+    #[command(subcommand)]
+    pub command: QueryLunchMoneySubcommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum QueryLunchMoneySubcommands {
+    /// List what categories the user has set up in Lunch Money
+    Categories,
 }
 
 #[derive(Parser, Debug)]
@@ -370,6 +385,7 @@ api_key = "{splitwise_api_key}"
 user_id = {splitwise_user_id} # {splitwise_user_name}
 
 # Array of Splitwise group IDs to ignore (optional)
+# HINT: use `splitwise-lunchmoney query splitwise get-groups` to easily get IDs
 # ignored_groups = [123456, 789012]
 
 [lunch_money]
@@ -410,6 +426,11 @@ api_key = "{lunch_money_api_key}"
                     run_query_splitwise_get_groups().await;
                 }
             },
+            QuerySubcommands::LunchMoney(lunchmoney_args) => match lunchmoney_args.command {
+                QueryLunchMoneySubcommands::Categories => {
+                    run_query_lunchmoney_categories().await;
+                }
+            }
         },
     }
 }
@@ -802,6 +823,84 @@ async fn run_query_splitwise_get_groups() {
         );
     }
     println!();
+}
+
+async fn run_query_lunchmoney_categories() {
+    let config = load_config();
+
+    let http_pool = reqwest::Client::new();
+    let lm_client = api::lunch_money::Client::new(http_pool, config.lunch_money.api_key.clone());
+
+    let bar = "─".repeat(80);
+
+    println!("\n{STYLE_HEADER}🔍 Querying Lunch Money Categories{STYLE_HEADER:#}");
+    println!("{STYLE_DIM}{bar}{STYLE_DIM:#}");
+
+    let categories_res: api::lunch_money::schema::CategoriesResponse = lm_client
+        .fetch("categories", &[("format", "nested")] as &[(&str, &str)])
+        .await;
+
+    let categories: Vec<_> = categories_res.categories;
+
+    if categories.is_empty() {
+        println!("{STYLE_WARNING}No categories found.{STYLE_WARNING:#}\n");
+        return;
+    }
+
+    println!(
+        "  {:<10} {}",
+        "ID", "Category Name"
+    );
+    println!("  {STYLE_DIM}{bar}{STYLE_DIM:#}");
+
+    let mut has_archived = false;
+
+    for cat in categories {
+        let id_bracket = format!("[{}]", cat.id);
+        let mut display_name = cat.name.clone();
+        if cat.archived {
+            has_archived = true;
+            display_name.push_str(" *");
+            println!(
+                "  {STYLE_DIM}{:<10} {}{STYLE_DIM:#}",
+                id_bracket, display_name
+            );
+        } else {
+            println!(
+                "  {:<10} {}",
+                id_bracket, display_name
+            );
+        }
+
+        if cat.is_group {
+            if let Some(children) = cat.children {
+                let count = children.len();
+                for (idx, child) in children.into_iter().enumerate() {
+                    let branch = if idx == count - 1 { "└──" } else { "├──" };
+                    let child_id_bracket = format!("[{}]", child.id);
+                    let mut child_display_name = child.name.clone();
+                    if child.archived {
+                        has_archived = true;
+                        child_display_name.push_str(" *");
+                        println!(
+                            "  {STYLE_DIM}{} {:<9} {}{STYLE_DIM:#}",
+                            branch, child_id_bracket, child_display_name
+                        );
+                    } else {
+                        println!(
+                            "  {} {:<9} {}",
+                            branch, child_id_bracket, child_display_name
+                        );
+                    }
+                }
+            }
+        }
+    }
+    println!();
+
+    if has_archived {
+        println!("  {STYLE_DIM}* denotes archived categories{STYLE_DIM:#}\n");
+    }
 }
 
 fn format_transaction_summary(

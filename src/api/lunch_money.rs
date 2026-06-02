@@ -177,4 +177,29 @@ pub mod schema {
     pub struct DeletePayload {
         pub ids: Vec<u64>,
     }
+
+    #[derive(Deserialize, Debug)]
+    pub struct CategoriesResponse {
+        pub categories: Vec<Category>,
+    }
+
+    #[derive(Deserialize, Clone, Debug)]
+    pub struct Category {
+        pub id: u64,
+        pub name: String,
+        pub is_group: bool,
+        #[allow(dead_code)]
+        pub group_id: Option<u64>,
+        pub archived: bool,
+        pub children: Option<Vec<ChildCategory>>,
+    }
+
+    #[derive(Deserialize, Clone, Debug)]
+    pub struct ChildCategory {
+        pub id: u64,
+        pub name: String,
+        #[allow(dead_code)]
+        pub group_id: Option<u64>,
+        pub archived: bool,
+    }
 }
