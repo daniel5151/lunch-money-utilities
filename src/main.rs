@@ -929,6 +929,8 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
             ("end_date", end_window_str.as_str()),
             ("manual_account_id", account_id_str.as_str()),
             ("limit", "1000"),
+            ("include_group_children", "true"),
+            ("include_split_parents", "true"),
         ];
         let lm_res: TransactionsResponse = lm_client.fetch("transactions", &lm_query).await;
         let is_loan = accounts_res
@@ -949,6 +951,20 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
 
     println!("  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}\n");
 
+    // Theory of Operation (External IDs, Grouping, and Splitting):
+    // 1. Transactions imported from Splitwise are tagged with a unique `external_id` matching `splitwise_<expense_id>`.
+    // 2. We build `lm_map` only from Lunch Money transactions that have an `external_id`. Standard manual
+    //    transactions or split/grouped artifacts without an `external_id` are ignored and untouched.
+    // 3. When a user manually groups transactions in Lunch Money:
+    //    - The new "group parent" transaction does not have our `external_id` and is ignored.
+    //    - The "group child" transactions retain their `external_id`. By querying Lunch Money with
+    //      `include_group_children=true`, they are fetched and successfully matched against Splitwise,
+    //      preventing duplicate inserts.
+    // 4. When a user manually splits a transaction in Lunch Money:
+    //    - The "split parent" transaction keeps the `external_id`. By querying Lunch Money with
+    //      `include_split_parents=true`, we fetch it. We explicitly skip updating it or deleting it.
+    //    - The "split child" transactions do not have the matching `external_id`, so they are ignored
+    //      by our sync engine (and are thus never modified or deleted).
     let mut lm_map: HashMap<String, Transaction> = lm_transactions
         .into_iter()
         .filter_map(|t| t.external_id.clone().map(|ext_id| (ext_id, t)))
@@ -976,7 +992,9 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
         // Skip ignored, deleted, or un-involved expenses
         if expense.deleted_at.is_some() || is_ignored || net_balance.is_zero() {
             if let Some(existing_lm) = lm_map.remove(&external_id) {
-                deletes.push(existing_lm);
+                if existing_lm.is_split_parent != Some(true) {
+                    deletes.push(existing_lm);
+                }
             }
             continue;
         }
@@ -1025,23 +1043,20 @@ async fn run_sync_window(sync_args: SyncWindowArgs) {
         );
 
         if let Some(existing_lm) = lm_map.remove(&external_id) {
+            if existing_lm.is_split_parent == Some(true) {
+                continue;
+            }
             // Strict exact-match diffing without float approximations
             let amount_changed = existing_lm.amount != net_balance;
-            let notes_changed = existing_lm.notes.as_deref().unwrap_or("") != expense.description;
 
-            if amount_changed
-                || existing_lm.date != date_civil
-                || existing_lm.currency != currency_lower
-                || existing_lm.payee != payee_str
-                || notes_changed
-            {
+            if amount_changed || existing_lm.currency != currency_lower {
                 updates.push(UpdateObject {
                     id: existing_lm.id,
-                    date: date_civil,
+                    date: existing_lm.date,
                     amount: net_balance,
                     currency: currency_lower,
-                    payee: payee_str,
-                    notes: expense.description,
+                    payee: existing_lm.payee.clone(),
+                    notes: existing_lm.notes.clone().unwrap_or_default(),
                 });
             }
         } else {
@@ -1275,6 +1290,8 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
             ("end_date", end_window_str.as_str()),
             ("manual_account_id", account_id_str.as_str()),
             ("limit", "1000"),
+            ("include_group_children", "true"),
+            ("include_split_parents", "true"),
         ];
         let lm_res: TransactionsResponse = lm_client.fetch("transactions", &lm_query).await;
         let is_loan = accounts_res
@@ -1295,6 +1312,20 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
 
     println!("  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}\n");
 
+    // Theory of Operation (External IDs, Grouping, and Splitting):
+    // 1. Transactions imported from Splitwise are tagged with a unique `external_id` matching `splitwise_<expense_id>`.
+    // 2. We build `lm_map` only from Lunch Money transactions that have an `external_id`. Standard manual
+    //    transactions or split/grouped artifacts without an `external_id` are ignored and untouched.
+    // 3. When a user manually groups transactions in Lunch Money:
+    //    - The new "group parent" transaction does not have our `external_id` and is ignored.
+    //    - The "group child" transactions retain their `external_id`. By querying Lunch Money with
+    //      `include_group_children=true`, they are fetched and successfully matched against Splitwise,
+    //      preventing duplicate inserts.
+    // 4. When a user manually splits a transaction in Lunch Money:
+    //    - The "split parent" transaction keeps the `external_id`. By querying Lunch Money with
+    //      `include_split_parents=true`, we fetch it. We explicitly skip updating it or deleting it.
+    //    - The "split child" transactions do not have the matching `external_id`, so they are ignored
+    //      by our sync engine (and are thus never modified or deleted).
     let mut lm_map: HashMap<String, Transaction> = lm_transactions
         .into_iter()
         .filter_map(|t| t.external_id.clone().map(|ext_id| (ext_id, t)))
@@ -1322,7 +1353,9 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
         // Skip ignored, deleted, or un-involved expenses
         if expense.deleted_at.is_some() || is_ignored || net_balance.is_zero() {
             if let Some(existing_lm) = lm_map.remove(&external_id) {
-                deletes.push(existing_lm);
+                if existing_lm.is_split_parent != Some(true) {
+                    deletes.push(existing_lm);
+                }
             }
             continue;
         }
@@ -1371,22 +1404,19 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
         );
 
         if let Some(existing_lm) = lm_map.remove(&external_id) {
+            if existing_lm.is_split_parent == Some(true) {
+                continue;
+            }
             let amount_changed = existing_lm.amount != net_balance;
-            let notes_changed = existing_lm.notes.as_deref().unwrap_or("") != expense.description;
 
-            if amount_changed
-                || existing_lm.date != date_civil
-                || existing_lm.currency != currency_lower
-                || existing_lm.payee != payee_str
-                || notes_changed
-            {
+            if amount_changed || existing_lm.currency != currency_lower {
                 updates.push(UpdateObject {
                     id: existing_lm.id,
-                    date: date_civil,
+                    date: existing_lm.date,
                     amount: net_balance,
                     currency: currency_lower,
-                    payee: payee_str,
-                    notes: expense.description,
+                    payee: existing_lm.payee.clone(),
+                    notes: existing_lm.notes.clone().unwrap_or_default(),
                 });
             }
         } else {
@@ -1419,7 +1449,7 @@ async fn run_sync_group(sync_args: SyncGroupArgs) {
             t.payee == group_payee
         };
 
-        if belongs_to_group {
+        if belongs_to_group && t.is_split_parent != Some(true) {
             deletes.push(t);
         }
     }

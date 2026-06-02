@@ -88,6 +88,9 @@ pub mod schema {
         pub external_id: Option<String>,
         #[allow(dead_code)]
         pub manual_account_id: Option<u64>,
+        pub is_split_parent: Option<bool>,
+        #[allow(dead_code)]
+        pub group_parent_id: Option<u64>,
     }
 
     #[derive(Serialize, Debug)]
