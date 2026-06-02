@@ -533,8 +533,8 @@ async fn run_query_splitwise_window(args: QuerySplitwiseWindowArgs) {
         };
 
         let mut clean_payee = payee_str;
-        if clean_payee.len() > 30 {
-            clean_payee.truncate(27);
+        if clean_payee.chars().count() > 30 {
+            clean_payee = clean_payee.chars().take(27).collect::<String>();
             clean_payee.push_str("...");
         }
 
@@ -559,9 +559,9 @@ async fn run_query_splitwise_window(args: QuerySplitwiseWindowArgs) {
         // Determine max allowed length for description, so description + status_tag is exactly 30 visible chars
         let max_desc_len = 30_usize.saturating_sub(status_tag.len());
         let mut clean_desc = expense.description.trim().to_string();
-        if clean_desc.len() > max_desc_len {
+        if clean_desc.chars().count() > max_desc_len {
             let truncate_to = max_desc_len.saturating_sub(3);
-            clean_desc.truncate(truncate_to);
+            clean_desc = clean_desc.chars().take(truncate_to).collect::<String>();
             clean_desc = format!("{}...", clean_desc.trim_end());
         }
 
@@ -690,8 +690,8 @@ async fn run_query_splitwise_group(args: QuerySplitwiseGroupArgs) {
         };
 
         let mut clean_payee = payee_str;
-        if clean_payee.len() > 30 {
-            clean_payee.truncate(27);
+        if clean_payee.chars().count() > 30 {
+            clean_payee = clean_payee.chars().take(27).collect::<String>();
             clean_payee.push_str("...");
         }
 
@@ -716,9 +716,9 @@ async fn run_query_splitwise_group(args: QuerySplitwiseGroupArgs) {
         // Determine max allowed length for description, so description + status_tag is exactly 30 visible chars
         let max_desc_len = 30_usize.saturating_sub(status_tag.len());
         let mut clean_desc = expense.description.trim().to_string();
-        if clean_desc.len() > max_desc_len {
+        if clean_desc.chars().count() > max_desc_len {
             let truncate_to = max_desc_len.saturating_sub(3);
-            clean_desc.truncate(truncate_to);
+            clean_desc = clean_desc.chars().take(truncate_to).collect::<String>();
             clean_desc = format!("{}...", clean_desc.trim_end());
         }
 
@@ -785,8 +785,8 @@ async fn run_query_splitwise_get_groups() {
 
     for g in groups {
         let mut clean_name = g.name.clone();
-        if clean_name.len() > 40 {
-            clean_name.truncate(37);
+        if clean_name.chars().count() > 40 {
+            clean_name = clean_name.chars().take(37).collect::<String>();
             clean_name.push_str("...");
         }
         let date_str = g
@@ -822,8 +822,8 @@ fn format_transaction_summary(
 
     // Limit payee length to 35 characters for clean alignment, appending '...' if truncated
     let mut clean_payee = payee.to_string();
-    if clean_payee.len() > 35 {
-        clean_payee.truncate(32);
+    if clean_payee.chars().count() > 35 {
+        clean_payee = clean_payee.chars().take(32).collect::<String>();
         clean_payee.push_str("...");
     }
 
