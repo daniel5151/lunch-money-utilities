@@ -34,6 +34,26 @@ pub async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
         }
     }
 
+    if !config.splitwise.ignored_groups.is_empty() {
+        println! { "  {STYLE_DIM}Fetching Splitwise groups...{STYLE_DIM:#}" };
+        let groups_res: crate::api::splitwise::schema::GroupResponse =
+            sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
+
+        for group in groups_res.groups {
+            if config.splitwise.ignored_groups.contains(&group.id) {
+                if let Some(members) = &group.members {
+                    if let Some(member) = members.iter().find(|m| m.id == config.splitwise.user_id)
+                    {
+                        for bal in &member.balance {
+                            let currency = bal.currency_code.to_uppercase();
+                            *global_balances.entry(currency).or_insert(Decimal::ZERO) -= bal.amount;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     println! { "  {STYLE_DIM}Fetching Lunch Money manual accounts...{STYLE_DIM:#}" };
     let accounts_res: ManualAccountsResponse = lm_client
         .fetch("manual_accounts", &[] as &[(&str, &str)])
