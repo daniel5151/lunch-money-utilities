@@ -144,4 +144,8 @@ pub struct SyncGroupArgs {
     /// Optional tag to associate with imported transactions in Lunch Money
     #[arg(long)]
     pub tag: Option<String>,
+
+    /// Bypass the check for ignored groups
+    #[arg(long)]
+    pub bypass_ignore: bool,
 }

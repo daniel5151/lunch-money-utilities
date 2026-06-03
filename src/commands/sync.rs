@@ -413,6 +413,19 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
 pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     let config = crate::load_config();
 
+    if config
+        .splitwise
+        .ignored_groups
+        .contains(&sync_args.group_id)
+        && !sync_args.bypass_ignore
+    {
+        eprintln! {};
+        eprintln! { "{STYLE_WARNING}⚠️ Warning:{STYLE_WARNING:#} Group {} is marked as ignored in configuration.", sync_args.group_id };
+        eprintln! { "To force synchronization for this group, use the --bypass-ignore flag." };
+        eprintln! {};
+        std::process::exit(1);
+    }
+
     let http_pool = reqwest::Client::new();
     let sw_client =
         crate::api::splitwise::Client::new(http_pool.clone(), config.splitwise.api_key.clone());
@@ -594,9 +607,9 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
             .map(|u| u.net_balance)
             .unwrap_or(Decimal::ZERO);
 
-        let is_ignored = expense
-            .group_id
-            .is_some_and(|gid| config.splitwise.ignored_groups.contains(&gid));
+        let is_ignored = expense.group_id.is_some_and(|gid| {
+            config.splitwise.ignored_groups.contains(&gid) && gid != sync_args.group_id
+        });
 
         // Skip ignored, deleted, or un-involved expenses
         if expense.deleted_at.is_some() || is_ignored || net_balance.is_zero() {
