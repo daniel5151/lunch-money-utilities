@@ -5,6 +5,22 @@
 
 ---
 
+## Project Structure
+- **`src/main.rs`**: Entry point that parses CLI arguments, loads configuration, and dispatches subcommands.
+- **`src/cli.rs`**: CLI command argument parser structures and subcommand definitions (using `clap`).
+- **`src/config.rs`**: Structure and deserialization definitions for `splitwise-lunchmoney.toml`.
+- **`src/style.rs`**: Terminal style configurations and `STYLE_*` color constants.
+- **`src/api/`**: Client endpoints and data schema implementations for external API interactions:
+  - [`lunch_money.rs`](file:///home/daprilik/src/splitwise-lunchmoney/src/api/lunch_money.rs): Developer API client and object models (Transactions, Categories, Tags).
+  - [`splitwise.rs`](file:///home/daprilik/src/splitwise-lunchmoney/src/api/splitwise.rs): Splitwise API client and object models (Expenses, Groups).
+- **`src/commands/`**: Command runners executing business operations:
+  - [`init.rs`](file:///home/daprilik/src/splitwise-lunchmoney/src/commands/init.rs): Interactive config setup wizard.
+  - [`query.rs`](file:///home/daprilik/src/splitwise-lunchmoney/src/commands/query.rs): Runners for querying and listing data (expenses, groups, categories, tags).
+  - [`sync.rs`](file:///home/daprilik/src/splitwise-lunchmoney/src/commands/sync.rs): Synchronizer for individual transaction logs.
+  - [`sync_balances.rs`](file:///home/daprilik/src/splitwise-lunchmoney/src/commands/sync_balances.rs): Runner for syncing net outstanding balances.
+
+---
+
 ## Tech Stack & Core Dependencies
 - **HTTP Client**: `reqwest` (asynchronous, utilizes a shared connection pool).
 - **CLI Framework**: `clap` (v4 with `derive` macros).

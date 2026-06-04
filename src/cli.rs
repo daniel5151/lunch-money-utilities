@@ -66,6 +66,8 @@ pub struct QueryLunchMoneyArgs {
 pub enum QueryLunchMoneySubcommands {
     /// List what categories the user has set up in Lunch Money
     Categories,
+    /// List all tags in Lunch Money
+    Tags,
 }
 
 #[derive(Parser, Debug)]

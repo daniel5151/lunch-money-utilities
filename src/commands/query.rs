@@ -455,3 +455,51 @@ pub async fn run_query_lunchmoney_categories() {
         println! {};
     }
 }
+
+pub async fn run_query_lunchmoney_tags() {
+    let config = crate::load_config();
+
+    let http_pool = reqwest::Client::new();
+    let lm_client =
+        crate::api::lunch_money::Client::new(http_pool, config.lunch_money.api_key.clone());
+
+    let bar = "─".repeat(80);
+
+    println! {};
+    println! { "{STYLE_HEADER}🔍 Querying Lunch Money Tags{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
+
+    let tags_res: crate::api::lunch_money::schema::TagsResponse =
+        lm_client.fetch("tags", &[] as &[(&str, &str)]).await;
+
+    let tags = tags_res.tags;
+
+    if tags.is_empty() {
+        println! { "{STYLE_WARNING}No tags found.{STYLE_WARNING:#}" };
+        println! {};
+        return;
+    }
+
+    println! { "  {:<10} {}", "ID", "Tag Name" };
+    println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
+
+    let mut has_archived = false;
+
+    for tag in tags {
+        let id_bracket = format!("[{}]", tag.id);
+        let mut display_name = tag.name.clone();
+        if tag.archived {
+            has_archived = true;
+            display_name.push_str(" *");
+            println! { "  {STYLE_DIM}{:<10} {}{STYLE_DIM:#}", id_bracket, display_name };
+        } else {
+            println! { "  {:<10} {}", id_bracket, display_name };
+        }
+    }
+    println! {};
+
+    if has_archived {
+        println! { "  {STYLE_DIM}* denotes archived tags{STYLE_DIM:#}" };
+        println! {};
+    }
+}
