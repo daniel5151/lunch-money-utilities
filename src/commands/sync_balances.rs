@@ -59,7 +59,10 @@ pub async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
         .fetch("manual_accounts", &[] as &[(&str, &str)])
         .await;
 
-    let target_accounts = crate::commands::resolve_target_accounts(&accounts_res, &config.lunch_money.custom_accounts);
+    let target_accounts = crate::commands::resolve_target_accounts(
+        &accounts_res,
+        &config.lunch_money.custom_accounts,
+    );
 
     let mut has_updates = false;
 

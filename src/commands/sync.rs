@@ -233,7 +233,10 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     let accounts_res: ManualAccountsResponse = lm_client
         .fetch("manual_accounts", &[] as &[(&str, &str)])
         .await;
-    let target_accounts = crate::commands::resolve_target_accounts(&accounts_res, &config.lunch_money.custom_accounts);
+    let target_accounts = crate::commands::resolve_target_accounts(
+        &accounts_res,
+        &config.lunch_money.custom_accounts,
+    );
     verify_target_accounts(&target_accounts, &accounts_res);
 
     let (resolved_categories, lm_category_names) = resolve_categories(&lm_client, &config).await;
@@ -361,7 +364,10 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     let accounts_res: ManualAccountsResponse = lm_client
         .fetch("manual_accounts", &[] as &[(&str, &str)])
         .await;
-    let target_accounts = crate::commands::resolve_target_accounts(&accounts_res, &config.lunch_money.custom_accounts);
+    let target_accounts = crate::commands::resolve_target_accounts(
+        &accounts_res,
+        &config.lunch_money.custom_accounts,
+    );
     verify_target_accounts(&target_accounts, &accounts_res);
 
     let (resolved_categories, lm_category_names) = resolve_categories(&lm_client, &config).await;
@@ -475,7 +481,10 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     .await;
 }
 
-fn verify_target_accounts(target_accounts: &HashMap<String, u64>, accounts_res: &ManualAccountsResponse) {
+fn verify_target_accounts(
+    target_accounts: &HashMap<String, u64>,
+    accounts_res: &ManualAccountsResponse,
+) {
     if target_accounts.is_empty() {
         eprintln! {};
         eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No active manual accounts found. Please set up an active 'Splitwise <CURRENCY>' manual account (e.g. 'Splitwise USD') in Lunch Money or configure [lunch_money.custom_accounts]." };

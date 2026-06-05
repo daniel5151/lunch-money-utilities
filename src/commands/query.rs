@@ -473,10 +473,13 @@ pub async fn run_query_lunchmoney_accounts() {
         .fetch("manual_accounts", &[] as &[(&str, &str)])
         .await;
 
-    let target_accounts: HashMap<u64, String> = crate::commands::resolve_target_accounts(&accounts_res, &config.lunch_money.custom_accounts)
-        .into_iter()
-        .map(|(currency, id)| (id, currency))
-        .collect();
+    let target_accounts: HashMap<u64, String> = crate::commands::resolve_target_accounts(
+        &accounts_res,
+        &config.lunch_money.custom_accounts,
+    )
+    .into_iter()
+    .map(|(currency, id)| (id, currency))
+    .collect();
 
     let mut accounts = accounts_res.manual_accounts;
 

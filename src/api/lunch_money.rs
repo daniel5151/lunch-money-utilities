@@ -254,13 +254,6 @@ pub mod schema {
         pub status: String,
     }
 
-    impl std::fmt::Display for ManualAccount {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            let name = self.display_name.as_deref().unwrap_or(&self.name);
-            write!(f, "{} (ID: {})", name, self.id)
-        }
-    }
-
     #[derive(serde::Deserialize, Debug)]
     pub struct ManualAccountsResponse {
         pub manual_accounts: Vec<ManualAccount>,
