@@ -176,7 +176,7 @@ async fn resolve_categories(
     (resolved, names)
 }
 
-pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
+pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     let window_duration =
         jiff::SignedDuration::try_from(sync_args.window).expect("window duration is too large");
 
@@ -293,7 +293,7 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     .await;
 }
 
-pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
+pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     let config = crate::load_config();
 
     if config

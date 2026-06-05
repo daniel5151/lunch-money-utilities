@@ -1,12 +1,12 @@
-pub mod init;
-pub mod query;
-pub mod sync;
-pub mod sync_balances;
+pub(crate) mod init;
+pub(crate) mod query;
+pub(crate) mod sync;
+pub(crate) mod sync_balances;
 
 use crate::style::*;
 use std::collections::HashMap;
 
-pub fn resolve_target_accounts(
+fn resolve_target_accounts(
     accounts_res: &crate::api::lunch_money::schema::ManualAccountsResponse,
     custom_accounts: &HashMap<String, u64>,
 ) -> HashMap<String, u64> {
@@ -39,7 +39,7 @@ pub fn resolve_target_accounts(
     resolved
 }
 
-pub fn resolve_splitwise_payee(
+fn resolve_splitwise_payee(
     expense: &crate::api::splitwise::schema::Expense,
     user_id: u64,
     group_map: &HashMap<u64, String>,
@@ -68,7 +68,7 @@ pub fn resolve_splitwise_payee(
     }
 }
 
-pub fn format_group_balances(group: &crate::api::splitwise::schema::Group, user_id: u64) -> String {
+fn format_group_balances(group: &crate::api::splitwise::schema::Group, user_id: u64) -> String {
     let mut parts = Vec::new();
     if let Some(members) = &group.members {
         if let Some(member) = members.iter().find(|m| m.id == user_id) {

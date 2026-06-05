@@ -6,7 +6,7 @@ use reqwest::Method;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
-pub async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
+pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
     let config = crate::load_config();
 
     let http_pool = reqwest::Client::new();

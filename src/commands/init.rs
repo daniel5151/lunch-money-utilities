@@ -24,7 +24,7 @@ struct CurrentUserResponse {
     user: SplitwiseUser,
 }
 
-pub async fn run_init() {
+pub(crate) async fn run_init() {
     if std::path::Path::new("splitwise-lunchmoney.toml").exists() {
         eprintln! {};
         eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} splitwise-lunchmoney.toml already exists in this directory." };

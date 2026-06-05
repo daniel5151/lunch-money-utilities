@@ -94,7 +94,7 @@ fn print_expenses_table(
     }
 }
 
-pub async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseWindowArgs) {
+pub(crate) async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseWindowArgs) {
     let window_duration =
         jiff::SignedDuration::try_from(args.window).expect("window duration is too large");
 
@@ -141,7 +141,7 @@ pub async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseWindowAr
     print_expenses_table(expenses_res.expenses, &config, &group_map);
 }
 
-pub async fn run_query_splitwise_group(args: crate::cli::QuerySplitwiseGroupArgs) {
+pub(crate) async fn run_query_splitwise_group(args: crate::cli::QuerySplitwiseGroupArgs) {
     let config = crate::load_config();
 
     let http_pool = reqwest::Client::new();
@@ -191,7 +191,7 @@ pub async fn run_query_splitwise_group(args: crate::cli::QuerySplitwiseGroupArgs
     print_expenses_table(expenses_res.expenses, &config, &group_map);
 }
 
-pub async fn run_query_splitwise_get_groups() {
+pub(crate) async fn run_query_splitwise_get_groups() {
     let config = crate::load_config();
 
     let http_pool = reqwest::Client::new();
@@ -236,7 +236,7 @@ pub async fn run_query_splitwise_get_groups() {
     println! {};
 }
 
-pub async fn run_query_lunchmoney_categories() {
+pub(crate) async fn run_query_lunchmoney_categories() {
     let config = crate::load_config();
 
     let http_pool = reqwest::Client::new();
@@ -307,7 +307,7 @@ pub async fn run_query_lunchmoney_categories() {
     }
 }
 
-pub async fn run_query_lunchmoney_tags() {
+pub(crate) async fn run_query_lunchmoney_tags() {
     let config = crate::load_config();
 
     let http_pool = reqwest::Client::new();
@@ -355,7 +355,7 @@ pub async fn run_query_lunchmoney_tags() {
     }
 }
 
-pub async fn run_query_splitwise_categories() {
+pub(crate) async fn run_query_splitwise_categories() {
     let config = crate::load_config();
 
     let http_pool = reqwest::Client::new();
@@ -400,7 +400,7 @@ pub async fn run_query_splitwise_categories() {
     println! {};
 }
 
-pub async fn run_query_lunchmoney_accounts() {
+pub(crate) async fn run_query_lunchmoney_accounts() {
     let config = crate::load_config();
 
     let http_pool = reqwest::Client::new();
