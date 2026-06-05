@@ -97,6 +97,8 @@ pub mod schema {
         pub deleted_at: Option<jiff::Timestamp>,
         pub users: Vec<ExpenseUser>,
         pub category: Option<Category>,
+        #[serde(default)]
+        pub payment: bool,
     }
 
     #[derive(Deserialize)]

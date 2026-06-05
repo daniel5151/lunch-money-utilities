@@ -197,7 +197,11 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     let mut sw_expense_categories = HashMap::new();
     for expense in &expenses {
         let ext_id = crate::api::ExternalId::Splitwise(expense.id);
-        let cat_info = expense.category.as_ref().map(|c| (c.id, c.name.clone()));
+        let cat_info = if expense.payment {
+            Some((0, "Payment".to_string()))
+        } else {
+            expense.category.as_ref().map(|c| (c.id, c.name.clone()))
+        };
         sw_expense_categories.insert(ext_id, cat_info);
     }
 
@@ -327,7 +331,11 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     let mut sw_expense_categories = HashMap::new();
     for expense in &expenses_res.expenses {
         let ext_id = crate::api::ExternalId::Splitwise(expense.id);
-        let cat_info = expense.category.as_ref().map(|c| (c.id, c.name.clone()));
+        let cat_info = if expense.payment {
+            Some((0, "Payment".to_string()))
+        } else {
+            expense.category.as_ref().map(|c| (c.id, c.name.clone()))
+        };
         sw_expense_categories.insert(ext_id, cat_info);
     }
 
@@ -609,7 +617,9 @@ fn diff_transactions(
         } else {
             let manual_account_id = target_accounts[&expense.currency_code];
             let mut category_id = None;
-            if let Some(ref cat) = expense.category {
+            if expense.payment {
+                category_id = resolved_categories.get("Payment").copied();
+            } else if let Some(ref cat) = expense.category {
                 let path = sw_category_id_to_path.get(&cat.id);
                 category_id = path
                     .and_then(|p| resolved_categories.get(p))
@@ -822,12 +832,10 @@ async fn execute_sync_actions(
 
     if deletes.is_empty() && updates.is_empty() && inserts.is_empty() {
         println! { "{STYLE_SUCCESS}✨ No changes detected. Lunch Money manual account is up-to-date!{STYLE_SUCCESS:#}" };
-        println! {};
     } else if dry_run {
         println! { "{STYLE_WARNING}⚠️ Dry run complete! No changes were made to Lunch Money.{STYLE_WARNING:#}" };
-        println! {};
     } else {
         println! { "{STYLE_SUCCESS}✨ Synchronization cycle complete!{STYLE_SUCCESS:#}" };
-        println! {};
     }
+    println! {};
 }

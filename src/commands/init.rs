@@ -121,6 +121,7 @@ pub(crate) async fn run_init() {
     }
 
     let mut categories_toml = String::new();
+    categories_toml.push_str("# \"Payment\" = \"...\"\n");
     for parent in sw_categories.categories {
         for sub in parent.subcategories {
             categories_toml.push_str(&format!("# \"{}:{}\" = \"...\"\n", parent.name, sub.name));
