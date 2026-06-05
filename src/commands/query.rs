@@ -235,7 +235,7 @@ struct GroupRecord {
     balance: String,
 }
 
-pub(crate) async fn run_query_splitwise_get_groups() {
+pub(crate) async fn run_query_splitwise_groups() {
     let config = crate::load_config();
 
     let http_pool = reqwest::Client::new();

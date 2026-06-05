@@ -85,8 +85,7 @@ pub enum QuerySplitwiseSubcommands {
     /// Query Splitwise expenses for a specific group
     Group(QuerySplitwiseGroupArgs),
     /// List all Splitwise groups you belong to, including their ID, name, last updated date, and outstanding balances
-    #[command(name = "get-groups")]
-    GetGroups,
+    Groups,
     /// List all Splitwise transaction categories (parent categories and their subcategories)
     Categories,
 }

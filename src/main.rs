@@ -36,8 +36,8 @@ async fn main() {
                 cli::QuerySplitwiseSubcommands::Group(args) => {
                     commands::query::run_query_splitwise_group(args).await;
                 }
-                cli::QuerySplitwiseSubcommands::GetGroups => {
-                    commands::query::run_query_splitwise_get_groups().await;
+                cli::QuerySplitwiseSubcommands::Groups => {
+                    commands::query::run_query_splitwise_groups().await;
                 }
                 cli::QuerySplitwiseSubcommands::Categories => {
                     commands::query::run_query_splitwise_categories().await;
