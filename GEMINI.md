@@ -50,4 +50,5 @@
 - **Macro Delimiter Rules**: All single-line `println!` and `eprintln!` statements must utilize curly brace delimiters (`{}`) and end with a semicolon (e.g. `println! { "message" };`). This prevents `rustfmt` from splitting them across multiple lines
 - **anstream macros**: Make sure to use anstream's `println!` and `eprintln!` macros, rather than the std ones.
 - **Standard Formatting Output**: Leverage `STYLE_*` constants (`STYLE_HEADER`, `STYLE_SUCCESS`, `STYLE_ERROR`, `STYLE_WARNING`, `STYLE_INFO`, `STYLE_DIM`) for uniform CLI logging.
+- **rustfmt nightly**: Use `+nightly` when running rustfmt. make sure to run rustfmt after making a set of changes.
 - **Commit format**: run `git log` to check how previous commits were formatted, and use the same style when asked to commit changes. NEVER COMMIT UNLESS EXPLICITLY ASKED TO COMMIT.

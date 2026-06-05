@@ -29,5 +29,5 @@ pub struct SplitwiseConfig {
 pub struct LunchMoneyConfig {
     pub api_key: String,
     #[serde(default)]
-    pub custom_accounts: std::collections::HashMap<String, u64>,
+    pub custom_accounts: std::collections::HashMap<crate::api::Currency, u64>,
 }

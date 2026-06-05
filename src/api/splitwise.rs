@@ -77,7 +77,7 @@ pub mod schema {
 
     #[derive(Deserialize, Debug)]
     pub struct Balance {
-        pub currency_code: String,
+        pub currency_code: crate::api::Currency,
         #[serde(with = "rust_decimal::serde::str")]
         pub amount: Decimal,
     }
@@ -93,7 +93,7 @@ pub mod schema {
         pub group_id: Option<u64>,
         pub description: String,
         pub date: jiff::Timestamp,
-        pub currency_code: String,
+        pub currency_code: crate::api::Currency,
         pub deleted_at: Option<jiff::Timestamp>,
         pub users: Vec<ExpenseUser>,
         pub category: Option<Category>,

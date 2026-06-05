@@ -112,6 +112,22 @@ pub mod schema {
 
     #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
     #[serde(rename_all = "lowercase")]
+    pub enum AccountStatus {
+        Active,
+        Closed,
+    }
+
+    impl std::fmt::Display for AccountStatus {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Active => write!(f, "active"),
+                Self::Closed => write!(f, "closed"),
+            }
+        }
+    }
+
+    #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+    #[serde(rename_all = "lowercase")]
     pub enum AccountType {
         Cash,
         Credit,
@@ -139,10 +155,10 @@ pub mod schema {
         pub id: u64,
         pub date: jiff::civil::Date,
         pub amount: Decimal,
-        pub currency: String,
+        pub currency: crate::api::Currency,
         pub payee: String,
         pub notes: Option<String>,
-        pub external_id: Option<String>,
+        pub external_id: Option<crate::api::ExternalId>,
         #[expect(dead_code)]
         pub manual_account_id: Option<u64>,
         pub is_split_parent: Option<bool>,
@@ -162,10 +178,10 @@ pub mod schema {
     pub struct InsertObject {
         pub date: jiff::civil::Date,
         pub amount: Decimal,
-        pub currency: String,
+        pub currency: crate::api::Currency,
         pub payee: String,
         pub notes: String,
-        pub external_id: String,
+        pub external_id: crate::api::ExternalId,
         pub manual_account_id: u64,
         pub status: TransactionStatus,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -201,7 +217,7 @@ pub mod schema {
         pub id: u64,
         pub date: jiff::civil::Date,
         pub amount: Decimal,
-        pub currency: String,
+        pub currency: crate::api::Currency,
         pub payee: String,
         pub notes: String,
     }
@@ -250,8 +266,8 @@ pub mod schema {
         pub account_type: AccountType,
         #[serde(with = "rust_decimal::serde::str")]
         pub balance: Decimal,
-        pub currency: String,
-        pub status: String,
+        pub currency: crate::api::Currency,
+        pub status: AccountStatus,
     }
 
     #[derive(serde::Deserialize, Debug)]

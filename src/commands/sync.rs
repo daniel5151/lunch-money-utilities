@@ -18,7 +18,7 @@ use std::collections::HashMap;
 fn format_transaction_summary(
     payee: &str,
     amount: Decimal,
-    currency: &str,
+    currency: &crate::api::Currency,
     date: jiff::civil::Date,
     notes: &str,
     sw_category_name: Option<&str>,
@@ -223,7 +223,7 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
 
     let mut sw_expense_categories = HashMap::new();
     for expense in &expenses {
-        let ext_id = format!("splitwise_{}", expense.id);
+        let ext_id = crate::api::ExternalId::Splitwise(expense.id);
         let cat_info = expense.category.as_ref().map(|c| (c.id, c.name.clone()));
         sw_expense_categories.insert(ext_id, cat_info);
     }
@@ -259,7 +259,7 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         lm_tx_categories.insert(t.id, (t.external_id.clone(), t.category_id));
     }
 
-    let mut lm_map: HashMap<String, Transaction> = lm_transactions
+    let mut lm_map: HashMap<crate::api::ExternalId, Transaction> = lm_transactions
         .into_iter()
         .filter_map(|t| t.external_id.clone().map(|ext_id| (ext_id, t)))
         .collect();
@@ -353,7 +353,7 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
 
     let mut sw_expense_categories = HashMap::new();
     for expense in &expenses_res.expenses {
-        let ext_id = format!("splitwise_{}", expense.id);
+        let ext_id = crate::api::ExternalId::Splitwise(expense.id);
         let cat_info = expense.category.as_ref().map(|c| (c.id, c.name.clone()));
         sw_expense_categories.insert(ext_id, cat_info);
     }
@@ -426,7 +426,7 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         lm_tx_categories.insert(t.id, (t.external_id.clone(), t.category_id));
     }
 
-    let mut lm_map: HashMap<String, Transaction> = lm_transactions
+    let mut lm_map: HashMap<crate::api::ExternalId, Transaction> = lm_transactions
         .into_iter()
         .filter_map(|t| t.external_id.clone().map(|ext_id| (ext_id, t)))
         .collect();
@@ -480,7 +480,7 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
 }
 
 fn verify_target_accounts(
-    target_accounts: &HashMap<String, u64>,
+    target_accounts: &HashMap<crate::api::Currency, u64>,
     accounts_res: &ManualAccountsResponse,
 ) {
     if target_accounts.is_empty() {
@@ -527,7 +527,7 @@ async fn fetch_splitwise_categories(
 
 async fn fetch_lunch_money_transactions(
     lm_client: &crate::api::lunch_money::Client,
-    target_accounts: &HashMap<String, u64>,
+    target_accounts: &HashMap<crate::api::Currency, u64>,
     accounts_res: &ManualAccountsResponse,
     start_date_str: &str,
     end_date_str: &str,
@@ -566,9 +566,9 @@ async fn fetch_lunch_money_transactions(
 fn diff_transactions(
     expenses: Vec<crate::api::splitwise::schema::Expense>,
     config: &crate::config::Config,
-    target_accounts: &HashMap<String, u64>,
+    target_accounts: &HashMap<crate::api::Currency, u64>,
     group_map: &HashMap<u64, String>,
-    lm_map: &mut HashMap<String, Transaction>,
+    lm_map: &mut HashMap<crate::api::ExternalId, Transaction>,
     sw_category_id_to_path: &HashMap<u32, String>,
     resolved_categories: &HashMap<String, u64>,
     ignored_groups_exclude: Option<u64>,
@@ -579,7 +579,7 @@ fn diff_transactions(
     let mut deletes = Vec::new();
 
     for expense in expenses {
-        let external_id = format!("splitwise_{}", expense.id);
+        let external_id = crate::api::ExternalId::Splitwise(expense.id);
 
         let net_balance = expense
             .users
@@ -602,17 +602,15 @@ fn diff_transactions(
             continue;
         }
 
-        let currency_upper = expense.currency_code.to_uppercase();
-        if !target_accounts.contains_key(&currency_upper) {
+        if !target_accounts.contains_key(&expense.currency_code) {
             eprintln! {};
-            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No manual account configured for currency '{}'.", currency_upper };
-            eprintln! { "Please set up an active 'Splitwise {}' manual account in Lunch Money or configure [lunch_money.custom_accounts].", currency_upper };
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No manual account configured for currency '{}'.", expense.currency_code };
+            eprintln! { "Please set up an active 'Splitwise {}' manual account in Lunch Money or configure [lunch_money.custom_accounts].", expense.currency_code };
             eprintln! {};
             std::process::exit(1);
         }
 
         let date_civil = expense.date.to_zoned(jiff::tz::TimeZone::UTC).date();
-        let currency_lower = expense.currency_code.to_lowercase();
 
         let payee_str = format!(
             "Splitwise - {}",
@@ -625,18 +623,18 @@ fn diff_transactions(
             }
             let amount_changed = existing_lm.amount != net_balance;
 
-            if amount_changed || existing_lm.currency != currency_lower {
+            if amount_changed || existing_lm.currency != expense.currency_code {
                 updates.push(UpdateObject {
                     id: existing_lm.id,
                     date: existing_lm.date,
                     amount: net_balance,
-                    currency: currency_lower,
+                    currency: expense.currency_code.clone(),
                     payee: existing_lm.payee.clone(),
                     notes: existing_lm.notes.clone().unwrap_or_default(),
                 });
             }
         } else {
-            let manual_account_id = target_accounts[&currency_upper];
+            let manual_account_id = target_accounts[&expense.currency_code];
             let mut category_id = None;
             if let Some(ref cat) = expense.category {
                 let path = sw_category_id_to_path.get(&cat.id);
@@ -649,7 +647,7 @@ fn diff_transactions(
             inserts.push(InsertObject {
                 date: date_civil,
                 amount: net_balance,
-                currency: currency_lower,
+                currency: expense.currency_code.clone(),
                 payee: payee_str,
                 notes: expense.description,
                 external_id,
@@ -671,11 +669,11 @@ async fn execute_sync_actions(
     dry_run: bool,
     lm_client: &crate::api::lunch_money::Client,
     accounts_res: &ManualAccountsResponse,
-    target_accounts: &HashMap<String, u64>,
+    target_accounts: &HashMap<crate::api::Currency, u64>,
     lm_category_names: &HashMap<u64, String>,
-    sw_expense_categories: &HashMap<String, Option<(u32, String)>>,
+    sw_expense_categories: &HashMap<crate::api::ExternalId, Option<(u32, String)>>,
     sw_category_id_to_path: &HashMap<u32, String>,
-    lm_tx_categories: &HashMap<u64, (Option<String>, Option<u64>)>,
+    lm_tx_categories: &HashMap<u64, (Option<crate::api::ExternalId>, Option<u64>)>,
 ) {
     // Calculate dynamic category and payee column widths
     let mut payee_width = 0;
@@ -833,10 +831,7 @@ async fn execute_sync_actions(
                     let is_loan = accounts_res
                         .manual_accounts
                         .iter()
-                        .find(|acc| {
-                            let curr = u.currency.to_uppercase();
-                            target_accounts.get(&curr).copied() == Some(acc.id)
-                        })
+                        .find(|acc| target_accounts.get(&u.currency).copied() == Some(acc.id))
                         .map(|acc| {
                             acc.account_type == crate::api::lunch_money::schema::AccountType::Loan
                         })

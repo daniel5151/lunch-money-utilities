@@ -8,13 +8,13 @@ use std::collections::HashMap;
 
 fn resolve_target_accounts(
     accounts_res: &crate::api::lunch_money::schema::ManualAccountsResponse,
-    custom_accounts: &HashMap<String, u64>,
-) -> HashMap<String, u64> {
+    custom_accounts: &HashMap<crate::api::Currency, u64>,
+) -> HashMap<crate::api::Currency, u64> {
     let mut resolved = HashMap::new();
 
     // 1. Start with inferred accounts from the actual manual accounts in Lunch Money
     for acc in &accounts_res.manual_accounts {
-        if acc.status == "active" {
+        if acc.status == crate::api::lunch_money::schema::AccountStatus::Active {
             for name in [&acc.name, acc.display_name.as_deref().unwrap_or("")] {
                 if name.is_empty() {
                     continue;
@@ -22,7 +22,7 @@ fn resolve_target_accounts(
                 let name_lower = name.to_ascii_lowercase();
                 if let Some(suffix) = name_lower.strip_prefix("splitwise ") {
                     if suffix.len() == 3 && suffix.chars().all(|c| c.is_ascii_alphabetic()) {
-                        let currency = suffix.to_ascii_uppercase();
+                        let currency = crate::api::Currency::new(suffix);
                         resolved.insert(currency, acc.id);
                         break;
                     }
@@ -33,7 +33,7 @@ fn resolve_target_accounts(
 
     // 2. Override with custom_accounts (takes precedence)
     for (curr, &id) in custom_accounts {
-        resolved.insert(curr.to_uppercase(), id);
+        resolved.insert(curr.clone(), id);
     }
 
     resolved

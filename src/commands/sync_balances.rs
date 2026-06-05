@@ -26,10 +26,10 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
     let friends_res: crate::api::splitwise::schema::FriendsResponse =
         sw_client.fetch("get_friends", &[] as &[(&str, &str)]).await;
 
-    let mut global_balances: HashMap<String, Decimal> = HashMap::new();
+    let mut global_balances: HashMap<crate::api::Currency, Decimal> = HashMap::new();
     for friend in friends_res.friends {
         for bal in friend.balance {
-            let currency = bal.currency_code.to_uppercase();
+            let currency = bal.currency_code.clone();
             *global_balances.entry(currency).or_insert(Decimal::ZERO) += bal.amount;
         }
     }
@@ -45,7 +45,7 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
                     if let Some(member) = members.iter().find(|m| m.id == config.splitwise.user_id)
                     {
                         for bal in &member.balance {
-                            let currency = bal.currency_code.to_uppercase();
+                            let currency = bal.currency_code.clone();
                             *global_balances.entry(currency).or_insert(Decimal::ZERO) -= bal.amount;
                         }
                     }

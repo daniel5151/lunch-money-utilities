@@ -421,13 +421,14 @@ pub(crate) async fn run_query_lunchmoney_accounts() {
         .fetch("manual_accounts", &[] as &[(&str, &str)])
         .await;
 
-    let target_accounts: HashMap<u64, String> = crate::commands::resolve_target_accounts(
-        &accounts_res,
-        &config.lunch_money.custom_accounts,
-    )
-    .into_iter()
-    .map(|(currency, id)| (id, currency))
-    .collect();
+    let target_accounts: HashMap<u64, crate::api::Currency> =
+        crate::commands::resolve_target_accounts(
+            &accounts_res,
+            &config.lunch_money.custom_accounts,
+        )
+        .into_iter()
+        .map(|(currency, id)| (id, currency))
+        .collect();
 
     let mut accounts = accounts_res.manual_accounts;
 
@@ -441,9 +442,15 @@ pub(crate) async fn run_query_lunchmoney_accounts() {
     println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     // Sort accounts: active first, then by name
-    accounts.sort_by(|a, b| match (a.status.as_str(), b.status.as_str()) {
-        ("active", "closed") => std::cmp::Ordering::Less,
-        ("closed", "active") => std::cmp::Ordering::Greater,
+    accounts.sort_by(|a, b| match (a.status, b.status) {
+        (
+            crate::api::lunch_money::schema::AccountStatus::Active,
+            crate::api::lunch_money::schema::AccountStatus::Closed,
+        ) => std::cmp::Ordering::Less,
+        (
+            crate::api::lunch_money::schema::AccountStatus::Closed,
+            crate::api::lunch_money::schema::AccountStatus::Active,
+        ) => std::cmp::Ordering::Greater,
         _ => a.name.cmp(&b.name),
     });
 
@@ -465,7 +472,7 @@ pub(crate) async fn run_query_lunchmoney_accounts() {
             "—".to_string()
         };
 
-        let is_closed = acc.status == "closed";
+        let is_closed = acc.status == crate::api::lunch_money::schema::AccountStatus::Closed;
 
         if is_closed {
             let mapped_display = if target_accounts.contains_key(&acc.id) {
