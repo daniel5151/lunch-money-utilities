@@ -65,7 +65,12 @@ fn to_sync_record(
         None => "",
     };
 
-    let lm_clean = lm_category_name.unwrap_or("?");
+    let sw_is_uncategorized = matches!(sw_category_name, None | Some("Uncategorized:General"));
+    let lm_clean = if sw_is_uncategorized {
+        lm_category_name.unwrap_or("")
+    } else {
+        lm_category_name.unwrap_or("?")
+    };
 
     let amount_style = if amount.is_sign_negative() {
         STYLE_ERROR
