@@ -111,4 +111,22 @@ pub mod schema {
         pub first_name: Option<String>,
         pub last_name: Option<String>,
     }
+
+    #[derive(Deserialize, Debug)]
+    pub struct CategoriesResponse {
+        pub categories: Vec<ParentCategory>,
+    }
+
+    #[derive(Deserialize, Debug)]
+    pub struct Category {
+        pub id: u32,
+        pub name: String,
+    }
+
+    #[derive(Deserialize, Debug)]
+    pub struct ParentCategory {
+        pub id: u32,
+        pub name: String,
+        pub subcategories: Vec<Category>,
+    }
 }

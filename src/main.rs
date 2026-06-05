@@ -39,6 +39,9 @@ async fn main() {
                 cli::QuerySplitwiseSubcommands::GetGroups => {
                     commands::query::run_query_splitwise_get_groups().await;
                 }
+                cli::QuerySplitwiseSubcommands::Categories => {
+                    commands::query::run_query_splitwise_categories().await;
+                }
             },
             cli::QuerySubcommands::LunchMoney(lunchmoney_args) => match lunchmoney_args.command {
                 cli::QueryLunchMoneySubcommands::Categories => {

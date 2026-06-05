@@ -503,3 +503,48 @@ pub async fn run_query_lunchmoney_tags() {
         println! {};
     }
 }
+
+pub async fn run_query_splitwise_categories() {
+    let config = crate::load_config();
+
+    let http_pool = reqwest::Client::new();
+    let sw_client =
+        crate::api::splitwise::Client::new(http_pool, config.splitwise.api_key.clone());
+
+    let bar = "─".repeat(80);
+
+    println! {};
+    println! { "{STYLE_HEADER}🔍 Querying Splitwise Categories{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
+
+    let categories_res: crate::api::splitwise::schema::CategoriesResponse =
+        sw_client.fetch("get_categories", &[] as &[(&str, &str)]).await;
+
+    let categories = categories_res.categories;
+
+    if categories.is_empty() {
+        println! { "{STYLE_WARNING}No categories found.{STYLE_WARNING:#}" };
+        println! {};
+        return;
+    }
+
+    println! { "  {:<10} {}", "ID", "Category Name" };
+    println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
+
+    for cat in categories {
+        let id_bracket = format!("[{}]", cat.id);
+        println! { "  {:<10} {}", id_bracket, cat.name };
+
+        let count = cat.subcategories.len();
+        for (idx, subcat) in cat.subcategories.into_iter().enumerate() {
+            let branch = if idx == count - 1 {
+                "└──"
+            } else {
+                "├──"
+            };
+            let sub_id_bracket = format!("[{}]", subcat.id);
+            println! { "  {} {:<9} {}", branch, sub_id_bracket, subcat.name };
+        }
+    }
+    println! {};
+}
