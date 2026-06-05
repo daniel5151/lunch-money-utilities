@@ -22,6 +22,7 @@ fn format_transaction_summary(
     date: jiff::civil::Date,
     notes: &str,
     account_name: &str,
+    category_name: Option<&str>,
 ) -> String {
     let date_str = date.strftime("%Y-%m-%d").to_string();
     let currency_upper = currency.to_uppercase();
@@ -51,8 +52,14 @@ fn format_transaction_summary(
         format!("  {}[{}]{:#}", STYLE_INFO, account_name, STYLE_INFO)
     };
 
+    let category_display = if let Some(cat) = category_name {
+        format!("  {}({}){:#}", STYLE_WARNING, cat, STYLE_WARNING)
+    } else {
+        "".to_string()
+    };
+
     format!(
-        "{}  {:<35}  {}{:>9} {}{:#}{}{}",
+        "{}  {:<35}  {}{:>9} {}{:#}{}{}{}",
         date_str,
         clean_payee,
         amount_style,
@@ -60,8 +67,72 @@ fn format_transaction_summary(
         currency_upper,
         amount_style,
         account_display,
+        category_display,
         notes_suffix
     )
+}
+
+async fn resolve_categories(
+    lm_client: &crate::api::lunch_money::Client,
+    config: &crate::config::Config,
+) -> (HashMap<String, u64>, HashMap<u64, String>) {
+    if config.categories.is_empty() {
+        return (HashMap::new(), HashMap::new());
+    }
+
+    println! { "  {STYLE_DIM}Fetching Lunch Money categories...{STYLE_DIM:#}" };
+    let categories_res: crate::api::lunch_money::schema::CategoriesResponse = lm_client
+        .fetch("categories", &[("format", "flattened")] as &[(&str, &str)])
+        .await;
+
+    let names: HashMap<u64, String> = categories_res
+        .categories
+        .iter()
+        .map(|c| (c.id, c.name.clone()))
+        .collect();
+
+    let mut resolved = HashMap::new();
+    for (sw_key, lm_val) in &config.categories {
+        let resolved_id = match lm_val {
+            crate::config::CategoryValue::Id(id) => {
+                if categories_res
+                    .categories
+                    .iter()
+                    .any(|c| c.id == *id && !c.archived)
+                {
+                    *id
+                } else {
+                    println! { "  ⚠️  {STYLE_WARNING}Warning:{STYLE_WARNING:#} Configured Lunch Money category ID {} (for Splitwise category '{}') does not exist or is archived.", id, sw_key };
+                    continue;
+                }
+            }
+            crate::config::CategoryValue::Name(name) => {
+                let matches: Vec<_> = categories_res
+                    .categories
+                    .iter()
+                    .filter(|c| c.name.eq_ignore_ascii_case(name) && !c.archived)
+                    .collect();
+                if matches.is_empty() {
+                    println! { "  ⚠️  {STYLE_WARNING}Warning:{STYLE_WARNING:#} Configured Lunch Money category '{}' (for Splitwise category '{}') does not exist or is archived.", name, sw_key };
+                    continue;
+                } else if matches.len() > 1 {
+                    eprintln! {};
+                    eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Multiple active Lunch Money categories found with the name '{}':", name };
+                    for m in matches {
+                        eprintln! { "  • ID: {} (is_group: {})", m.id, m.is_group };
+                    }
+                    eprintln! { "Please map by category ID instead to resolve ambiguity." };
+                    eprintln! {};
+                    std::process::exit(1);
+                } else {
+                    matches[0].id
+                }
+            }
+        };
+
+        resolved.insert(sw_key.clone(), resolved_id);
+    }
+    (resolved, names)
 }
 
 pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
@@ -125,6 +196,23 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
             eprintln! { "Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'." };
             eprintln! {};
             std::process::exit(1);
+        }
+    }
+
+    let (resolved_categories, lm_category_names) = resolve_categories(&lm_client, &config).await;
+
+    let mut sw_category_id_to_path = HashMap::new();
+    if !config.categories.is_empty() {
+        println! { "  {STYLE_DIM}Fetching Splitwise categories...{STYLE_DIM:#}" };
+        let sw_categories_res: crate::api::splitwise::schema::CategoriesResponse = sw_client
+            .fetch("get_categories", &[] as &[(&str, &str)])
+            .await;
+        for parent in sw_categories_res.categories {
+            sw_category_id_to_path.insert(parent.id, parent.name.clone());
+            for sub in parent.subcategories {
+                let path = format!("{}:{}", parent.name, sub.name);
+                sw_category_id_to_path.insert(sub.id, path);
+            }
         }
     }
 
@@ -286,6 +374,15 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
             }
         } else {
             let manual_account_id = config.lunch_money.target_accounts[&currency_upper];
+            let mut category_id = None;
+            if let Some(ref cat) = expense.category {
+                let path = sw_category_id_to_path.get(&cat.id);
+                category_id = path
+                    .and_then(|p| resolved_categories.get(p))
+                    .or_else(|| resolved_categories.get(&cat.name))
+                    .or_else(|| resolved_categories.get(&cat.id.to_string()))
+                    .copied();
+            }
             inserts.push(InsertObject {
                 date: date_civil,
                 amount: net_balance,
@@ -296,6 +393,7 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
                 manual_account_id,
                 status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
                 tag_ids: None,
+                category_id,
             });
         }
     }
@@ -305,7 +403,10 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", deletes.len() };
         for t in &deletes {
             let acc_name = get_account_name(t.manual_account_id, &t.currency);
-            println! { "   {STYLE_ERROR}-{STYLE_ERROR:#} {}", format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), &acc_name) };
+            let category_name = t
+                .category_id
+                .and_then(|id| lm_category_names.get(&id).cloned());
+            println! { "   {STYLE_ERROR}-{STYLE_ERROR:#} {}", format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), &acc_name, category_name.as_deref()) };
         }
         println! {};
 
@@ -325,7 +426,7 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         println! { "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:", updates.len() };
         for u in &updates {
             let acc_name = get_account_name(None, &u.currency);
-            println! { "   {STYLE_INFO}~{STYLE_INFO:#} {}", format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, &acc_name) };
+            println! { "   {STYLE_INFO}~{STYLE_INFO:#} {}", format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, &acc_name, None) };
         }
         println! {};
 
@@ -365,7 +466,10 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         println! { "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:", inserts.len() };
         for ins in &inserts {
             let acc_name = get_account_name(Some(ins.manual_account_id), &ins.currency);
-            println! { "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}", format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, &acc_name) };
+            let category_name = ins
+                .category_id
+                .and_then(|id| lm_category_names.get(&id).cloned());
+            println! { "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}", format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, &acc_name, category_name.as_deref()) };
         }
         println! {};
 
@@ -485,6 +589,23 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
             eprintln! { "Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'." };
             eprintln! {};
             std::process::exit(1);
+        }
+    }
+
+    let (resolved_categories, lm_category_names) = resolve_categories(&lm_client, &config).await;
+
+    let mut sw_category_id_to_path = HashMap::new();
+    if !config.categories.is_empty() {
+        println! { "  {STYLE_DIM}Fetching Splitwise categories...{STYLE_DIM:#}" };
+        let sw_categories_res: crate::api::splitwise::schema::CategoriesResponse = sw_client
+            .fetch("get_categories", &[] as &[(&str, &str)])
+            .await;
+        for parent in sw_categories_res.categories {
+            sw_category_id_to_path.insert(parent.id, parent.name.clone());
+            for sub in parent.subcategories {
+                let path = format!("{}:{}", parent.name, sub.name);
+                sw_category_id_to_path.insert(sub.id, path);
+            }
         }
     }
 
@@ -681,6 +802,15 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
             }
         } else {
             let manual_account_id = config.lunch_money.target_accounts[&currency_upper];
+            let mut category_id = None;
+            if let Some(ref cat) = expense.category {
+                let path = sw_category_id_to_path.get(&cat.id);
+                category_id = path
+                    .and_then(|p| resolved_categories.get(p))
+                    .or_else(|| resolved_categories.get(&cat.name))
+                    .or_else(|| resolved_categories.get(&cat.id.to_string()))
+                    .copied();
+            }
             inserts.push(InsertObject {
                 date: date_civil,
                 amount: net_balance,
@@ -691,6 +821,7 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
                 manual_account_id,
                 status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
                 tag_ids: tag_id.map(|id| vec![id]),
+                category_id,
             });
         }
     }
@@ -720,7 +851,10 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", deletes.len() };
         for t in &deletes {
             let acc_name = get_account_name(t.manual_account_id, &t.currency);
-            println! { "   {STYLE_ERROR}-{STYLE_ERROR:#} {}", format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), &acc_name) };
+            let category_name = t
+                .category_id
+                .and_then(|id| lm_category_names.get(&id).cloned());
+            println! { "   {STYLE_ERROR}-{STYLE_ERROR:#} {}", format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), &acc_name, category_name.as_deref()) };
         }
         println! {};
 
@@ -740,7 +874,7 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         println! { "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:", updates.len() };
         for u in &updates {
             let acc_name = get_account_name(None, &u.currency);
-            println! { "   {STYLE_INFO}~{STYLE_INFO:#} {}", format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, &acc_name) };
+            println! { "   {STYLE_INFO}~{STYLE_INFO:#} {}", format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, &acc_name, None) };
         }
         println! {};
 
@@ -780,7 +914,10 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         println! { "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:", inserts.len() };
         for ins in &inserts {
             let acc_name = get_account_name(Some(ins.manual_account_id), &ins.currency);
-            println! { "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}", format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, &acc_name) };
+            let category_name = ins
+                .category_id
+                .and_then(|id| lm_category_names.get(&id).cloned());
+            println! { "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}", format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, &acc_name, category_name.as_deref()) };
         }
         println! {};
 

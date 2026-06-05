@@ -149,6 +149,7 @@ pub mod schema {
         pub group_parent_id: Option<u64>,
         #[expect(dead_code)]
         pub status: TransactionStatus,
+        pub category_id: Option<u64>,
     }
 
     #[derive(Serialize, Debug)]
@@ -168,6 +169,8 @@ pub mod schema {
         pub status: TransactionStatus,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub tag_ids: Option<Vec<u64>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub category_id: Option<u64>,
     }
 
     #[derive(Deserialize, Debug)]

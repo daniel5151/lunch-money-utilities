@@ -96,6 +96,7 @@ pub mod schema {
         pub currency_code: String,
         pub deleted_at: Option<jiff::Timestamp>,
         pub users: Vec<ExpenseUser>,
+        pub category: Option<Category>,
     }
 
     #[derive(Deserialize)]
@@ -117,7 +118,7 @@ pub mod schema {
         pub categories: Vec<ParentCategory>,
     }
 
-    #[derive(Deserialize, Debug)]
+    #[derive(Deserialize, Debug, Clone)]
     pub struct Category {
         pub id: u32,
         pub name: String,

@@ -4,6 +4,15 @@ use serde::Deserialize;
 pub struct Config {
     pub splitwise: SplitwiseConfig,
     pub lunch_money: LunchMoneyConfig,
+    #[serde(default)]
+    pub categories: std::collections::HashMap<String, CategoryValue>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum CategoryValue {
+    Id(u64),
+    Name(String),
 }
 
 #[derive(Deserialize, Clone)]

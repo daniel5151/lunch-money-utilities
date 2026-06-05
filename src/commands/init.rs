@@ -193,7 +193,15 @@ api_key = "{lunch_money_api_key}"
 
 # The mapping from currency code to manual account ID in Lunch Money
 [lunch_money.target_accounts]
-{target_accounts_toml}"#
+{target_accounts_toml}
+[categories]
+# Map Splitwise category names/IDs to Lunch Money category names/IDs (optional)
+# HINT: use `splitwise-lunchmoney query splitwise categories` and
+# `splitwise-lunchmoney query lunchmoney categories` to find names and IDs.
+# "Food & drink" = "Restaurants"
+# "Electricity" = 123456
+# "Life:Other" = 123457 # Use colon to specify [sub]category (to disambiguate)
+"#
     );
 
     fs::write("splitwise-lunchmoney.toml", template)

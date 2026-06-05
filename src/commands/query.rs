@@ -508,8 +508,7 @@ pub async fn run_query_splitwise_categories() {
     let config = crate::load_config();
 
     let http_pool = reqwest::Client::new();
-    let sw_client =
-        crate::api::splitwise::Client::new(http_pool, config.splitwise.api_key.clone());
+    let sw_client = crate::api::splitwise::Client::new(http_pool, config.splitwise.api_key.clone());
 
     let bar = "─".repeat(80);
 
@@ -517,8 +516,9 @@ pub async fn run_query_splitwise_categories() {
     println! { "{STYLE_HEADER}🔍 Querying Splitwise Categories{STYLE_HEADER:#}" };
     println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
-    let categories_res: crate::api::splitwise::schema::CategoriesResponse =
-        sw_client.fetch("get_categories", &[] as &[(&str, &str)]).await;
+    let categories_res: crate::api::splitwise::schema::CategoriesResponse = sw_client
+        .fetch("get_categories", &[] as &[(&str, &str)])
+        .await;
 
     let categories = categories_res.categories;
 
