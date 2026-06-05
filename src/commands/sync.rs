@@ -21,10 +21,11 @@ fn format_transaction_summary(
     currency: &str,
     date: jiff::civil::Date,
     notes: &str,
-    account_name: &str,
     sw_category_name: Option<&str>,
     lm_category_name: Option<&str>,
-    cat_width: usize,
+    payee_width: usize,
+    sw_cat_width: usize,
+    lm_cat_width: usize,
 ) -> String {
     let date_str = date.strftime("%Y-%m-%d").to_string();
     let currency_upper = currency.to_uppercase();
@@ -34,10 +35,13 @@ fn format_transaction_summary(
         STYLE_SUCCESS
     };
 
-    // Limit payee length to 35 characters for clean alignment, appending '...' if truncated
+    // Limit payee length to 50 characters for clean alignment, appending '...' if truncated
     let mut clean_payee = payee.to_string();
-    if clean_payee.chars().count() > 35 {
-        clean_payee = clean_payee.chars().take(32).collect::<String>();
+    if clean_payee.starts_with("Splitwise - ") {
+        clean_payee = clean_payee["Splitwise - ".len()..].to_string();
+    }
+    if clean_payee.chars().count() > 50 {
+        clean_payee = clean_payee.chars().take(47).collect::<String>();
         clean_payee.push_str("...");
     }
 
@@ -48,38 +52,58 @@ fn format_transaction_summary(
         format!("  {}{}{:#}", STYLE_DIM, trimmed_notes, STYLE_DIM)
     };
 
-    let account_display = if account_name.is_empty() {
-        "".to_string()
-    } else {
-        format!("  {}[{}]{:#}", STYLE_INFO, account_name, STYLE_INFO)
+    // Format two separate columns for Splitwise and Lunch Money categories
+    // Special case "Uncategorized:General" to not be printed at all
+    let sw_clean = match sw_category_name {
+        Some("Uncategorized:General") => None,
+        other => other,
     };
 
-    let category_display = if sw_category_name.is_none() && lm_category_name.is_none() {
-        " ".repeat(cat_width + 2)
+    let category_display = if sw_clean.is_none() && lm_category_name.is_none() {
+        let total_width = if sw_cat_width > 0 { sw_cat_width + 2 } else { 0 } + lm_cat_width + 2;
+        " ".repeat(total_width)
     } else {
-        let sw_part = sw_category_name.unwrap_or("?");
+        let sw_part = sw_clean.unwrap_or("");
         let lm_part = lm_category_name.unwrap_or("?");
-        let uncolored = format!("({} -> {})", sw_part, lm_part);
-        format!(
+
+        let sw_col = if sw_part.is_empty() {
+            if sw_cat_width > 0 {
+                format!("  {}", " ".repeat(sw_cat_width))
+            } else {
+                "".to_string()
+            }
+        } else {
+            format!(
+                "  {}{:<width$}{:#}",
+                STYLE_WARNING,
+                sw_part,
+                STYLE_WARNING,
+                width = sw_cat_width
+            )
+        };
+
+        let lm_col = format!(
             "  {}{:<width$}{:#}",
             STYLE_WARNING,
-            uncolored,
+            lm_part,
             STYLE_WARNING,
-            width = cat_width
-        )
+            width = lm_cat_width
+        );
+
+        format!("{}{}", sw_col, lm_col)
     };
 
     let line = format!(
-        "{}  {:<35}  {}{:>9} {}{:#}{}{}{}",
+        "{}  {:<width$}  {}{:>9} {}{:#}{}{}",
         date_str,
         clean_payee,
         amount_style,
         amount,
         currency_upper,
         amount_style,
-        account_display,
         category_display,
-        notes_suffix
+        notes_suffix,
+        width = payee_width
     );
     line.trim_end().to_string()
 }
@@ -442,27 +466,6 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     .await;
 }
 
-fn get_account_name(
-    manual_account_id: Option<u64>,
-    currency: &str,
-    config: &crate::config::Config,
-    accounts_res: &ManualAccountsResponse,
-) -> String {
-    let id = manual_account_id.or_else(|| {
-        let currency_upper = currency.to_uppercase();
-        config
-            .lunch_money
-            .target_accounts
-            .get(&currency_upper)
-            .copied()
-    });
-    if let Some(id) = id {
-        if let Some(acc) = accounts_res.manual_accounts.iter().find(|acc| acc.id == id) {
-            return acc.display_name.as_deref().unwrap_or(&acc.name).to_string();
-        }
-    }
-    "Unknown Account".to_string()
-}
 
 fn verify_target_accounts(config: &crate::config::Config, accounts_res: &ManualAccountsResponse) {
     for (currency, &account_id) in &config.lunch_money.target_accounts {
@@ -677,17 +680,42 @@ async fn execute_sync_actions(
     sw_category_id_to_path: &HashMap<u32, String>,
     lm_tx_categories: &HashMap<u64, (Option<String>, Option<u64>)>,
 ) {
-    // Calculate dynamic category column width
-    let mut cat_width = 0;
+    // Calculate dynamic category and payee column widths
+    let mut payee_width = 0;
+    let mut sw_cat_width = 0;
+    let mut lm_cat_width = 0;
     {
-        let mut check_width = |sw_cat: Option<&str>, lm_cat: Option<&str>| {
-            if sw_cat.is_some() || lm_cat.is_some() {
-                let sw_part = sw_cat.unwrap_or("?");
-                let lm_part = lm_cat.unwrap_or("?");
-                let len = sw_part.len() + lm_part.len() + 6;
-                if len > cat_width {
-                    cat_width = len;
+        let get_clean_payee_len = |payee: &str| {
+            let mut clean = payee;
+            if clean.starts_with("Splitwise - ") {
+                clean = &clean["Splitwise - ".len()..];
+            }
+            let len = clean.chars().count();
+            if len > 50 {
+                50
+            } else {
+                len
+            }
+        };
+
+        let mut check_width = |payee: &str, sw_cat: Option<&str>, lm_cat: Option<&str>| {
+            let p_len = get_clean_payee_len(payee);
+            if p_len > payee_width {
+                payee_width = p_len;
+            }
+
+            let sw_clean = match sw_cat {
+                Some("Uncategorized:General") => None,
+                other => other,
+            };
+            if let Some(sw) = sw_clean {
+                if sw.len() > sw_cat_width {
+                    sw_cat_width = sw.len();
                 }
+            }
+            let lm_part = lm_cat.unwrap_or("?");
+            if lm_part.len() > lm_cat_width {
+                lm_cat_width = lm_part.len();
             }
         };
 
@@ -707,7 +735,7 @@ async fn execute_sync_actions(
                             .or(Some(cat_name.as_str()))
                     })
                 });
-            check_width(sw_category_name, category_name.as_deref());
+            check_width(&t.payee, sw_category_name, category_name.as_deref());
         }
 
         for u in updates {
@@ -726,7 +754,7 @@ async fn execute_sync_actions(
                     })
                 });
             let category_name = category_id.and_then(|id| lm_category_names.get(&id).cloned());
-            check_width(sw_category_name, category_name.as_deref());
+            check_width(&u.payee, sw_category_name, category_name.as_deref());
         }
 
         for ins in inserts {
@@ -744,7 +772,7 @@ async fn execute_sync_actions(
                                 .or(Some(cat_name.as_str()))
                         })
                     });
-            check_width(sw_category_name, category_name.as_deref());
+            check_width(&ins.payee, sw_category_name, category_name.as_deref());
         }
     }
 
@@ -752,7 +780,6 @@ async fn execute_sync_actions(
     if !deletes.is_empty() {
         println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", deletes.len() };
         for t in deletes {
-            let acc_name = get_account_name(t.manual_account_id, &t.currency, config, accounts_res);
             let category_name = t
                 .category_id
                 .and_then(|id| lm_category_names.get(&id).cloned());
@@ -768,7 +795,7 @@ async fn execute_sync_actions(
                             .or(Some(cat_name.as_str()))
                     })
                 });
-            println! { "   {STYLE_ERROR}-{STYLE_ERROR:#} {}", format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), &acc_name, sw_category_name, category_name.as_deref(), cat_width) };
+            println! { "   {STYLE_ERROR}-{STYLE_ERROR:#} {}", format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), sw_category_name, category_name.as_deref(), payee_width, sw_cat_width, lm_cat_width) };
         }
         println! {};
 
@@ -787,7 +814,6 @@ async fn execute_sync_actions(
     if !updates.is_empty() {
         println! { "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:", updates.len() };
         for u in updates {
-            let acc_name = get_account_name(None, &u.currency, config, accounts_res);
             let (external_id, category_id) = lm_tx_categories
                 .get(&u.id)
                 .map(|(ext_id, cat_id)| (ext_id.as_ref(), *cat_id))
@@ -803,7 +829,7 @@ async fn execute_sync_actions(
                     })
                 });
             let category_name = category_id.and_then(|id| lm_category_names.get(&id).cloned());
-            println! { "   {STYLE_INFO}~{STYLE_INFO:#} {}", format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, &acc_name, sw_category_name, category_name.as_deref(), cat_width) };
+            println! { "   {STYLE_INFO}~{STYLE_INFO:#} {}", format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, sw_category_name, category_name.as_deref(), payee_width, sw_cat_width, lm_cat_width) };
         }
         println! {};
 
@@ -842,7 +868,6 @@ async fn execute_sync_actions(
     if !inserts.is_empty() {
         println! { "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:", inserts.len() };
         for ins in inserts {
-            let acc_name = get_account_name(Some(ins.manual_account_id), &ins.currency, config, accounts_res);
             let category_name = ins
                 .category_id
                 .and_then(|id| lm_category_names.get(&id).cloned());
@@ -857,7 +882,7 @@ async fn execute_sync_actions(
                                 .or(Some(cat_name.as_str()))
                         })
                     });
-            println! { "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}", format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, &acc_name, sw_category_name, category_name.as_deref(), cat_width) };
+            println! { "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}", format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, sw_category_name, category_name.as_deref(), payee_width, sw_cat_width, lm_cat_width) };
         }
         println! {};
 

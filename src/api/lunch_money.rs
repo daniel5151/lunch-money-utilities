@@ -143,6 +143,7 @@ pub mod schema {
         pub payee: String,
         pub notes: Option<String>,
         pub external_id: Option<String>,
+        #[expect(dead_code)]
         pub manual_account_id: Option<u64>,
         pub is_split_parent: Option<bool>,
         #[expect(dead_code)]
