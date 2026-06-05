@@ -96,6 +96,10 @@ pub struct QuerySplitwiseWindowArgs {
     /// Window duration for querying (e.g., "3 days", "24h", "1 week")
     #[arg(value_parser = humantime::parse_duration)]
     pub window: std::time::Duration,
+
+    /// Optional date to offset the window from (YYYY-MM-DD, defaults to today's date)
+    #[arg(long)]
+    pub from: Option<jiff::civil::Date>,
 }
 
 #[derive(Parser, Debug)]
@@ -132,6 +136,10 @@ pub struct SyncWindowArgs {
     /// Window duration for synchronization (e.g., "3 days", "24h", "1 week")
     #[arg(value_parser = humantime::parse_duration)]
     pub window: std::time::Duration,
+
+    /// Optional date to offset the window from (YYYY-MM-DD, defaults to today's date)
+    #[arg(long)]
+    pub from: Option<jiff::civil::Date>,
 
     /// Print what would be synced without modifying Lunch Money
     #[arg(long)]

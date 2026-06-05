@@ -188,16 +188,8 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     let lm_client =
         crate::api::lunch_money::Client::new(http_pool, config.lunch_money.api_key.clone());
 
-    let start_window = jiff::Timestamp::now() - window_duration;
-    let start_window_str = start_window
-        .to_zoned(jiff::tz::TimeZone::UTC)
-        .strftime("%Y-%m-%d")
-        .to_string();
-
-    let end_window_str = jiff::Timestamp::now()
-        .to_zoned(jiff::tz::TimeZone::UTC)
-        .strftime("%Y-%m-%d")
-        .to_string();
+    let (start_window_str, end_window_str) =
+        super::calculate_window_bounds(sync_args.from, window_duration);
 
     let dry_run_suffix = if sync_args.dry_run {
         format!(" {STYLE_WARNING}[DRY RUN]{STYLE_WARNING:#}")
@@ -219,11 +211,18 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         .map(|g| (g.id, g.name))
         .collect();
 
-    let sw_query = [("dated_after", start_window_str.as_str()), ("limit", "0")];
+    let mut sw_query = vec![("dated_after", start_window_str.as_str()), ("limit", "0")];
+    let dated_before_str;
+    if sync_args.from.is_some() {
+        dated_before_str = format!("{}T23:59:59Z", end_window_str);
+        sw_query.push(("dated_before", dated_before_str.as_str()));
+    }
     let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
 
+    let expenses = expenses_res.expenses;
+
     let mut sw_expense_categories = HashMap::new();
-    for expense in &expenses_res.expenses {
+    for expense in &expenses {
         let ext_id = format!("splitwise_{}", expense.id);
         let cat_info = expense.category.as_ref().map(|c| (c.id, c.name.clone()));
         sw_expense_categories.insert(ext_id, cat_info);
@@ -266,7 +265,7 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         .collect();
 
     let (inserts, updates, deletes) = diff_transactions(
-        expenses_res.expenses,
+        expenses,
         &config,
         &target_accounts,
         &group_map,

@@ -103,3 +103,25 @@ fn format_group_balances(group: &crate::api::splitwise::schema::Group, user_id: 
         parts.join(", ")
     }
 }
+
+fn calculate_window_bounds(
+    from_date: Option<jiff::civil::Date>,
+    window_duration: jiff::SignedDuration,
+) -> (String, String) {
+    let end_date = from_date.unwrap_or_else(|| {
+        jiff::Timestamp::now()
+            .to_zoned(jiff::tz::TimeZone::UTC)
+            .date()
+    });
+
+    let start_date = (end_date
+        .at(23, 59, 59, 999_999_999)
+        .to_zoned(jiff::tz::TimeZone::UTC)
+        .expect("valid datetime")
+        .timestamp()
+        - window_duration)
+        .to_zoned(jiff::tz::TimeZone::UTC)
+        .date();
+
+    (start_date.to_string(), end_date.to_string())
+}

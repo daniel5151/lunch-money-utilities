@@ -104,18 +104,15 @@ pub(crate) async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseW
     let sw_client =
         crate::api::splitwise::Client::new(http_pool.clone(), config.splitwise.api_key.clone());
 
-    let start_window = jiff::Timestamp::now() - window_duration;
-    let start_window_str = start_window
-        .to_zoned(jiff::tz::TimeZone::UTC)
-        .strftime("%Y-%m-%d")
-        .to_string();
+    let (start_window_str, end_window_str) =
+        super::calculate_window_bounds(args.from, window_duration);
 
     let bar = "─".repeat(92);
 
     println! {};
     println! { "{STYLE_HEADER}🔍 Querying Splitwise Expenses{STYLE_HEADER:#}" };
     println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
-    println! { "{STYLE_INFO}📅 Window boundary:{STYLE_INFO:#} {}", start_window_str };
+    println! { "{STYLE_INFO}📅 Window boundary:{STYLE_INFO:#} {} to {}", start_window_str, end_window_str };
     println! {};
 
     println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
@@ -126,10 +123,17 @@ pub(crate) async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseW
         .map(|g| (g.id, g.name))
         .collect();
 
-    let sw_query = [("dated_after", start_window_str.as_str()), ("limit", "0")];
+    let mut sw_query = vec![("dated_after", start_window_str.as_str()), ("limit", "0")];
+    let dated_before_str;
+    if args.from.is_some() {
+        dated_before_str = format!("{}T23:59:59Z", end_window_str);
+        sw_query.push(("dated_before", dated_before_str.as_str()));
+    }
     let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
 
-    if expenses_res.expenses.is_empty() {
+    let expenses = expenses_res.expenses;
+
+    if expenses.is_empty() {
         println! { "{STYLE_SUCCESS}✨ No expenses found in this window.{STYLE_SUCCESS:#}" };
         println! {};
         return;
@@ -138,7 +142,7 @@ pub(crate) async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseW
     println! { "  {:<10}  {:<30}  {:<30}  {:>12}", "Date", "Group/Person", "Description", "Net Balance" };
     println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
-    print_expenses_table(expenses_res.expenses, &config, &group_map);
+    print_expenses_table(expenses, &config, &group_map);
 }
 
 pub(crate) async fn run_query_splitwise_group(args: crate::cli::QuerySplitwiseGroupArgs) {
