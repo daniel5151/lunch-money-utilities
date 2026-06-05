@@ -233,7 +233,8 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     let accounts_res: ManualAccountsResponse = lm_client
         .fetch("manual_accounts", &[] as &[(&str, &str)])
         .await;
-    verify_target_accounts(&config, &accounts_res);
+    let target_accounts = crate::commands::resolve_target_accounts(&accounts_res, &config.lunch_money.custom_accounts);
+    verify_target_accounts(&target_accounts, &accounts_res);
 
     let (resolved_categories, lm_category_names) = resolve_categories(&lm_client, &config).await;
 
@@ -241,7 +242,7 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
 
     let lm_transactions = fetch_lunch_money_transactions(
         &lm_client,
-        &config,
+        &target_accounts,
         &accounts_res,
         &start_window_str,
         &end_window_str,
@@ -264,6 +265,7 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     let (inserts, updates, deletes) = diff_transactions(
         expenses_res.expenses,
         &config,
+        &target_accounts,
         &group_map,
         &mut lm_map,
         &sw_category_id_to_path,
@@ -278,8 +280,8 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         &inserts,
         sync_args.dry_run,
         &lm_client,
-        &config,
         &accounts_res,
+        &target_accounts,
         &lm_category_names,
         &sw_expense_categories,
         &sw_category_id_to_path,
@@ -359,7 +361,8 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     let accounts_res: ManualAccountsResponse = lm_client
         .fetch("manual_accounts", &[] as &[(&str, &str)])
         .await;
-    verify_target_accounts(&config, &accounts_res);
+    let target_accounts = crate::commands::resolve_target_accounts(&accounts_res, &config.lunch_money.custom_accounts);
+    verify_target_accounts(&target_accounts, &accounts_res);
 
     let (resolved_categories, lm_category_names) = resolve_categories(&lm_client, &config).await;
 
@@ -404,7 +407,7 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
 
     let lm_transactions = fetch_lunch_money_transactions(
         &lm_client,
-        &config,
+        &target_accounts,
         &accounts_res,
         "2000-01-01",
         &end_window_str,
@@ -427,6 +430,7 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     let (inserts, updates, mut deletes) = diff_transactions(
         expenses_res.expenses,
         &config,
+        &target_accounts,
         &group_map,
         &mut lm_map,
         &sw_category_id_to_path,
@@ -461,8 +465,8 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         &inserts,
         sync_args.dry_run,
         &lm_client,
-        &config,
         &accounts_res,
+        &target_accounts,
         &lm_category_names,
         &sw_expense_categories,
         &sw_category_id_to_path,
@@ -471,8 +475,15 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     .await;
 }
 
-fn verify_target_accounts(config: &crate::config::Config, accounts_res: &ManualAccountsResponse) {
-    for (currency, &account_id) in &config.lunch_money.target_accounts {
+fn verify_target_accounts(target_accounts: &HashMap<String, u64>, accounts_res: &ManualAccountsResponse) {
+    if target_accounts.is_empty() {
+        eprintln! {};
+        eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No active manual accounts found. Please set up an active 'Splitwise <CURRENCY>' manual account (e.g. 'Splitwise USD') in Lunch Money or configure [lunch_money.custom_accounts]." };
+        eprintln! {};
+        std::process::exit(1);
+    }
+
+    for (currency, &account_id) in target_accounts {
         if !accounts_res
             .manual_accounts
             .iter()
@@ -480,7 +491,6 @@ fn verify_target_accounts(config: &crate::config::Config, accounts_res: &ManualA
         {
             eprintln! {};
             eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
-            eprintln! { "Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'." };
             eprintln! {};
             std::process::exit(1);
         }
@@ -510,14 +520,14 @@ async fn fetch_splitwise_categories(
 
 async fn fetch_lunch_money_transactions(
     lm_client: &crate::api::lunch_money::Client,
-    config: &crate::config::Config,
+    target_accounts: &HashMap<String, u64>,
     accounts_res: &ManualAccountsResponse,
     start_date_str: &str,
     end_date_str: &str,
 ) -> Vec<Transaction> {
     println! { "  {STYLE_DIM}Fetching Lunch Money transactions...{STYLE_DIM:#}" };
     let mut lm_transactions = Vec::new();
-    for &account_id in config.lunch_money.target_accounts.values() {
+    for &account_id in target_accounts.values() {
         let account_id_str = account_id.to_string();
         let lm_query = [
             ("start_date", start_date_str),
@@ -549,6 +559,7 @@ async fn fetch_lunch_money_transactions(
 fn diff_transactions(
     expenses: Vec<crate::api::splitwise::schema::Expense>,
     config: &crate::config::Config,
+    target_accounts: &HashMap<String, u64>,
     group_map: &HashMap<u64, String>,
     lm_map: &mut HashMap<String, Transaction>,
     sw_category_id_to_path: &HashMap<u32, String>,
@@ -585,14 +596,10 @@ fn diff_transactions(
         }
 
         let currency_upper = expense.currency_code.to_uppercase();
-        if !config
-            .lunch_money
-            .target_accounts
-            .contains_key(&currency_upper)
-        {
+        if !target_accounts.contains_key(&currency_upper) {
             eprintln! {};
             eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No manual account configured for currency '{}'.", currency_upper };
-            eprintln! { "Please run 'splitwise-lunchmoney init' or set up 'Splitwise {}' manual account.", currency_upper };
+            eprintln! { "Please set up an active 'Splitwise {}' manual account in Lunch Money or configure [lunch_money.custom_accounts].", currency_upper };
             eprintln! {};
             std::process::exit(1);
         }
@@ -643,7 +650,7 @@ fn diff_transactions(
                 });
             }
         } else {
-            let manual_account_id = config.lunch_money.target_accounts[&currency_upper];
+            let manual_account_id = target_accounts[&currency_upper];
             let mut category_id = None;
             if let Some(ref cat) = expense.category {
                 let path = sw_category_id_to_path.get(&cat.id);
@@ -677,8 +684,8 @@ async fn execute_sync_actions(
     inserts: &[InsertObject],
     dry_run: bool,
     lm_client: &crate::api::lunch_money::Client,
-    config: &crate::config::Config,
     accounts_res: &ManualAccountsResponse,
+    target_accounts: &HashMap<String, u64>,
     lm_category_names: &HashMap<u64, String>,
     sw_expense_categories: &HashMap<String, Option<(u32, String)>>,
     sw_category_id_to_path: &HashMap<u32, String>,
@@ -842,7 +849,7 @@ async fn execute_sync_actions(
                         .iter()
                         .find(|acc| {
                             let curr = u.currency.to_uppercase();
-                            config.lunch_money.target_accounts.get(&curr).copied() == Some(acc.id)
+                            target_accounts.get(&curr).copied() == Some(acc.id)
                         })
                         .map(|acc| {
                             acc.account_type == crate::api::lunch_money::schema::AccountType::Loan

@@ -28,5 +28,6 @@ pub struct SplitwiseConfig {
 #[serde(deny_unknown_fields)]
 pub struct LunchMoneyConfig {
     pub api_key: String,
-    pub target_accounts: std::collections::HashMap<String, u64>,
+    #[serde(default)]
+    pub custom_accounts: std::collections::HashMap<String, u64>,
 }

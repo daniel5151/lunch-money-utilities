@@ -59,13 +59,7 @@ pub async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
         .fetch("manual_accounts", &[] as &[(&str, &str)])
         .await;
 
-    // Normalize config keys to uppercase
-    let target_accounts: HashMap<String, u64> = config
-        .lunch_money
-        .target_accounts
-        .iter()
-        .map(|(k, v)| (k.to_uppercase(), *v))
-        .collect();
+    let target_accounts = crate::commands::resolve_target_accounts(&accounts_res, &config.lunch_money.custom_accounts);
 
     let mut has_updates = false;
 
@@ -78,7 +72,7 @@ pub async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
             Some(a) => a,
             None => {
                 eprintln! {};
-                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
+                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
                 std::process::exit(1);
             }
         };
@@ -138,7 +132,7 @@ pub async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
         for (curr, bal) in unmapped {
             println! { "  • {} {}", bal, curr };
         }
-        println! { "  {STYLE_DIM}To sync these, configure target accounts in splitwise-lunchmoney.toml.{STYLE_DIM:#}" };
+        println! { "  {STYLE_DIM}To sync these, create 'Splitwise <CURRENCY>' manual accounts in Lunch Money or configure custom accounts.{STYLE_DIM:#}" };
     }
 
     println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };

@@ -473,6 +473,11 @@ pub async fn run_query_lunchmoney_accounts() {
         .fetch("manual_accounts", &[] as &[(&str, &str)])
         .await;
 
+    let target_accounts: HashMap<u64, String> = crate::commands::resolve_target_accounts(&accounts_res, &config.lunch_money.custom_accounts)
+        .into_iter()
+        .map(|(currency, id)| (id, currency))
+        .collect();
+
     let mut accounts = accounts_res.manual_accounts;
 
     if accounts.is_empty() {
@@ -483,13 +488,6 @@ pub async fn run_query_lunchmoney_accounts() {
 
     println! { "  {:<10}  {:<18}  {:<12}  {:>11}  {:<6}  {}", "ID", "Name", "Type", "Balance", "Status", "Mapped" };
     println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
-
-    let target_accounts: HashMap<u64, String> = config
-        .lunch_money
-        .target_accounts
-        .iter()
-        .map(|(currency, &id)| (id, currency.to_uppercase()))
-        .collect();
 
     // Sort accounts: active first, then by name
     accounts.sort_by(|a, b| match (a.status.as_str(), b.status.as_str()) {

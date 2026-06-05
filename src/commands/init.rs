@@ -120,67 +120,17 @@ pub async fn run_init() {
         .await
         .expect("Failed to parse Lunch Money manual accounts response");
 
-    let mut supported_currencies = Vec::new();
-    println! {};
-    println! { "{STYLE_INFO}💱 Supported Currencies Setup{STYLE_INFO:#}" };
-    println! { "{STYLE_DIM}Please enter the currencies you want to support (e.g. USD, CAD, GBP).{STYLE_DIM:#}" };
-    loop {
-        let prompt_msg = if supported_currencies.is_empty() {
-            "Enter a currency code you would like to support:"
-        } else {
-            "Enter another currency code, or press Enter/leave blank to finish:"
-        };
-        let currency = inquire::Text::new(prompt_msg)
-            .prompt()
-            .expect("Failed to get currency code");
-        let trimmed = currency.trim().to_uppercase();
-        if trimmed.is_empty() {
-            if supported_currencies.is_empty() {
-                println! { "At least one currency must be specified." };
-                continue;
-            }
-            break;
+    let inferred = crate::commands::resolve_target_accounts(&accounts_res, &HashMap::new());
+    if !inferred.is_empty() {
+        println! {};
+        println! { "🔍 Discovered the following Splitwise accounts in Lunch Money:" };
+        for (curr, id) in &inferred {
+            println! { "  • Splitwise {} (ID: {})", curr, id };
         }
-        if trimmed.len() != 3 || !trimmed.chars().all(|c| c.is_ascii_alphabetic()) {
-            println! { "Please enter a valid 3-letter ISO currency code (e.g. USD)." };
-            continue;
-        }
-        if !supported_currencies.contains(&trimmed) {
-            supported_currencies.push(trimmed);
-        }
-    }
-
-    let mut target_accounts = HashMap::new();
-    let mut missing_accounts = Vec::new();
-
-    for currency in &supported_currencies {
-        let expected_name = format!("Splitwise {}", currency);
-        if let Some(acc) = accounts_res
-            .manual_accounts
-            .iter()
-            .find(|acc| acc.name.eq_ignore_ascii_case(&expected_name))
-        {
-            target_accounts.insert(currency.clone(), acc.id);
-        } else {
-            missing_accounts.push(expected_name);
-        }
-    }
-
-    if !missing_accounts.is_empty() {
-        eprintln! {};
-        eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} The following required Lunch Money manual accounts are missing:" };
-        for acc_name in &missing_accounts {
-            eprintln! { "  • {STYLE_HEADER}{}{STYLE_HEADER:#}", acc_name };
-        }
-        eprintln! {};
-        eprintln! { "{STYLE_WARNING}⚠️  Action Required:{STYLE_WARNING:#} Please set up manually managed accounts with these exact names in your Lunch Money account before continuing." };
-        eprintln! {};
-        std::process::exit(1);
-    }
-
-    let mut target_accounts_toml = String::new();
-    for (curr, id) in &target_accounts {
-        target_accounts_toml.push_str(&format!("{} = {}\n", curr, id));
+    } else {
+        println! {};
+        println! { "{STYLE_WARNING}⚠️  Warning:{STYLE_WARNING:#} No active manual accounts named 'Splitwise <CURRENCY>' (e.g. 'Splitwise USD') were found in Lunch Money." };
+        println! { "Please set up manually managed accounts with these names in your Lunch Money account before syncing." };
     }
 
     let mut categories_toml = String::new();
@@ -207,9 +157,11 @@ user_id = {splitwise_user_id} # {splitwise_user_name}
 # Your Lunch Money developer API key
 api_key = "{lunch_money_api_key}"
 
-# The mapping from currency code to manual account ID in Lunch Money
-[lunch_money.target_accounts]
-{target_accounts_toml}
+# Optional: Map currencies to custom manual account IDs in Lunch Money (power user feature)
+# [lunch_money.custom_accounts]
+# USD = 123456
+# GBP = 789012
+
 [categories]
 # Map Splitwise category names/IDs to Lunch Money category names/IDs (optional)
 #
