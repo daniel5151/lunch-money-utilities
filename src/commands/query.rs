@@ -41,53 +41,14 @@ pub fn format_group_balances(group: &crate::api::splitwise::schema::Group, user_
     }
 }
 
-pub async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseWindowArgs) {
-    let window_duration =
-        jiff::SignedDuration::try_from(args.window).expect("window duration is too large");
-
-    let config = crate::load_config();
-
-    let http_pool = reqwest::Client::new();
-    let sw_client =
-        crate::api::splitwise::Client::new(http_pool.clone(), config.splitwise.api_key.clone());
-
-    let start_window = jiff::Timestamp::now() - window_duration;
-    let start_window_str = start_window
-        .to_zoned(jiff::tz::TimeZone::UTC)
-        .strftime("%Y-%m-%d")
-        .to_string();
-
-    let bar = "─".repeat(92);
-
-    println! {};
-    println! { "{STYLE_HEADER}🔍 Querying Splitwise Expenses{STYLE_HEADER:#}" };
-    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
-    println! { "{STYLE_INFO}📅 Window boundary:{STYLE_INFO:#} {}", start_window_str };
-    println! {};
-
-    println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
-    let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
-    let group_map: HashMap<u64, String> = groups_res
-        .groups
-        .into_iter()
-        .map(|g| (g.id, g.name))
-        .collect();
-
-    let sw_query = [("dated_after", start_window_str.as_str()), ("limit", "0")];
-    let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
-
-    if expenses_res.expenses.is_empty() {
-        println! { "{STYLE_SUCCESS}✨ No expenses found in this window.{STYLE_SUCCESS:#}" };
-        println! {};
-        return;
-    }
-
-    println! { "  {:<10}  {:<30}  {:<30}  {:>12}", "Date", "Group/Person", "Description", "Net Balance" };
-    println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
-
+fn print_expenses_table(
+    expenses: Vec<crate::api::splitwise::schema::Expense>,
+    config: &crate::config::Config,
+    group_map: &HashMap<u64, String>,
+) {
     let mut has_uninvolved = false;
 
-    for expense in expenses_res.expenses {
+    for expense in expenses {
         let net_balance = expense
             .users
             .iter()
@@ -189,6 +150,53 @@ pub async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseWindowAr
     }
 }
 
+pub async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseWindowArgs) {
+    let window_duration =
+        jiff::SignedDuration::try_from(args.window).expect("window duration is too large");
+
+    let config = crate::load_config();
+
+    let http_pool = reqwest::Client::new();
+    let sw_client =
+        crate::api::splitwise::Client::new(http_pool.clone(), config.splitwise.api_key.clone());
+
+    let start_window = jiff::Timestamp::now() - window_duration;
+    let start_window_str = start_window
+        .to_zoned(jiff::tz::TimeZone::UTC)
+        .strftime("%Y-%m-%d")
+        .to_string();
+
+    let bar = "─".repeat(92);
+
+    println! {};
+    println! { "{STYLE_HEADER}🔍 Querying Splitwise Expenses{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
+    println! { "{STYLE_INFO}📅 Window boundary:{STYLE_INFO:#} {}", start_window_str };
+    println! {};
+
+    println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
+    let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
+    let group_map: HashMap<u64, String> = groups_res
+        .groups
+        .into_iter()
+        .map(|g| (g.id, g.name))
+        .collect();
+
+    let sw_query = [("dated_after", start_window_str.as_str()), ("limit", "0")];
+    let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
+
+    if expenses_res.expenses.is_empty() {
+        println! { "{STYLE_SUCCESS}✨ No expenses found in this window.{STYLE_SUCCESS:#}" };
+        println! {};
+        return;
+    }
+
+    println! { "  {:<10}  {:<30}  {:<30}  {:>12}", "Date", "Group/Person", "Description", "Net Balance" };
+    println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
+
+    print_expenses_table(expenses_res.expenses, &config, &group_map);
+}
+
 pub async fn run_query_splitwise_group(args: crate::cli::QuerySplitwiseGroupArgs) {
     let config = crate::load_config();
 
@@ -236,108 +244,7 @@ pub async fn run_query_splitwise_group(args: crate::cli::QuerySplitwiseGroupArgs
     println! { "  {:<10}  {:<30}  {:<30}  {:>12}", "Date", "Group/Person", "Description", "Net Balance" };
     println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
-    let mut has_uninvolved = false;
-
-    for expense in expenses_res.expenses {
-        let net_balance = expense
-            .users
-            .iter()
-            .find(|u| u.user_id == config.splitwise.user_id)
-            .map(|u| u.net_balance)
-            .unwrap_or(Decimal::ZERO);
-
-        let date_str = expense
-            .date
-            .to_zoned(jiff::tz::TimeZone::UTC)
-            .date()
-            .strftime("%Y-%m-%d")
-            .to_string();
-
-        let payee_str = match expense.group_id {
-            Some(gid) => group_map
-                .get(&gid)
-                .cloned()
-                .unwrap_or_else(|| "Unknown Group".to_string()),
-            None => expense
-                .users
-                .iter()
-                .find(|u| u.user_id != config.splitwise.user_id)
-                .and_then(|u| u.user.as_ref())
-                .map(|d| {
-                    format!(
-                        "{} {}",
-                        d.first_name.as_deref().unwrap_or(""),
-                        d.last_name.as_deref().unwrap_or("")
-                    )
-                    .trim()
-                    .to_string()
-                })
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "Non-group".to_string()),
-        };
-
-        let mut clean_payee = payee_str;
-        if clean_payee.chars().count() > 30 {
-            clean_payee = clean_payee.chars().take(27).collect::<String>();
-            clean_payee.push_str("...");
-        }
-
-        let is_ignored = expense
-            .group_id
-            .is_some_and(|gid| config.splitwise.ignored_groups.contains(&gid));
-
-        // Styling and status tag
-        let (style, status_tag, is_uninvolved) = if expense.deleted_at.is_some() {
-            (STYLE_DIM, " [DELETED]", false)
-        } else if is_ignored {
-            (STYLE_WARNING, " [IGNORED]", false)
-        } else if net_balance.is_zero() {
-            has_uninvolved = true;
-            (STYLE_DIM, "", true)
-        } else if net_balance.is_sign_negative() {
-            (STYLE_ERROR, "", false)
-        } else {
-            (STYLE_SUCCESS, "", false)
-        };
-
-        // Determine max allowed length for description, so description + status_tag is exactly 30 visible chars
-        let max_desc_len = 30_usize.saturating_sub(status_tag.len());
-        let mut clean_desc = expense.description.trim().to_string();
-        if clean_desc.chars().count() > max_desc_len {
-            let truncate_to = max_desc_len.saturating_sub(3);
-            clean_desc = clean_desc.chars().take(truncate_to).collect::<String>();
-            clean_desc = format!("{}...", clean_desc.trim_end());
-        }
-
-        let balance_plain = format!("{:>12}", net_balance);
-        let balance_colored = format!("{}{}{:#}", style, balance_plain, style);
-
-        let desc_colored = if !status_tag.is_empty() {
-            let padding_spaces =
-                " ".repeat(30_usize.saturating_sub(clean_desc.len() + status_tag.len()));
-            format!(
-                "{}{STYLE_DIM}{status_tag}{STYLE_DIM:#}{}",
-                clean_desc, padding_spaces
-            )
-        } else {
-            format!("{:<30}", clean_desc)
-        };
-
-        let currency_suffix = if is_uninvolved {
-            format!("{}*", expense.currency_code.to_uppercase())
-        } else {
-            expense.currency_code.to_uppercase()
-        };
-
-        println! { "  {:<10}  {:<30}  {}  {} {}", date_str, clean_payee, desc_colored, balance_colored, currency_suffix };
-    }
-
-    if has_uninvolved {
-        println! { "  {STYLE_DIM}* = uninvolved transaction (net balance is zero){STYLE_DIM:#}" };
-        println! {};
-    } else {
-        println! {};
-    }
+    print_expenses_table(expenses_res.expenses, &config, &group_map);
 }
 
 pub async fn run_query_splitwise_get_groups() {

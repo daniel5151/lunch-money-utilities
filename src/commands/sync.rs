@@ -204,100 +204,24 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     let accounts_res: ManualAccountsResponse = lm_client
         .fetch("manual_accounts", &[] as &[(&str, &str)])
         .await;
-    for (currency, &account_id) in &config.lunch_money.target_accounts {
-        if !accounts_res
-            .manual_accounts
-            .iter()
-            .any(|acc| acc.id == account_id)
-        {
-            eprintln! {};
-            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
-            eprintln! { "Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'." };
-            eprintln! {};
-            std::process::exit(1);
-        }
-    }
+    verify_target_accounts(&config, &accounts_res);
 
     let (resolved_categories, lm_category_names) = resolve_categories(&lm_client, &config).await;
 
-    let mut sw_category_id_to_path = HashMap::new();
-    if !config.categories.is_empty() {
-        println! { "  {STYLE_DIM}Fetching Splitwise categories...{STYLE_DIM:#}" };
-        let sw_categories_res: crate::api::splitwise::schema::CategoriesResponse = sw_client
-            .fetch("get_categories", &[] as &[(&str, &str)])
-            .await;
-        for parent in sw_categories_res.categories {
-            sw_category_id_to_path.insert(parent.id, parent.name.clone());
-            for sub in parent.subcategories {
-                let path = format!("{}:{}", parent.name, sub.name);
-                sw_category_id_to_path.insert(sub.id, path);
-            }
-        }
-    }
+    let sw_category_id_to_path = fetch_splitwise_categories(&sw_client, &config).await;
 
-    let get_account_name = |manual_account_id: Option<u64>, currency: &str| -> String {
-        let id = manual_account_id.or_else(|| {
-            let currency_upper = currency.to_uppercase();
-            config
-                .lunch_money
-                .target_accounts
-                .get(&currency_upper)
-                .copied()
-        });
-        if let Some(id) = id {
-            if let Some(acc) = accounts_res.manual_accounts.iter().find(|acc| acc.id == id) {
-                return acc.display_name.as_deref().unwrap_or(&acc.name).to_string();
-            }
-        }
-        "Unknown Account".to_string()
-    };
-
-    println! { "  {STYLE_DIM}Fetching Lunch Money transactions...{STYLE_DIM:#}" };
-    let mut lm_transactions = Vec::new();
-    for &account_id in config.lunch_money.target_accounts.values() {
-        let account_id_str = account_id.to_string();
-        let lm_query = [
-            ("start_date", start_window_str.as_str()),
-            ("end_date", end_window_str.as_str()),
-            ("manual_account_id", account_id_str.as_str()),
-            ("limit", "1000"),
-            ("include_group_children", "true"),
-            ("include_split_parents", "true"),
-        ];
-        let lm_res: TransactionsResponse = lm_client.fetch("transactions", &lm_query).await;
-        let is_loan = accounts_res
-            .manual_accounts
-            .iter()
-            .find(|acc| acc.id == account_id)
-            .map(|acc| acc.account_type == crate::api::lunch_money::schema::AccountType::Loan)
-            .unwrap_or(false);
-
-        let mut txs = lm_res.transactions;
-        if is_loan {
-            for t in &mut txs {
-                t.amount = -t.amount;
-            }
-        }
-        lm_transactions.extend(txs);
-    }
+    let lm_transactions = fetch_lunch_money_transactions(
+        &lm_client,
+        &config,
+        &accounts_res,
+        &start_window_str,
+        &end_window_str,
+    )
+    .await;
 
     println! { "  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}" };
     println! {};
 
-    // Theory of Operation (External IDs, Grouping, and Splitting):
-    // 1. Transactions imported from Splitwise are tagged with a unique `external_id` matching `splitwise_<expense_id>`.
-    // 2. We build `lm_map` only from Lunch Money transactions that have an `external_id`. Standard manual
-    //    transactions or split/grouped artifacts without an `external_id` are ignored and untouched.
-    // 3. When a user manually groups transactions in Lunch Money:
-    //    - The new "group parent" transaction does not have our `external_id` and is ignored.
-    //    - The "group child" transactions retain their `external_id`. By querying Lunch Money with
-    //      `include_group_children=true`, they are fetched and successfully matched against Splitwise,
-    //      preventing duplicate inserts.
-    // 4. When a user manually splits a transaction in Lunch Money:
-    //    - The "split parent" transaction keeps the `external_id`. By querying Lunch Money with
-    //      `include_split_parents=true`, we fetch it. We explicitly skip updating it or deleting it.
-    //    - The "split child" transactions do not have the matching `external_id`, so they are ignored
-    //      by our sync engine (and are thus never modified or deleted).
     let mut lm_tx_categories = HashMap::new();
     for t in &lm_transactions {
         lm_tx_categories.insert(t.id, (t.external_id.clone(), t.category_id));
@@ -308,343 +232,31 @@ pub async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         .filter_map(|t| t.external_id.clone().map(|ext_id| (ext_id, t)))
         .collect();
 
-    // Prepare batch operations
-    let mut inserts: Vec<InsertObject> = Vec::new();
-    let mut updates: Vec<UpdateObject> = Vec::new();
-    let mut deletes: Vec<Transaction> = Vec::new();
+    let (inserts, updates, deletes) = diff_transactions(
+        expenses_res.expenses,
+        &config,
+        &group_map,
+        &mut lm_map,
+        &sw_category_id_to_path,
+        &resolved_categories,
+        None,
+        None,
+    );
 
-    for expense in expenses_res.expenses {
-        let external_id = format!("splitwise_{}", expense.id);
-
-        let net_balance = expense
-            .users
-            .iter()
-            .find(|u| u.user_id == config.splitwise.user_id)
-            .map(|u| u.net_balance) // Automatically typed as Decimal by serde!
-            .unwrap_or(Decimal::ZERO);
-
-        let is_ignored = expense
-            .group_id
-            .is_some_and(|gid| config.splitwise.ignored_groups.contains(&gid));
-
-        // Skip ignored, deleted, or un-involved expenses
-        if expense.deleted_at.is_some() || is_ignored || net_balance.is_zero() {
-            if let Some(existing_lm) = lm_map.remove(&external_id) {
-                if existing_lm.is_split_parent != Some(true) {
-                    deletes.push(existing_lm);
-                }
-            }
-            continue;
-        }
-
-        let currency_upper = expense.currency_code.to_uppercase();
-        if !config
-            .lunch_money
-            .target_accounts
-            .contains_key(&currency_upper)
-        {
-            eprintln! {};
-            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No manual account configured for currency '{}'.", currency_upper };
-            eprintln! { "Please run 'splitwise-lunchmoney init' or set up 'Splitwise {}' manual account.", currency_upper };
-            eprintln! {};
-            std::process::exit(1);
-        }
-
-        let date_civil = expense.date.to_zoned(jiff::tz::TimeZone::UTC).date();
-        let currency_lower = expense.currency_code.to_lowercase();
-
-        let payee_str = format!(
-            "Splitwise - {}",
-            match expense.group_id {
-                Some(gid) => group_map
-                    .get(&gid)
-                    .cloned()
-                    .unwrap_or_else(|| "Unknown Group".to_string()),
-                None => expense
-                    .users
-                    .iter()
-                    .find(|u| u.user_id != config.splitwise.user_id)
-                    .and_then(|u| u.user.as_ref())
-                    .map(|d| {
-                        format!(
-                            "{} {}",
-                            d.first_name.as_deref().unwrap_or(""),
-                            d.last_name.as_deref().unwrap_or("")
-                        )
-                        .trim()
-                        .to_string()
-                    })
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| "Non-group".to_string()),
-            }
-        );
-
-        if let Some(existing_lm) = lm_map.remove(&external_id) {
-            if existing_lm.is_split_parent == Some(true) {
-                continue;
-            }
-            // Strict exact-match diffing without float approximations
-            let amount_changed = existing_lm.amount != net_balance;
-
-            if amount_changed || existing_lm.currency != currency_lower {
-                updates.push(UpdateObject {
-                    id: existing_lm.id,
-                    date: existing_lm.date,
-                    amount: net_balance,
-                    currency: currency_lower,
-                    payee: existing_lm.payee.clone(),
-                    notes: existing_lm.notes.clone().unwrap_or_default(),
-                });
-            }
-        } else {
-            let manual_account_id = config.lunch_money.target_accounts[&currency_upper];
-            let mut category_id = None;
-            if let Some(ref cat) = expense.category {
-                let path = sw_category_id_to_path.get(&cat.id);
-                category_id = path
-                    .and_then(|p| resolved_categories.get(p))
-                    .or_else(|| resolved_categories.get(&cat.name))
-                    .or_else(|| resolved_categories.get(&cat.id.to_string()))
-                    .copied();
-            }
-            inserts.push(InsertObject {
-                date: date_civil,
-                amount: net_balance,
-                currency: currency_lower,
-                payee: payee_str,
-                notes: expense.description,
-                external_id,
-                manual_account_id,
-                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                tag_ids: None,
-                category_id,
-            });
-        }
-    }
-
-    // Calculate dynamic category column width
-    let mut cat_width = 0;
-    {
-        let mut check_width = |sw_cat: Option<&str>, lm_cat: Option<&str>| {
-            if sw_cat.is_some() || lm_cat.is_some() {
-                let sw_part = sw_cat.unwrap_or("?");
-                let lm_part = lm_cat.unwrap_or("?");
-                let len = sw_part.len() + lm_part.len() + 6;
-                if len > cat_width {
-                    cat_width = len;
-                }
-            }
-        };
-
-        for t in &deletes {
-            let category_name = t
-                .category_id
-                .and_then(|id| lm_category_names.get(&id).cloned());
-            let sw_category_name = t
-                .external_id
-                .as_ref()
-                .and_then(|ext_id| sw_expense_categories.get(ext_id))
-                .and_then(|cat_info| {
-                    cat_info.as_ref().and_then(|(cat_id, cat_name)| {
-                        sw_category_id_to_path
-                            .get(cat_id)
-                            .map(|s| s.as_str())
-                            .or(Some(cat_name.as_str()))
-                    })
-                });
-            check_width(sw_category_name, category_name.as_deref());
-        }
-
-        for u in &updates {
-            let (external_id, category_id) = lm_tx_categories
-                .get(&u.id)
-                .map(|(ext_id, cat_id)| (ext_id.as_ref(), *cat_id))
-                .unwrap_or((None, None));
-            let sw_category_name = external_id
-                .and_then(|ext_id| sw_expense_categories.get(ext_id))
-                .and_then(|cat_info| {
-                    cat_info.as_ref().and_then(|(cat_id, cat_name)| {
-                        sw_category_id_to_path
-                            .get(cat_id)
-                            .map(|s| s.as_str())
-                            .or(Some(cat_name.as_str()))
-                    })
-                });
-            let category_name = category_id.and_then(|id| lm_category_names.get(&id).cloned());
-            check_width(sw_category_name, category_name.as_deref());
-        }
-
-        for ins in &inserts {
-            let category_name = ins
-                .category_id
-                .and_then(|id| lm_category_names.get(&id).cloned());
-            let sw_category_name =
-                sw_expense_categories
-                    .get(&ins.external_id)
-                    .and_then(|cat_info| {
-                        cat_info.as_ref().and_then(|(cat_id, cat_name)| {
-                            sw_category_id_to_path
-                                .get(cat_id)
-                                .map(|s| s.as_str())
-                                .or(Some(cat_name.as_str()))
-                        })
-                    });
-            check_width(sw_category_name, category_name.as_deref());
-        }
-    }
-
-    // Execute batches
-    if !deletes.is_empty() {
-        println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", deletes.len() };
-        for t in &deletes {
-            let acc_name = get_account_name(t.manual_account_id, &t.currency);
-            let category_name = t
-                .category_id
-                .and_then(|id| lm_category_names.get(&id).cloned());
-            let sw_category_name = t
-                .external_id
-                .as_ref()
-                .and_then(|ext_id| sw_expense_categories.get(ext_id))
-                .and_then(|cat_info| {
-                    cat_info.as_ref().and_then(|(cat_id, cat_name)| {
-                        sw_category_id_to_path
-                            .get(cat_id)
-                            .map(|s| s.as_str())
-                            .or(Some(cat_name.as_str()))
-                    })
-                });
-            println! { "   {STYLE_ERROR}-{STYLE_ERROR:#} {}", format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), &acc_name, sw_category_name, category_name.as_deref(), cat_width) };
-        }
-        println! {};
-
-        if !sync_args.dry_run {
-            let delete_ids: Vec<u64> = deletes.iter().map(|t| t.id).collect();
-            lm_client
-                .exec(
-                    Method::DELETE,
-                    "transactions",
-                    &DeletePayload { ids: delete_ids },
-                )
-                .await;
-        }
-    }
-
-    if !updates.is_empty() {
-        println! { "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:", updates.len() };
-        for u in &updates {
-            let acc_name = get_account_name(None, &u.currency);
-            let (external_id, category_id) = lm_tx_categories
-                .get(&u.id)
-                .map(|(ext_id, cat_id)| (ext_id.as_ref(), *cat_id))
-                .unwrap_or((None, None));
-            let sw_category_name = external_id
-                .and_then(|ext_id| sw_expense_categories.get(ext_id))
-                .and_then(|cat_info| {
-                    cat_info.as_ref().and_then(|(cat_id, cat_name)| {
-                        sw_category_id_to_path
-                            .get(cat_id)
-                            .map(|s| s.as_str())
-                            .or(Some(cat_name.as_str()))
-                    })
-                });
-            let category_name = category_id.and_then(|id| lm_category_names.get(&id).cloned());
-            println! { "   {STYLE_INFO}~{STYLE_INFO:#} {}", format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, &acc_name, sw_category_name, category_name.as_deref(), cat_width) };
-        }
-        println! {};
-
-        if !sync_args.dry_run {
-            for chunk in updates.chunks(500) {
-                let mut chunk_txs = chunk.to_vec();
-                for u in &mut chunk_txs {
-                    let is_loan = accounts_res
-                        .manual_accounts
-                        .iter()
-                        .find(|acc| {
-                            let curr = u.currency.to_uppercase();
-                            config.lunch_money.target_accounts.get(&curr).copied() == Some(acc.id)
-                        })
-                        .map(|acc| {
-                            acc.account_type == crate::api::lunch_money::schema::AccountType::Loan
-                        })
-                        .unwrap_or(false);
-                    if is_loan {
-                        u.amount = -u.amount;
-                    }
-                }
-                lm_client
-                    .exec(
-                        Method::PUT,
-                        "transactions",
-                        &UpdatePayload {
-                            transactions: chunk_txs,
-                        },
-                    )
-                    .await;
-            }
-        }
-    }
-
-    if !inserts.is_empty() {
-        println! { "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:", inserts.len() };
-        for ins in &inserts {
-            let acc_name = get_account_name(Some(ins.manual_account_id), &ins.currency);
-            let category_name = ins
-                .category_id
-                .and_then(|id| lm_category_names.get(&id).cloned());
-            let sw_category_name =
-                sw_expense_categories
-                    .get(&ins.external_id)
-                    .and_then(|cat_info| {
-                        cat_info.as_ref().and_then(|(cat_id, cat_name)| {
-                            sw_category_id_to_path
-                                .get(cat_id)
-                                .map(|s| s.as_str())
-                                .or(Some(cat_name.as_str()))
-                        })
-                    });
-            println! { "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}", format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, &acc_name, sw_category_name, category_name.as_deref(), cat_width) };
-        }
-        println! {};
-
-        if !sync_args.dry_run {
-            for chunk in inserts.chunks(500) {
-                let mut chunk_txs = chunk.to_vec();
-                for ins in &mut chunk_txs {
-                    let is_loan = accounts_res
-                        .manual_accounts
-                        .iter()
-                        .find(|acc| acc.id == ins.manual_account_id)
-                        .map(|acc| {
-                            acc.account_type == crate::api::lunch_money::schema::AccountType::Loan
-                        })
-                        .unwrap_or(false);
-                    if is_loan {
-                        ins.amount = -ins.amount;
-                    }
-                }
-                lm_client
-                    .exec(
-                        Method::POST,
-                        "transactions",
-                        &InsertPayload {
-                            transactions: chunk_txs,
-                        },
-                    )
-                    .await;
-            }
-        }
-    }
-
-    if deletes.is_empty() && updates.is_empty() && inserts.is_empty() {
-        println! { "{STYLE_SUCCESS}✨ No changes detected. Lunch Money manual account is up-to-date!{STYLE_SUCCESS:#}" };
-        println! {};
-    } else if sync_args.dry_run {
-        println! { "{STYLE_WARNING}⚠️ Dry run complete! No changes were made to Lunch Money.{STYLE_WARNING:#}" };
-        println! {};
-    } else {
-        println! { "{STYLE_SUCCESS}✨ Synchronization cycle complete!{STYLE_SUCCESS:#}" };
-        println! {};
-    }
+    execute_sync_actions(
+        &deletes,
+        &updates,
+        &inserts,
+        sync_args.dry_run,
+        &lm_client,
+        &config,
+        &accounts_res,
+        &lm_category_names,
+        &sw_expense_categories,
+        &sw_category_id_to_path,
+        &lm_tx_categories,
+    )
+    .await;
 }
 
 pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
@@ -718,36 +330,11 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     let accounts_res: ManualAccountsResponse = lm_client
         .fetch("manual_accounts", &[] as &[(&str, &str)])
         .await;
-    for (currency, &account_id) in &config.lunch_money.target_accounts {
-        if !accounts_res
-            .manual_accounts
-            .iter()
-            .any(|acc| acc.id == account_id)
-        {
-            eprintln! {};
-            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
-            eprintln! { "Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'." };
-            eprintln! {};
-            std::process::exit(1);
-        }
-    }
+    verify_target_accounts(&config, &accounts_res);
 
     let (resolved_categories, lm_category_names) = resolve_categories(&lm_client, &config).await;
 
-    let mut sw_category_id_to_path = HashMap::new();
-    if !config.categories.is_empty() {
-        println! { "  {STYLE_DIM}Fetching Splitwise categories...{STYLE_DIM:#}" };
-        let sw_categories_res: crate::api::splitwise::schema::CategoriesResponse = sw_client
-            .fetch("get_categories", &[] as &[(&str, &str)])
-            .await;
-        for parent in sw_categories_res.categories {
-            sw_category_id_to_path.insert(parent.id, parent.name.clone());
-            for sub in parent.subcategories {
-                let path = format!("{}:{}", parent.name, sub.name);
-                sw_category_id_to_path.insert(sub.id, path);
-            }
-        }
-    }
+    let sw_category_id_to_path = fetch_splitwise_categories(&sw_client, &config).await;
 
     let mut tag_id = None;
     if let Some(ref tag_name) = sync_args.tag {
@@ -781,34 +368,153 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         }
     }
 
-    let get_account_name = |manual_account_id: Option<u64>, currency: &str| -> String {
-        let id = manual_account_id.or_else(|| {
-            let currency_upper = currency.to_uppercase();
-            config
-                .lunch_money
-                .target_accounts
-                .get(&currency_upper)
-                .copied()
-        });
-        if let Some(id) = id {
-            if let Some(acc) = accounts_res.manual_accounts.iter().find(|acc| acc.id == id) {
-                return acc.display_name.as_deref().unwrap_or(&acc.name).to_string();
-            }
-        }
-        "Unknown Account".to_string()
-    };
-
-    println! { "  {STYLE_DIM}Fetching Lunch Money transactions...{STYLE_DIM:#}" };
     let end_window_str = jiff::Timestamp::now()
         .to_zoned(jiff::tz::TimeZone::UTC)
         .strftime("%Y-%m-%d")
         .to_string();
+
+    let lm_transactions = fetch_lunch_money_transactions(
+        &lm_client,
+        &config,
+        &accounts_res,
+        "2000-01-01",
+        &end_window_str,
+    )
+    .await;
+
+    println! { "  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}" };
+    println! {};
+
+    let mut lm_tx_categories = HashMap::new();
+    for t in &lm_transactions {
+        lm_tx_categories.insert(t.id, (t.external_id.clone(), t.category_id));
+    }
+
+    let mut lm_map: HashMap<String, Transaction> = lm_transactions
+        .into_iter()
+        .filter_map(|t| t.external_id.clone().map(|ext_id| (ext_id, t)))
+        .collect();
+
+    let (inserts, updates, mut deletes) = diff_transactions(
+        expenses_res.expenses,
+        &config,
+        &group_map,
+        &mut lm_map,
+        &sw_category_id_to_path,
+        &resolved_categories,
+        Some(sync_args.group_id),
+        tag_id.map(|id| vec![id]),
+    );
+
+    // Filter deletes to only target transactions belonging to this specific group
+    let is_non_group = sync_args.group_id == 0;
+    let group_payee = format!("Splitwise - {}", group_name);
+
+    for (_ext_id, t) in lm_map {
+        let belongs_to_group = if is_non_group {
+            t.payee == "Splitwise - Non-group"
+                || (!group_map
+                    .values()
+                    .any(|gn| t.payee == format!("Splitwise - {}", gn))
+                    && t.payee.starts_with("Splitwise - "))
+        } else {
+            t.payee == group_payee
+        };
+
+        if belongs_to_group && t.is_split_parent != Some(true) {
+            deletes.push(t);
+        }
+    }
+
+    execute_sync_actions(
+        &deletes,
+        &updates,
+        &inserts,
+        sync_args.dry_run,
+        &lm_client,
+        &config,
+        &accounts_res,
+        &lm_category_names,
+        &sw_expense_categories,
+        &sw_category_id_to_path,
+        &lm_tx_categories,
+    )
+    .await;
+}
+
+fn get_account_name(
+    manual_account_id: Option<u64>,
+    currency: &str,
+    config: &crate::config::Config,
+    accounts_res: &ManualAccountsResponse,
+) -> String {
+    let id = manual_account_id.or_else(|| {
+        let currency_upper = currency.to_uppercase();
+        config
+            .lunch_money
+            .target_accounts
+            .get(&currency_upper)
+            .copied()
+    });
+    if let Some(id) = id {
+        if let Some(acc) = accounts_res.manual_accounts.iter().find(|acc| acc.id == id) {
+            return acc.display_name.as_deref().unwrap_or(&acc.name).to_string();
+        }
+    }
+    "Unknown Account".to_string()
+}
+
+fn verify_target_accounts(config: &crate::config::Config, accounts_res: &ManualAccountsResponse) {
+    for (currency, &account_id) in &config.lunch_money.target_accounts {
+        if !accounts_res
+            .manual_accounts
+            .iter()
+            .any(|acc| acc.id == account_id)
+        {
+            eprintln! {};
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
+            eprintln! { "Please check your Lunch Money manual accounts or run 'splitwise-lunchmoney init'." };
+            eprintln! {};
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn fetch_splitwise_categories(
+    sw_client: &crate::api::splitwise::Client,
+    config: &crate::config::Config,
+) -> HashMap<u32, String> {
+    let mut sw_category_id_to_path = HashMap::new();
+    if !config.categories.is_empty() {
+        println! { "  {STYLE_DIM}Fetching Splitwise categories...{STYLE_DIM:#}" };
+        let sw_categories_res: crate::api::splitwise::schema::CategoriesResponse = sw_client
+            .fetch("get_categories", &[] as &[(&str, &str)])
+            .await;
+        for parent in sw_categories_res.categories {
+            sw_category_id_to_path.insert(parent.id, parent.name.clone());
+            for sub in parent.subcategories {
+                let path = format!("{}:{}", parent.name, sub.name);
+                sw_category_id_to_path.insert(sub.id, path);
+            }
+        }
+    }
+    sw_category_id_to_path
+}
+
+async fn fetch_lunch_money_transactions(
+    lm_client: &crate::api::lunch_money::Client,
+    config: &crate::config::Config,
+    accounts_res: &ManualAccountsResponse,
+    start_date_str: &str,
+    end_date_str: &str,
+) -> Vec<Transaction> {
+    println! { "  {STYLE_DIM}Fetching Lunch Money transactions...{STYLE_DIM:#}" };
     let mut lm_transactions = Vec::new();
     for &account_id in config.lunch_money.target_accounts.values() {
         let account_id_str = account_id.to_string();
         let lm_query = [
-            ("start_date", "2000-01-01"),
-            ("end_date", end_window_str.as_str()),
+            ("start_date", start_date_str),
+            ("end_date", end_date_str),
             ("manual_account_id", account_id_str.as_str()),
             ("limit", "1000"),
             ("include_group_children", "true"),
@@ -830,40 +536,24 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         }
         lm_transactions.extend(txs);
     }
+    lm_transactions
+}
 
-    println! { "  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}" };
-    println! {};
+fn diff_transactions(
+    expenses: Vec<crate::api::splitwise::schema::Expense>,
+    config: &crate::config::Config,
+    group_map: &HashMap<u64, String>,
+    lm_map: &mut HashMap<String, Transaction>,
+    sw_category_id_to_path: &HashMap<u32, String>,
+    resolved_categories: &HashMap<String, u64>,
+    ignored_groups_exclude: Option<u64>,
+    tag_ids: Option<Vec<u64>>,
+) -> (Vec<InsertObject>, Vec<UpdateObject>, Vec<Transaction>) {
+    let mut inserts = Vec::new();
+    let mut updates = Vec::new();
+    let mut deletes = Vec::new();
 
-    // Theory of Operation (External IDs, Grouping, and Splitting):
-    // 1. Transactions imported from Splitwise are tagged with a unique `external_id` matching `splitwise_<expense_id>`.
-    // 2. We build `lm_map` only from Lunch Money transactions that have an `external_id`. Standard manual
-    //    transactions or split/grouped artifacts without an `external_id` are ignored and untouched.
-    // 3. When a user manually groups transactions in Lunch Money:
-    //    - The new "group parent" transaction does not have our `external_id` and is ignored.
-    //    - The "group child" transactions retain their `external_id`. By querying Lunch Money with
-    //      `include_group_children=true`, they are fetched and successfully matched against Splitwise,
-    //      preventing duplicate inserts.
-    // 4. When a user manually splits a transaction in Lunch Money:
-    //    - The "split parent" transaction keeps the `external_id`. By querying Lunch Money with
-    //      `include_split_parents=true`, we fetch it. We explicitly skip updating it or deleting it.
-    //    - The "split child" transactions do not have the matching `external_id`, so they are ignored
-    //      by our sync engine (and are thus never modified or deleted).
-    let mut lm_tx_categories = HashMap::new();
-    for t in &lm_transactions {
-        lm_tx_categories.insert(t.id, (t.external_id.clone(), t.category_id));
-    }
-
-    let mut lm_map: HashMap<String, Transaction> = lm_transactions
-        .into_iter()
-        .filter_map(|t| t.external_id.clone().map(|ext_id| (ext_id, t)))
-        .collect();
-
-    // Prepare batch operations
-    let mut inserts: Vec<InsertObject> = Vec::new();
-    let mut updates: Vec<UpdateObject> = Vec::new();
-    let mut deletes: Vec<Transaction> = Vec::new();
-
-    for expense in expenses_res.expenses {
+    for expense in expenses {
         let external_id = format!("splitwise_{}", expense.id);
 
         let net_balance = expense
@@ -874,7 +564,7 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
             .unwrap_or(Decimal::ZERO);
 
         let is_ignored = expense.group_id.is_some_and(|gid| {
-            config.splitwise.ignored_groups.contains(&gid) && gid != sync_args.group_id
+            config.splitwise.ignored_groups.contains(&gid) && Some(gid) != ignored_groups_exclude
         });
 
         // Skip ignored, deleted, or un-involved expenses
@@ -965,32 +655,28 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
                 external_id,
                 manual_account_id,
                 status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                tag_ids: tag_id.map(|id| vec![id]),
+                tag_ids: tag_ids.clone(),
                 category_id,
             });
         }
     }
 
-    // Filter deletes to only target transactions belonging to this specific group
-    let is_non_group = sync_args.group_id == 0;
-    let group_payee = format!("Splitwise - {}", group_name);
+    (inserts, updates, deletes)
+}
 
-    for (_ext_id, t) in lm_map {
-        let belongs_to_group = if is_non_group {
-            t.payee == "Splitwise - Non-group"
-                || (!group_map
-                    .values()
-                    .any(|gn| t.payee == format!("Splitwise - {}", gn))
-                    && t.payee.starts_with("Splitwise - "))
-        } else {
-            t.payee == group_payee
-        };
-
-        if belongs_to_group && t.is_split_parent != Some(true) {
-            deletes.push(t);
-        }
-    }
-
+async fn execute_sync_actions(
+    deletes: &[Transaction],
+    updates: &[UpdateObject],
+    inserts: &[InsertObject],
+    dry_run: bool,
+    lm_client: &crate::api::lunch_money::Client,
+    config: &crate::config::Config,
+    accounts_res: &ManualAccountsResponse,
+    lm_category_names: &HashMap<u64, String>,
+    sw_expense_categories: &HashMap<String, Option<(u32, String)>>,
+    sw_category_id_to_path: &HashMap<u32, String>,
+    lm_tx_categories: &HashMap<u64, (Option<String>, Option<u64>)>,
+) {
     // Calculate dynamic category column width
     let mut cat_width = 0;
     {
@@ -1005,7 +691,7 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
             }
         };
 
-        for t in &deletes {
+        for t in deletes {
             let category_name = t
                 .category_id
                 .and_then(|id| lm_category_names.get(&id).cloned());
@@ -1024,7 +710,7 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
             check_width(sw_category_name, category_name.as_deref());
         }
 
-        for u in &updates {
+        for u in updates {
             let (external_id, category_id) = lm_tx_categories
                 .get(&u.id)
                 .map(|(ext_id, cat_id)| (ext_id.as_ref(), *cat_id))
@@ -1043,7 +729,7 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
             check_width(sw_category_name, category_name.as_deref());
         }
 
-        for ins in &inserts {
+        for ins in inserts {
             let category_name = ins
                 .category_id
                 .and_then(|id| lm_category_names.get(&id).cloned());
@@ -1065,8 +751,8 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     // Execute batches
     if !deletes.is_empty() {
         println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", deletes.len() };
-        for t in &deletes {
-            let acc_name = get_account_name(t.manual_account_id, &t.currency);
+        for t in deletes {
+            let acc_name = get_account_name(t.manual_account_id, &t.currency, config, accounts_res);
             let category_name = t
                 .category_id
                 .and_then(|id| lm_category_names.get(&id).cloned());
@@ -1086,7 +772,7 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         }
         println! {};
 
-        if !sync_args.dry_run {
+        if !dry_run {
             let delete_ids: Vec<u64> = deletes.iter().map(|t| t.id).collect();
             lm_client
                 .exec(
@@ -1100,8 +786,8 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
 
     if !updates.is_empty() {
         println! { "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:", updates.len() };
-        for u in &updates {
-            let acc_name = get_account_name(None, &u.currency);
+        for u in updates {
+            let acc_name = get_account_name(None, &u.currency, config, accounts_res);
             let (external_id, category_id) = lm_tx_categories
                 .get(&u.id)
                 .map(|(ext_id, cat_id)| (ext_id.as_ref(), *cat_id))
@@ -1121,7 +807,7 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         }
         println! {};
 
-        if !sync_args.dry_run {
+        if !dry_run {
             for chunk in updates.chunks(500) {
                 let mut chunk_txs = chunk.to_vec();
                 for u in &mut chunk_txs {
@@ -1155,8 +841,8 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
 
     if !inserts.is_empty() {
         println! { "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:", inserts.len() };
-        for ins in &inserts {
-            let acc_name = get_account_name(Some(ins.manual_account_id), &ins.currency);
+        for ins in inserts {
+            let acc_name = get_account_name(Some(ins.manual_account_id), &ins.currency, config, accounts_res);
             let category_name = ins
                 .category_id
                 .and_then(|id| lm_category_names.get(&id).cloned());
@@ -1175,7 +861,7 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         }
         println! {};
 
-        if !sync_args.dry_run {
+        if !dry_run {
             for chunk in inserts.chunks(500) {
                 let mut chunk_txs = chunk.to_vec();
                 for ins in &mut chunk_txs {
@@ -1207,7 +893,7 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     if deletes.is_empty() && updates.is_empty() && inserts.is_empty() {
         println! { "{STYLE_SUCCESS}✨ No changes detected. Lunch Money manual account is up-to-date!{STYLE_SUCCESS:#}" };
         println! {};
-    } else if sync_args.dry_run {
+    } else if dry_run {
         println! { "{STYLE_WARNING}⚠️ Dry run complete! No changes were made to Lunch Money.{STYLE_WARNING:#}" };
         println! {};
     } else {
