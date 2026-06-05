@@ -14,8 +14,27 @@ use anstream::println;
 use reqwest::Method;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
+use tabled::Table;
+use tabled::Tabled;
+use tabled::settings::Style;
 
-fn format_transaction_summary(
+#[derive(Tabled)]
+struct SyncRecord {
+    #[tabled(rename = "Date")]
+    date: String,
+    #[tabled(rename = "Payee")]
+    payee: String,
+    #[tabled(rename = "Category (Splitwise)")]
+    sw_category: String,
+    #[tabled(rename = "Category (Lunch Money)")]
+    lm_category: String,
+    #[tabled(rename = "Amount")]
+    amount: String,
+    #[tabled(rename = "Notes")]
+    notes: String,
+}
+
+fn to_sync_record(
     payee: &str,
     amount: Decimal,
     currency: &crate::api::Currency,
@@ -23,19 +42,9 @@ fn format_transaction_summary(
     notes: &str,
     sw_category_name: Option<&str>,
     lm_category_name: Option<&str>,
-    payee_width: usize,
-    sw_cat_width: usize,
-    lm_cat_width: usize,
-) -> String {
+) -> SyncRecord {
     let date_str = date.strftime("%Y-%m-%d").to_string();
-    let currency_upper = currency.to_uppercase();
-    let amount_style = if amount.is_sign_negative() {
-        STYLE_ERROR
-    } else {
-        STYLE_SUCCESS
-    };
 
-    // Limit payee length to 50 characters for clean alignment, appending '...' if truncated
     let mut clean_payee = payee.to_string();
     if clean_payee.starts_with("Splitwise - ") {
         clean_payee = clean_payee["Splitwise - ".len()..].to_string();
@@ -45,72 +54,36 @@ fn format_transaction_summary(
         clean_payee.push_str("...");
     }
 
-    let trimmed_notes = notes.trim();
-    let notes_suffix = if trimmed_notes.is_empty() {
+    let sw_clean = match sw_category_name {
+        Some("Uncategorized:General") => "",
+        Some(other) => other,
+        None => "",
+    };
+
+    let lm_clean = lm_category_name.unwrap_or("?");
+
+    let amount_style = if amount.is_sign_negative() {
+        STYLE_ERROR
+    } else {
+        STYLE_SUCCESS
+    };
+    let amount_str = format!("{:.2} {}", amount, currency);
+    let amount_colored = format!("{}{}{:#}", amount_style, amount_str, amount_style);
+
+    let notes_colored = if notes.trim().is_empty() {
         "".to_string()
     } else {
-        format!("  {}{}{:#}", STYLE_DIM, trimmed_notes, STYLE_DIM)
+        format!("{}{}{:#}", STYLE_DIM, notes.trim(), STYLE_DIM)
     };
 
-    // Format two separate columns for Splitwise and Lunch Money categories
-    // Special case "Uncategorized:General" to not be printed at all
-    let sw_clean = match sw_category_name {
-        Some("Uncategorized:General") => None,
-        other => other,
-    };
-
-    let category_display = if sw_clean.is_none() && lm_category_name.is_none() {
-        let total_width = if sw_cat_width > 0 {
-            sw_cat_width + 2
-        } else {
-            0
-        } + lm_cat_width
-            + 2;
-        " ".repeat(total_width)
-    } else {
-        let sw_part = sw_clean.unwrap_or("");
-        let lm_part = lm_category_name.unwrap_or("?");
-
-        let sw_col = if sw_part.is_empty() {
-            if sw_cat_width > 0 {
-                format!("  {}", " ".repeat(sw_cat_width))
-            } else {
-                "".to_string()
-            }
-        } else {
-            format!(
-                "  {}{:<width$}{:#}",
-                STYLE_WARNING,
-                sw_part,
-                STYLE_WARNING,
-                width = sw_cat_width
-            )
-        };
-
-        let lm_col = format!(
-            "  {}{:<width$}{:#}",
-            STYLE_WARNING,
-            lm_part,
-            STYLE_WARNING,
-            width = lm_cat_width
-        );
-
-        format!("{}{}", sw_col, lm_col)
-    };
-
-    let line = format!(
-        "{}  {:<width$}  {}{:>9} {}{:#}{}{}",
-        date_str,
-        clean_payee,
-        amount_style,
-        amount,
-        currency_upper,
-        amount_style,
-        category_display,
-        notes_suffix,
-        width = payee_width
-    );
-    line.trim_end().to_string()
+    SyncRecord {
+        date: date_str,
+        payee: clean_payee,
+        sw_category: sw_clean.to_string(),
+        lm_category: lm_clean.to_string(),
+        amount: amount_colored,
+        notes: notes_colored,
+    }
 }
 
 async fn resolve_categories(
@@ -675,101 +648,10 @@ async fn execute_sync_actions(
     sw_category_id_to_path: &HashMap<u32, String>,
     lm_tx_categories: &HashMap<u64, (Option<crate::api::ExternalId>, Option<u64>)>,
 ) {
-    // Calculate dynamic category and payee column widths
-    let mut payee_width = 0;
-    let mut sw_cat_width = 0;
-    let mut lm_cat_width = 0;
-    {
-        let get_clean_payee_len = |payee: &str| {
-            let mut clean = payee;
-            if clean.starts_with("Splitwise - ") {
-                clean = &clean["Splitwise - ".len()..];
-            }
-            let len = clean.chars().count();
-            if len > 50 { 50 } else { len }
-        };
-
-        let mut check_width = |payee: &str, sw_cat: Option<&str>, lm_cat: Option<&str>| {
-            let p_len = get_clean_payee_len(payee);
-            if p_len > payee_width {
-                payee_width = p_len;
-            }
-
-            let sw_clean = match sw_cat {
-                Some("Uncategorized:General") => None,
-                other => other,
-            };
-            if let Some(sw) = sw_clean {
-                if sw.len() > sw_cat_width {
-                    sw_cat_width = sw.len();
-                }
-            }
-            let lm_part = lm_cat.unwrap_or("?");
-            if lm_part.len() > lm_cat_width {
-                lm_cat_width = lm_part.len();
-            }
-        };
-
-        for t in deletes {
-            let category_name = t
-                .category_id
-                .and_then(|id| lm_category_names.get(&id).cloned());
-            let sw_category_name = t
-                .external_id
-                .as_ref()
-                .and_then(|ext_id| sw_expense_categories.get(ext_id))
-                .and_then(|cat_info| {
-                    cat_info.as_ref().and_then(|(cat_id, cat_name)| {
-                        sw_category_id_to_path
-                            .get(cat_id)
-                            .map(|s| s.as_str())
-                            .or(Some(cat_name.as_str()))
-                    })
-                });
-            check_width(&t.payee, sw_category_name, category_name.as_deref());
-        }
-
-        for u in updates {
-            let (external_id, category_id) = lm_tx_categories
-                .get(&u.id)
-                .map(|(ext_id, cat_id)| (ext_id.as_ref(), *cat_id))
-                .unwrap_or((None, None));
-            let sw_category_name = external_id
-                .and_then(|ext_id| sw_expense_categories.get(ext_id))
-                .and_then(|cat_info| {
-                    cat_info.as_ref().and_then(|(cat_id, cat_name)| {
-                        sw_category_id_to_path
-                            .get(cat_id)
-                            .map(|s| s.as_str())
-                            .or(Some(cat_name.as_str()))
-                    })
-                });
-            let category_name = category_id.and_then(|id| lm_category_names.get(&id).cloned());
-            check_width(&u.payee, sw_category_name, category_name.as_deref());
-        }
-
-        for ins in inserts {
-            let category_name = ins
-                .category_id
-                .and_then(|id| lm_category_names.get(&id).cloned());
-            let sw_category_name =
-                sw_expense_categories
-                    .get(&ins.external_id)
-                    .and_then(|cat_info| {
-                        cat_info.as_ref().and_then(|(cat_id, cat_name)| {
-                            sw_category_id_to_path
-                                .get(cat_id)
-                                .map(|s| s.as_str())
-                                .or(Some(cat_name.as_str()))
-                        })
-                    });
-            check_width(&ins.payee, sw_category_name, category_name.as_deref());
-        }
-    }
-
     // Execute batches
     if !deletes.is_empty() {
         println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", deletes.len() };
+        let mut records = Vec::new();
         for t in deletes {
             let category_name = t
                 .category_id
@@ -786,8 +668,19 @@ async fn execute_sync_actions(
                             .or(Some(cat_name.as_str()))
                     })
                 });
-            println! { "   {STYLE_ERROR}-{STYLE_ERROR:#} {}", format_transaction_summary(&t.payee, t.amount, &t.currency, t.date, t.notes.as_deref().unwrap_or(""), sw_category_name, category_name.as_deref(), payee_width, sw_cat_width, lm_cat_width) };
+            records.push(to_sync_record(
+                &t.payee,
+                t.amount,
+                &t.currency,
+                t.date,
+                t.notes.as_deref().unwrap_or(""),
+                sw_category_name,
+                category_name.as_deref(),
+            ));
         }
+        let mut table = Table::new(records);
+        table.with(Style::rounded());
+        println!("{}", table);
         println! {};
 
         if !dry_run {
@@ -804,6 +697,7 @@ async fn execute_sync_actions(
 
     if !updates.is_empty() {
         println! { "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:", updates.len() };
+        let mut records = Vec::new();
         for u in updates {
             let (external_id, category_id) = lm_tx_categories
                 .get(&u.id)
@@ -820,8 +714,19 @@ async fn execute_sync_actions(
                     })
                 });
             let category_name = category_id.and_then(|id| lm_category_names.get(&id).cloned());
-            println! { "   {STYLE_INFO}~{STYLE_INFO:#} {}", format_transaction_summary(&u.payee, u.amount, &u.currency, u.date, &u.notes, sw_category_name, category_name.as_deref(), payee_width, sw_cat_width, lm_cat_width) };
+            records.push(to_sync_record(
+                &u.payee,
+                u.amount,
+                &u.currency,
+                u.date,
+                &u.notes,
+                sw_category_name,
+                category_name.as_deref(),
+            ));
         }
+        let mut table = Table::new(records);
+        table.with(Style::rounded());
+        println!("{}", table);
         println! {};
 
         if !dry_run {
@@ -855,6 +760,7 @@ async fn execute_sync_actions(
 
     if !inserts.is_empty() {
         println! { "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:", inserts.len() };
+        let mut records = Vec::new();
         for ins in inserts {
             let category_name = ins
                 .category_id
@@ -870,8 +776,19 @@ async fn execute_sync_actions(
                                 .or(Some(cat_name.as_str()))
                         })
                     });
-            println! { "   {STYLE_SUCCESS}+{STYLE_SUCCESS:#} {}", format_transaction_summary(&ins.payee, ins.amount, &ins.currency, ins.date, &ins.notes, sw_category_name, category_name.as_deref(), payee_width, sw_cat_width, lm_cat_width) };
+            records.push(to_sync_record(
+                &ins.payee,
+                ins.amount,
+                &ins.currency,
+                ins.date,
+                &ins.notes,
+                sw_category_name,
+                category_name.as_deref(),
+            ));
         }
+        let mut table = Table::new(records);
+        table.with(Style::rounded());
+        println!("{}", table);
         println! {};
 
         if !dry_run {
