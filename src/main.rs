@@ -50,6 +50,9 @@ async fn main() {
                 cli::QueryLunchMoneySubcommands::Tags => {
                     commands::query::run_query_lunchmoney_tags().await;
                 }
+                cli::QueryLunchMoneySubcommands::Accounts => {
+                    commands::query::run_query_lunchmoney_accounts().await;
+                }
             },
         },
     }

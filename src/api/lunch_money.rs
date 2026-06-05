@@ -250,6 +250,8 @@ pub mod schema {
         pub account_type: AccountType,
         #[serde(with = "rust_decimal::serde::str")]
         pub balance: Decimal,
+        pub currency: String,
+        pub status: String,
     }
 
     impl std::fmt::Display for ManualAccount {

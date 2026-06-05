@@ -455,3 +455,88 @@ pub async fn run_query_splitwise_categories() {
     }
     println! {};
 }
+
+pub async fn run_query_lunchmoney_accounts() {
+    let config = crate::load_config();
+
+    let http_pool = reqwest::Client::new();
+    let lm_client =
+        crate::api::lunch_money::Client::new(http_pool, config.lunch_money.api_key.clone());
+
+    let bar = "─".repeat(80);
+
+    println! {};
+    println! { "{STYLE_HEADER}🔍 Querying Lunch Money Manual Accounts{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
+
+    let accounts_res: crate::api::lunch_money::schema::ManualAccountsResponse = lm_client
+        .fetch("manual_accounts", &[] as &[(&str, &str)])
+        .await;
+
+    let mut accounts = accounts_res.manual_accounts;
+
+    if accounts.is_empty() {
+        println! { "{STYLE_WARNING}No manual accounts found.{STYLE_WARNING:#}" };
+        println! {};
+        return;
+    }
+
+    println! { "  {:<10}  {:<18}  {:<12}  {:>11}  {:<6}  {}", "ID", "Name", "Type", "Balance", "Status", "Mapped" };
+    println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
+
+    let target_accounts: HashMap<u64, String> = config
+        .lunch_money
+        .target_accounts
+        .iter()
+        .map(|(currency, &id)| (id, currency.to_uppercase()))
+        .collect();
+
+    // Sort accounts: active first, then by name
+    accounts.sort_by(|a, b| match (a.status.as_str(), b.status.as_str()) {
+        ("active", "closed") => std::cmp::Ordering::Less,
+        ("closed", "active") => std::cmp::Ordering::Greater,
+        _ => a.name.cmp(&b.name),
+    });
+
+    for acc in accounts {
+        let acc_name = acc.display_name.as_deref().unwrap_or(&acc.name);
+        let mut clean_name = acc_name.to_string();
+        if clean_name.chars().count() > 18 {
+            clean_name = clean_name.chars().take(15).collect::<String>();
+            clean_name.push_str("...");
+        }
+
+        let id_bracket = format!("[{}]", acc.id);
+        let type_str = format!("{:?}", acc.account_type);
+        let balance_str = format!("{:.2} {}", acc.balance, acc.currency.to_uppercase());
+
+        let mapped_str = if let Some(currency) = target_accounts.get(&acc.id) {
+            currency.to_uppercase()
+        } else {
+            "—".to_string()
+        };
+
+        let is_closed = acc.status == "closed";
+
+        if is_closed {
+            let mapped_display = if target_accounts.contains_key(&acc.id) {
+                format!("{}{}{:#}", STYLE_DIM, mapped_str, STYLE_DIM)
+            } else {
+                format!("{}{}{:#}", STYLE_DIM, "—", STYLE_DIM)
+            };
+            println! { "  {STYLE_DIM}{:<10}  {:<18}  {:<12}  {:>11}  {:<6}  {}{STYLE_DIM:#}",
+                id_bracket, clean_name, type_str, balance_str, acc.status, mapped_display
+            };
+        } else {
+            let mapped_display = if target_accounts.contains_key(&acc.id) {
+                format!("{}{}{:#}", STYLE_INFO, mapped_str, STYLE_INFO)
+            } else {
+                format!("{}{}{:#}", STYLE_DIM, "—", STYLE_DIM)
+            };
+            println! { "  {:<10}  {:<18}  {:<12}  {:>11}  {:<6}  {}",
+                id_bracket, clean_name, type_str, balance_str, acc.status, mapped_display
+            };
+        }
+    }
+    println! {};
+}

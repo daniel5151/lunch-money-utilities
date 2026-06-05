@@ -68,6 +68,8 @@ pub enum QueryLunchMoneySubcommands {
     Categories,
     /// List all tags in Lunch Money
     Tags,
+    /// List all manual accounts in Lunch Money
+    Accounts,
 }
 
 #[derive(Parser, Debug)]

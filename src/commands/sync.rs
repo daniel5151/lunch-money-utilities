@@ -60,7 +60,12 @@ fn format_transaction_summary(
     };
 
     let category_display = if sw_clean.is_none() && lm_category_name.is_none() {
-        let total_width = if sw_cat_width > 0 { sw_cat_width + 2 } else { 0 } + lm_cat_width + 2;
+        let total_width = if sw_cat_width > 0 {
+            sw_cat_width + 2
+        } else {
+            0
+        } + lm_cat_width
+            + 2;
         " ".repeat(total_width)
     } else {
         let sw_part = sw_clean.unwrap_or("");
@@ -466,7 +471,6 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     .await;
 }
 
-
 fn verify_target_accounts(config: &crate::config::Config, accounts_res: &ManualAccountsResponse) {
     for (currency, &account_id) in &config.lunch_money.target_accounts {
         if !accounts_res
@@ -691,11 +695,7 @@ async fn execute_sync_actions(
                 clean = &clean["Splitwise - ".len()..];
             }
             let len = clean.chars().count();
-            if len > 50 {
-                50
-            } else {
-                len
-            }
+            if len > 50 { 50 } else { len }
         };
 
         let mut check_width = |payee: &str, sw_cat: Option<&str>, lm_cat: Option<&str>| {
