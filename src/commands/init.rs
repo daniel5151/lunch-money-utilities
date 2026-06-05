@@ -84,6 +84,14 @@ pub async fn run_init() {
     .trim()
     .to_string();
 
+    println! {};
+    println! { "  {STYLE_DIM}Fetching Splitwise categories for seeding config...{STYLE_DIM:#}" };
+    let sw_client =
+        crate::api::splitwise::Client::new(http_client.clone(), splitwise_api_key.clone());
+    let sw_categories: crate::api::splitwise::schema::CategoriesResponse = sw_client
+        .fetch("get_categories", &[] as &[(&str, &str)])
+        .await;
+
     let lunch_money_api_key = inquire::Password::new("Lunch Money API Key:")
         .with_help_message("Your Lunch Money developer API key")
         .with_display_mode(inquire::PasswordDisplayMode::Masked)
@@ -175,6 +183,14 @@ pub async fn run_init() {
         target_accounts_toml.push_str(&format!("{} = {}\n", curr, id));
     }
 
+    let mut categories_toml = String::new();
+    for parent in sw_categories.categories {
+        for sub in parent.subcategories {
+            categories_toml.push_str(&format!("# \"{}:{}\" = \"...\"\n", parent.name, sub.name));
+        }
+    }
+    categories_toml = categories_toml.trim_end().to_string();
+
     let template = format!(
         r#"[splitwise]
 # Your personal Splitwise API key
@@ -196,11 +212,11 @@ api_key = "{lunch_money_api_key}"
 {target_accounts_toml}
 [categories]
 # Map Splitwise category names/IDs to Lunch Money category names/IDs (optional)
+#
 # HINT: use `splitwise-lunchmoney query splitwise categories` and
 # `splitwise-lunchmoney query lunchmoney categories` to find names and IDs.
-# "Food & drink" = "Restaurants"
-# "Electricity" = 123456
-# "Life:Other" = 123457 # Use colon to specify [sub]category (to disambiguate)
+#
+{categories_toml}
 "#
     );
 
