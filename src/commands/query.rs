@@ -26,8 +26,21 @@ fn print_expenses_table(
     group_map: &HashMap<u64, String>,
 ) {
     let mut has_uninvolved = false;
-    let mut records = Vec::new();
 
+    // Scan expenses to compute the maximum width of the numeric and currency sub-components.
+    // This allows us to manually pad them for proper decimal/currency alignment.
+    let (max_num_len, max_currency_len) =
+        super::compute_max_widths(expenses.iter().map(|expense| {
+            let net_balance = expense
+                .users
+                .iter()
+                .find(|u| u.user_id == config.splitwise.user_id)
+                .map(|u| u.net_balance)
+                .unwrap_or(Decimal::ZERO);
+            (net_balance, &expense.currency_code)
+        }));
+
+    let mut records = Vec::new();
     for expense in expenses {
         let net_balance = expense
             .users
@@ -85,13 +98,14 @@ fn print_expenses_table(
             clean_desc
         };
 
-        let currency_suffix = if is_uninvolved {
-            format!("{}*", expense.currency_code.to_uppercase())
-        } else {
-            expense.currency_code.to_uppercase()
-        };
-
-        let balance_plain = format!("{:.2} {}", net_balance, currency_suffix);
+        // Format and align the balance column using our shared helper
+        let balance_plain = super::format_aligned_balance(
+            net_balance,
+            &expense.currency_code,
+            max_num_len,
+            max_currency_len,
+            is_uninvolved,
+        );
         let balance_colored = format!("{}{}{:#}", style, balance_plain, style);
 
         records.push(ExpenseRecord {
@@ -510,6 +524,12 @@ pub(crate) async fn run_query_lunchmoney_accounts() {
         _ => a.name.cmp(&b.name),
     });
 
+    // We calculate the max width of the balance and currency sub-components. By right-aligning
+    // the numeric part and left-aligning the currency code, we ensure that decimals and
+    // currency codes line up vertically across all rows, independent of negative signs.
+    let (max_num_len, max_currency_len) =
+        super::compute_max_widths(accounts.iter().map(|acc| (acc.balance, &acc.currency)));
+
     let mut records = Vec::new();
     for acc in accounts {
         let acc_name = acc.display_name.as_deref().unwrap_or(&acc.name);
@@ -521,7 +541,14 @@ pub(crate) async fn run_query_lunchmoney_accounts() {
 
         let id_bracket = format!("[{}]", acc.id);
         let type_str = format!("{:?}", acc.account_type);
-        let balance_str = format!("{:.2} {}", acc.balance, acc.currency.to_uppercase());
+
+        let balance_plain = super::format_aligned_balance(
+            acc.balance,
+            &acc.currency,
+            max_num_len,
+            max_currency_len,
+            false,
+        );
 
         let mapped_str = if let Some(currency) = target_accounts.get(&acc.id) {
             currency.to_uppercase()
@@ -541,7 +568,7 @@ pub(crate) async fn run_query_lunchmoney_accounts() {
                 id: format!("{}{}{:#}", STYLE_DIM, id_bracket, STYLE_DIM),
                 name: format!("{}{}{:#}", STYLE_DIM, clean_name, STYLE_DIM),
                 account_type: format!("{}{}{:#}", STYLE_DIM, type_str, STYLE_DIM),
-                balance: format!("{}{}{:#}", STYLE_DIM, balance_str, STYLE_DIM),
+                balance: format!("{}{}{:#}", STYLE_DIM, balance_plain, STYLE_DIM),
                 status: format!("{}{}{:#}", STYLE_DIM, acc.status, STYLE_DIM),
                 mapped: mapped_display,
             });
@@ -555,7 +582,7 @@ pub(crate) async fn run_query_lunchmoney_accounts() {
                 id: id_bracket,
                 name: clean_name,
                 account_type: type_str,
-                balance: balance_str,
+                balance: balance_plain,
                 status: acc.status.to_string(),
                 mapped: mapped_display,
             });

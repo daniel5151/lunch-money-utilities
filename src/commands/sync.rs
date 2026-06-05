@@ -34,6 +34,9 @@ struct SyncRecord {
     notes: String,
 }
 
+/// Formats a transaction sync record into a `SyncRecord`.
+/// We accept the pre-calculated `max_num_len` and `max_currency_len` to format the transaction
+/// amount cell with alignment, ensuring decimals and currency codes line up vertically.
 fn to_sync_record(
     payee: &str,
     amount: Decimal,
@@ -42,6 +45,8 @@ fn to_sync_record(
     notes: &str,
     sw_category_name: Option<&str>,
     lm_category_name: Option<&str>,
+    max_num_len: usize,
+    max_currency_len: usize,
 ) -> SyncRecord {
     let date_str = date.strftime("%Y-%m-%d").to_string();
 
@@ -67,8 +72,9 @@ fn to_sync_record(
     } else {
         STYLE_SUCCESS
     };
-    let amount_str = format!("{:.2} {}", amount, currency);
-    let amount_colored = format!("{}{}{:#}", amount_style, amount_str, amount_style);
+    let amount_plain =
+        super::format_aligned_balance(amount, currency, max_num_len, max_currency_len, false);
+    let amount_colored = format!("{}{}{:#}", amount_style, amount_plain, amount_style);
 
     let notes_colored = if notes.trim().is_empty() {
         "".to_string()
@@ -661,6 +667,8 @@ async fn execute_sync_actions(
     // Execute batches
     if !deletes.is_empty() {
         println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", deletes.len() };
+        let (max_num_len, max_currency_len) =
+            super::compute_max_widths(deletes.iter().map(|t| (t.amount, &t.currency)));
         let mut records = Vec::new();
         for t in deletes {
             let category_name = t
@@ -686,6 +694,8 @@ async fn execute_sync_actions(
                 t.notes.as_deref().unwrap_or(""),
                 sw_category_name,
                 category_name.as_deref(),
+                max_num_len,
+                max_currency_len,
             ));
         }
         let mut table = Table::new(records);
@@ -707,6 +717,8 @@ async fn execute_sync_actions(
 
     if !updates.is_empty() {
         println! { "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:", updates.len() };
+        let (max_num_len, max_currency_len) =
+            super::compute_max_widths(updates.iter().map(|u| (u.amount, &u.currency)));
         let mut records = Vec::new();
         for u in updates {
             let (external_id, category_id) = lm_tx_categories
@@ -732,6 +744,8 @@ async fn execute_sync_actions(
                 &u.notes,
                 sw_category_name,
                 category_name.as_deref(),
+                max_num_len,
+                max_currency_len,
             ));
         }
         let mut table = Table::new(records);
@@ -770,6 +784,8 @@ async fn execute_sync_actions(
 
     if !inserts.is_empty() {
         println! { "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:", inserts.len() };
+        let (max_num_len, max_currency_len) =
+            super::compute_max_widths(inserts.iter().map(|ins| (ins.amount, &ins.currency)));
         let mut records = Vec::new();
         for ins in inserts {
             let category_name = ins
@@ -794,6 +810,8 @@ async fn execute_sync_actions(
                 &ins.notes,
                 sw_category_name,
                 category_name.as_deref(),
+                max_num_len,
+                max_currency_len,
             ));
         }
         let mut table = Table::new(records);

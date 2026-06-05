@@ -125,3 +125,51 @@ fn calculate_window_bounds(
 
     (start_date.to_string(), end_date.to_string())
 }
+
+/// Computes the maximum width of the formatted numeric part and currency code
+/// across a sequence of amounts and currencies.
+pub(crate) fn compute_max_widths<'a, I>(items: I) -> (usize, usize)
+where
+    I: IntoIterator<Item = (rust_decimal::Decimal, &'a crate::api::Currency)>,
+{
+    let mut max_num_len = 0;
+    let mut max_currency_len = 0;
+    for (amount, currency) in items {
+        let num_len = format!("{:.2}", amount).len();
+        if num_len > max_num_len {
+            max_num_len = num_len;
+        }
+        let currency_len = currency.as_str().len();
+        if currency_len > max_currency_len {
+            max_currency_len = currency_len;
+        }
+    }
+    (max_num_len, max_currency_len)
+}
+
+/// Formats a decimal amount and a currency code into a padded string to align decimals and
+/// currency codes vertically across table rows. The parameter `is_uninvolved` determines
+/// whether to append a `*` suffix (for uninvolved Splitwise expenses) or a space character.
+pub(crate) fn format_aligned_balance(
+    amount: rust_decimal::Decimal,
+    currency: &crate::api::Currency,
+    max_num_len: usize,
+    max_currency_len: usize,
+    is_uninvolved: bool,
+) -> String {
+    let num_str = format!("{:.2}", amount);
+    let padded_num = format!("{:>width$}", num_str, width = max_num_len);
+    let padded_currency = format!(
+        "{:<width$}",
+        currency.to_uppercase(),
+        width = max_currency_len
+    );
+
+    let currency_suffix = if is_uninvolved {
+        format!("{}*", padded_currency)
+    } else {
+        format!("{} ", padded_currency)
+    };
+
+    format!("{} {}", padded_num, currency_suffix)
+}
