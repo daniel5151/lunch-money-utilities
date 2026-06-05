@@ -101,24 +101,11 @@ pub async fn run_init() {
 
     println! {};
     println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API...{STYLE_INFO:#}" };
-    let response = http_client
-        .get("https://api.lunchmoney.dev/v2/manual_accounts")
-        .header("Authorization", format!("Bearer {lunch_money_api_key}"))
-        .send()
-        .await
-        .expect("Failed to query Lunch Money manual accounts. Please check your API key and internet connection.");
-
-    if !response.status().is_success() {
-        eprintln! {};
-        eprintln! { "{STYLE_ERROR}❌ Error querying Lunch Money:{STYLE_ERROR:#} {}", response.status() };
-        eprintln! {};
-        std::process::exit(1);
-    }
-
-    let accounts_res: ManualAccountsResponse = response
-        .json()
-        .await
-        .expect("Failed to parse Lunch Money manual accounts response");
+    let lm_client =
+        crate::api::lunch_money::Client::new(http_client.clone(), lunch_money_api_key.clone());
+    let accounts_res: ManualAccountsResponse = lm_client
+        .fetch("manual_accounts", &[] as &[(&str, &str)])
+        .await;
 
     let inferred = crate::commands::resolve_target_accounts(&accounts_res, &HashMap::new());
     if !inferred.is_empty() {

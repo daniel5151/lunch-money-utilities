@@ -5,42 +5,6 @@ use anstream::println;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
-pub fn format_group_balances(group: &crate::api::splitwise::schema::Group, user_id: u64) -> String {
-    let mut parts = Vec::new();
-    if let Some(members) = &group.members {
-        if let Some(member) = members.iter().find(|m| m.id == user_id) {
-            for bal in &member.balance {
-                let amount = bal.amount;
-                let currency = &bal.currency_code;
-                let amount_str = format!("{:.2} {}", amount, currency);
-                let styled = if amount.is_sign_negative() {
-                    format!(
-                        "{}{}{}",
-                        STYLE_ERROR,
-                        amount_str,
-                        STYLE_ERROR.render_reset()
-                    )
-                } else if amount.is_zero() {
-                    format!("{}{}{}", STYLE_DIM, amount_str, STYLE_DIM.render_reset())
-                } else {
-                    format!(
-                        "{}{}{}",
-                        STYLE_SUCCESS,
-                        amount_str,
-                        STYLE_SUCCESS.render_reset()
-                    )
-                };
-                parts.push(styled);
-            }
-        }
-    }
-    if parts.is_empty() {
-        format!("{}—{}", STYLE_DIM, STYLE_DIM.render_reset())
-    } else {
-        parts.join(", ")
-    }
-}
-
 fn print_expenses_table(
     expenses: Vec<crate::api::splitwise::schema::Expense>,
     config: &crate::config::Config,
@@ -63,28 +27,8 @@ fn print_expenses_table(
             .strftime("%Y-%m-%d")
             .to_string();
 
-        let payee_str = match expense.group_id {
-            Some(gid) => group_map
-                .get(&gid)
-                .cloned()
-                .unwrap_or_else(|| "Unknown Group".to_string()),
-            None => expense
-                .users
-                .iter()
-                .find(|u| u.user_id != config.splitwise.user_id)
-                .and_then(|u| u.user.as_ref())
-                .map(|d| {
-                    format!(
-                        "{} {}",
-                        d.first_name.as_deref().unwrap_or(""),
-                        d.last_name.as_deref().unwrap_or("")
-                    )
-                    .trim()
-                    .to_string()
-                })
-                .filter(|s| !s.is_empty())
-                .unwrap_or_else(|| "Non-group".to_string()),
-        };
+        let payee_str =
+            super::resolve_splitwise_payee(&expense, config.splitwise.user_id, group_map);
 
         let mut clean_payee = payee_str;
         if clean_payee.chars().count() > 30 {
@@ -226,7 +170,7 @@ pub async fn run_query_splitwise_group(args: crate::cli::QuerySplitwiseGroupArgs
 
     println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", group_name, args.group_id };
     if let Some(g) = target_group {
-        let balance_str = format_group_balances(g, config.splitwise.user_id);
+        let balance_str = super::format_group_balances(g, config.splitwise.user_id);
         println! { "{STYLE_INFO}💰 Balance:{STYLE_INFO:#} {}", balance_str };
     }
     println! {};
@@ -286,7 +230,7 @@ pub async fn run_query_splitwise_get_groups() {
             .date()
             .strftime("%Y-%m-%d")
             .to_string();
-        let balance_str = format_group_balances(&g, config.splitwise.user_id);
+        let balance_str = super::format_group_balances(&g, config.splitwise.user_id);
         println! { "  {:<15}  {:<15}  {:<40}  {}", date_str, g.id, clean_name, balance_str };
     }
     println! {};

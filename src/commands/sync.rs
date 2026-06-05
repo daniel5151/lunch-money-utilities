@@ -343,8 +343,7 @@ pub async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
 
     println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", group_name, sync_args.group_id };
     if let Some(g) = target_group {
-        let balance_str =
-            crate::commands::query::format_group_balances(g, config.splitwise.user_id);
+        let balance_str = super::format_group_balances(g, config.splitwise.user_id);
         println! { "{STYLE_INFO}💰 Balance:{STYLE_INFO:#} {}", balance_str };
     }
     println! {};
@@ -618,28 +617,7 @@ fn diff_transactions(
 
         let payee_str = format!(
             "Splitwise - {}",
-            match expense.group_id {
-                Some(gid) => group_map
-                    .get(&gid)
-                    .cloned()
-                    .unwrap_or_else(|| "Unknown Group".to_string()),
-                None => expense
-                    .users
-                    .iter()
-                    .find(|u| u.user_id != config.splitwise.user_id)
-                    .and_then(|u| u.user.as_ref())
-                    .map(|d| {
-                        format!(
-                            "{} {}",
-                            d.first_name.as_deref().unwrap_or(""),
-                            d.last_name.as_deref().unwrap_or("")
-                        )
-                        .trim()
-                        .to_string()
-                    })
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| "Non-group".to_string()),
-            }
+            super::resolve_splitwise_payee(&expense, config.splitwise.user_id, group_map)
         );
 
         if let Some(existing_lm) = lm_map.remove(&external_id) {
