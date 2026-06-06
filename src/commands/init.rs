@@ -150,6 +150,13 @@ api_key = "{lunch_money_api_key}"
 # USD = 123456
 # GBP = 789012
 
+[sync]
+# Optional: Extra tag to associate with transactions where you've loaned out money
+#  This can be used to make it easy to spot which splitwise transactions should be
+#  (manually) grouped with another account's transaction in lunch money.
+#  e.g: grouping a $100 dinner transaction from a credit-card with a $50 splitwise loan
+# loan_tag = "Splitwise Loan"
+
 [categories]
 # Map Splitwise category names/IDs to Lunch Money category names/IDs (optional)
 #

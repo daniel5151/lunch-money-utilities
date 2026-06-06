@@ -160,6 +160,67 @@ async fn resolve_categories(
     (resolved, names)
 }
 
+async fn resolve_or_create_tag(
+    lm_client: &crate::api::lunch_money::Client,
+    tags_res: &crate::api::lunch_money::schema::TagsResponse,
+    tag_name: &str,
+    dry_run: bool,
+) -> u64 {
+    if let Some(existing_tag) = tags_res
+        .tags
+        .iter()
+        .find(|t| t.name.eq_ignore_ascii_case(tag_name))
+    {
+        existing_tag.id
+    } else if dry_run {
+        println! { "   {STYLE_WARNING}Would create tag:{STYLE_WARNING:#} '{}'", tag_name };
+        0
+    } else {
+        println! { "  {STYLE_DIM}Creating new tag '{}'...{STYLE_DIM:#}", tag_name };
+        let new_tag: crate::api::lunch_money::schema::Tag = lm_client
+            .exec_with_response(
+                Method::POST,
+                "tags",
+                &crate::api::lunch_money::schema::CreateTagPayload {
+                    name: tag_name.to_string(),
+                },
+            )
+            .await;
+        new_tag.id
+    }
+}
+
+async fn resolve_tags(
+    lm_client: &crate::api::lunch_money::Client,
+    tag_name: Option<&str>,
+    loan_tag_name: Option<&str>,
+    dry_run: bool,
+) -> (Option<u64>, Option<u64>) {
+    let mut tag_id = None;
+    let mut loan_tag_id = None;
+
+    if tag_name.is_none() && loan_tag_name.is_none() {
+        return (None, None);
+    }
+
+    println! { "  {STYLE_DIM}Fetching Lunch Money tags...{STYLE_DIM:#}" };
+    let tags_res: crate::api::lunch_money::schema::TagsResponse =
+        lm_client.fetch("tags", &[] as &[(&str, &str)]).await;
+
+    if let Some(name) = tag_name {
+        tag_id = Some(resolve_or_create_tag(lm_client, &tags_res, name, dry_run).await);
+    }
+    if let Some(name) = loan_tag_name {
+        if Some(name) == tag_name {
+            loan_tag_id = tag_id;
+        } else {
+            loan_tag_id = Some(resolve_or_create_tag(lm_client, &tags_res, name, dry_run).await);
+        }
+    }
+
+    (tag_id, loan_tag_id)
+}
+
 pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     let window_duration =
         jiff::SignedDuration::try_from(sync_args.window).expect("window duration is too large");
@@ -230,6 +291,14 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
 
     let sw_category_id_to_path = fetch_splitwise_categories(&sw_client, &config).await;
 
+    let (tag_id, loan_tag_id) = resolve_tags(
+        &lm_client,
+        sync_args.tag.as_deref(),
+        config.sync.loan_tag.as_deref(),
+        sync_args.dry_run,
+    )
+    .await;
+
     let lm_transactions = fetch_lunch_money_transactions(
         &lm_client,
         &target_accounts,
@@ -261,7 +330,8 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         &sw_category_id_to_path,
         &resolved_categories,
         None,
-        None,
+        tag_id,
+        loan_tag_id,
     );
 
     execute_sync_actions(
@@ -364,37 +434,13 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
 
     let sw_category_id_to_path = fetch_splitwise_categories(&sw_client, &config).await;
 
-    let mut tag_id = None;
-    if let Some(ref tag_name) = sync_args.tag {
-        println! { "  {STYLE_DIM}Resolving Lunch Money tag '{}'...{STYLE_DIM:#}", tag_name };
-        let tags_res: crate::api::lunch_money::schema::TagsResponse =
-            lm_client.fetch("tags", &[] as &[(&str, &str)]).await;
-
-        if let Some(existing_tag) = tags_res
-            .tags
-            .iter()
-            .find(|t| t.name.eq_ignore_ascii_case(tag_name))
-        {
-            tag_id = Some(existing_tag.id);
-        } else {
-            if sync_args.dry_run {
-                println! { "   {STYLE_WARNING}Would create tag:{STYLE_WARNING:#} '{}'", tag_name };
-                tag_id = Some(0);
-            } else {
-                println! { "  {STYLE_DIM}Creating new tag '{}'...{STYLE_DIM:#}", tag_name };
-                let new_tag: crate::api::lunch_money::schema::Tag = lm_client
-                    .exec_with_response(
-                        Method::POST,
-                        "tags",
-                        &crate::api::lunch_money::schema::CreateTagPayload {
-                            name: tag_name.clone(),
-                        },
-                    )
-                    .await;
-                tag_id = Some(new_tag.id);
-            }
-        }
-    }
+    let (tag_id, loan_tag_id) = resolve_tags(
+        &lm_client,
+        sync_args.tag.as_deref(),
+        config.sync.loan_tag.as_deref(),
+        sync_args.dry_run,
+    )
+    .await;
 
     let end_window_str = jiff::Timestamp::now()
         .to_zoned(jiff::tz::TimeZone::UTC)
@@ -432,7 +478,8 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         &sw_category_id_to_path,
         &resolved_categories,
         Some(sync_args.group_id),
-        tag_id.map(|id| vec![id]),
+        tag_id,
+        loan_tag_id,
     );
 
     // Filter deletes to only target transactions belonging to this specific group
@@ -564,7 +611,8 @@ fn diff_transactions(
     sw_category_id_to_path: &HashMap<u32, String>,
     resolved_categories: &HashMap<String, u64>,
     ignored_groups_exclude: Option<u64>,
-    tag_ids: Option<Vec<u64>>,
+    tag_id: Option<u64>,
+    loan_tag_id: Option<u64>,
 ) -> (Vec<InsertObject>, Vec<UpdateObject>, Vec<Transaction>) {
     let mut inserts = Vec::new();
     let mut updates = Vec::new();
@@ -638,6 +686,22 @@ fn diff_transactions(
                     .or_else(|| resolved_categories.get(&cat.id.to_string()))
                     .copied();
             }
+
+            let mut tx_tag_ids = Vec::new();
+            if let Some(tid) = tag_id {
+                tx_tag_ids.push(tid);
+            }
+            if net_balance > Decimal::ZERO {
+                if let Some(ltid) = loan_tag_id {
+                    tx_tag_ids.push(ltid);
+                }
+            }
+            let tag_ids_opt = if tx_tag_ids.is_empty() {
+                None
+            } else {
+                Some(tx_tag_ids)
+            };
+
             inserts.push(InsertObject {
                 date: date_civil,
                 amount: net_balance,
@@ -647,7 +711,7 @@ fn diff_transactions(
                 external_id,
                 manual_account_id,
                 status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                tag_ids: tag_ids.clone(),
+                tag_ids: tag_ids_opt,
                 category_id,
             });
         }
@@ -861,4 +925,93 @@ async fn execute_sync_actions(
         println! { "{STYLE_SUCCESS}✨ Synchronization cycle complete!{STYLE_SUCCESS:#}" };
     }
     println! {};
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_diff_transactions_loan_tag() {
+        let config_str = r#"
+            [splitwise]
+            api_key = "dummy"
+            user_id = 123
+            ignored_groups = []
+
+            [lunch_money]
+            api_key = "dummy"
+            custom_accounts = { USD = 999 }
+        "#;
+        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+
+        let expenses_json = r#"[
+            {
+                "id": 1,
+                "description": "Positive Net Balance (folks owe me)",
+                "date": "2026-06-06T12:00:00Z",
+                "currency_code": "USD",
+                "users": [
+                    {
+                        "user_id": 123,
+                        "net_balance": "50.00"
+                    }
+                ],
+                "payment": false
+            },
+            {
+                "id": 2,
+                "description": "Negative Net Balance (I owe folks)",
+                "date": "2026-06-06T12:00:00Z",
+                "currency_code": "USD",
+                "users": [
+                    {
+                        "user_id": 123,
+                        "net_balance": "-20.00"
+                    }
+                ],
+                "payment": false
+            }
+        ]"#;
+        let expenses: Vec<crate::api::splitwise::schema::Expense> =
+            serde_json::from_str(expenses_json).unwrap();
+
+        let mut target_accounts = HashMap::new();
+        target_accounts.insert(crate::api::Currency::new("USD"), 999);
+
+        let mut lm_map = HashMap::new();
+        let sw_category_id_to_path = HashMap::new();
+        let resolved_categories = HashMap::new();
+
+        let (inserts, updates, deletes) = diff_transactions(
+            expenses,
+            &config,
+            &target_accounts,
+            &HashMap::new(),
+            &mut lm_map,
+            &sw_category_id_to_path,
+            &resolved_categories,
+            None,
+            Some(444), // tag_id
+            Some(555), // loan_tag_id
+        );
+
+        assert!(updates.is_empty());
+        assert!(deletes.is_empty());
+        assert_eq!(inserts.len(), 2);
+
+        // Transaction 1: net_balance is 50.00 (positive). Should have both tags.
+        let tx1 = inserts
+            .iter()
+            .find(|tx| tx.amount == Decimal::new(5000, 2))
+            .unwrap();
+        assert_eq!(tx1.tag_ids, Some(vec![444, 555]));
+
+        // Transaction 2: net_balance is -20.00 (negative). Should only have tag_id.
+        let tx2 = inserts
+            .iter()
+            .find(|tx| tx.amount == Decimal::new(-2000, 2))
+            .unwrap();
+        assert_eq!(tx2.tag_ids, Some(vec![444]));
+    }
 }

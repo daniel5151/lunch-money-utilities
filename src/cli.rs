@@ -143,6 +143,10 @@ pub struct SyncWindowArgs {
     /// Print what would be synced without modifying Lunch Money
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Optional tag to associate with imported transactions in Lunch Money
+    #[arg(long)]
+    pub tag: Option<String>,
 }
 
 #[derive(Parser, Debug)]
