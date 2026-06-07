@@ -41,6 +41,7 @@
 - **Group Exclusion**: Transactions associated with a group can be excluded by specifying `--no-groups` on `query expenses` and `sync window` commands.
 - **CSV Reporting**: Synchronization commands (`sync window`, `sync group`, `sync balances`) support dumping their operations (inserts, updates, deletes) to a CSV file via the `--csv` option.
 - **Forced Categories**: The `sync group` command supports a `--force-category` flag to override the default category mappings and map all synchronized transactions to a specific active Lunch Money category (by ID or exact name).
+- **Loan Tag Exclusion**: Synchronization commands (`sync window`, `sync group`, `sync balances`) support a `--no-loan-tag` flag to bypass applying the configured `loan_tag` to synchronized transactions (this operates as a no-op if no loan tag is configured or if the command does not sync individual transactions).
 - **Transaction Sign Inversion**: In manual accounts of type `Loan` (liability), transaction amount signs are inverted during sync analysis and API inserts/updates to match Lunch Money's double-entry rules.
 - **Global Balance Sync**:
   - Net outstanding balances are computed by querying `/get_friends` and summing the `balance` array per currency across all friends.

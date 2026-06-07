@@ -136,6 +136,10 @@ pub struct SyncBalancesArgs {
     /// Path to a new CSV file to dump the sync operations
     #[arg(long)]
     pub csv: Option<std::path::PathBuf>,
+
+    /// Skip the configured loan_tag in config toml
+    #[arg(long)]
+    pub no_loan_tag: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -163,6 +167,10 @@ pub struct SyncWindowArgs {
     /// Path to a new CSV file to dump the sync operations
     #[arg(long)]
     pub csv: Option<std::path::PathBuf>,
+
+    /// Skip the configured loan_tag in config toml
+    #[arg(long)]
+    pub no_loan_tag: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -190,6 +198,10 @@ pub struct SyncGroupArgs {
     #[arg(long, num_args = 0..=1)]
     #[expect(clippy::option_option)]
     pub csv: Option<Option<std::path::PathBuf>>,
+
+    /// Skip the configured loan_tag in config toml
+    #[arg(long)]
+    pub no_loan_tag: bool,
 }
 
 #[cfg(test)]
@@ -269,6 +281,61 @@ mod tests {
         if let Commands::Sync(sync_args) = args.command {
             if let SyncSubcommands::Group(group_args) = sync_args.command {
                 assert_eq!(group_args.force_category, Some("Food".to_string()));
+            } else {
+                panic!("Expected SyncSubcommands::Group");
+            }
+        } else {
+            panic!("Expected Commands::Sync");
+        }
+    }
+
+    #[test]
+    fn test_sync_no_loan_tag_parsing() {
+        // Balances
+        let args =
+            Args::try_parse_from(["splitwise-lunchmoney", "sync", "balances", "--no-loan-tag"])
+                .unwrap();
+        if let Commands::Sync(sync_args) = args.command {
+            if let SyncSubcommands::Balances(balances_args) = sync_args.command {
+                assert!(balances_args.no_loan_tag);
+            } else {
+                panic!("Expected SyncSubcommands::Balances");
+            }
+        } else {
+            panic!("Expected Commands::Sync");
+        }
+
+        // Window
+        let args = Args::try_parse_from([
+            "splitwise-lunchmoney",
+            "sync",
+            "window",
+            "3d",
+            "--no-loan-tag",
+        ])
+        .unwrap();
+        if let Commands::Sync(sync_args) = args.command {
+            if let SyncSubcommands::Window(window_args) = sync_args.command {
+                assert!(window_args.no_loan_tag);
+            } else {
+                panic!("Expected SyncSubcommands::Window");
+            }
+        } else {
+            panic!("Expected Commands::Sync");
+        }
+
+        // Group
+        let args = Args::try_parse_from([
+            "splitwise-lunchmoney",
+            "sync",
+            "group",
+            "Roommates",
+            "--no-loan-tag",
+        ])
+        .unwrap();
+        if let Commands::Sync(sync_args) = args.command {
+            if let SyncSubcommands::Group(group_args) = sync_args.command {
+                assert!(group_args.no_loan_tag);
             } else {
                 panic!("Expected SyncSubcommands::Group");
             }

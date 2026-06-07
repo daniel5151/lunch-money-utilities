@@ -350,10 +350,16 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
 
     let sw_category_id_to_path = fetch_splitwise_categories(&sw_client, &config).await;
 
+    let loan_tag_name = if sync_args.no_loan_tag {
+        None
+    } else {
+        config.sync.loan_tag.as_deref()
+    };
+
     let (tag_id, loan_tag_id) = resolve_tags(
         &lm_client,
         sync_args.tag.as_deref(),
-        config.sync.loan_tag.as_deref(),
+        loan_tag_name,
         sync_args.dry_run,
     )
     .await;
@@ -514,10 +520,16 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
 
     let sw_category_id_to_path = fetch_splitwise_categories(&sw_client, &config).await;
 
+    let loan_tag_name = if sync_args.no_loan_tag {
+        None
+    } else {
+        config.sync.loan_tag.as_deref()
+    };
+
     let (tag_id, loan_tag_id) = resolve_tags(
         &lm_client,
         sync_args.tag.as_deref(),
-        config.sync.loan_tag.as_deref(),
+        loan_tag_name,
         sync_args.dry_run,
     )
     .await;
@@ -1210,6 +1222,72 @@ mod tests {
             .find(|tx| tx.amount == Decimal::new(-2000, 2))
             .unwrap();
         assert_eq!(tx2.tag_ids, Some(vec![444]));
+    }
+
+    #[test]
+    fn test_diff_transactions_no_loan_tag() {
+        let config_str = r#"
+            [splitwise]
+            api_key = "dummy"
+            user_id = 123
+            ignored_groups = []
+
+            [lunch_money]
+            api_key = "dummy"
+            custom_accounts = { USD = 999 }
+        "#;
+        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+
+        let expenses_json = r#"[
+            {
+                "id": 1,
+                "description": "Positive Net Balance (folks owe me)",
+                "date": "2026-06-06T12:00:00Z",
+                "currency_code": "USD",
+                "users": [
+                    {
+                        "user_id": 123,
+                        "net_balance": "50.00"
+                    }
+                ],
+                "payment": false
+            }
+        ]"#;
+        let expenses: Vec<crate::api::splitwise::schema::Expense> =
+            serde_json::from_str(expenses_json).unwrap();
+
+        let mut target_accounts = HashMap::new();
+        target_accounts.insert(crate::api::Currency::new("USD"), 999);
+
+        let mut lm_map = HashMap::new();
+        let sw_category_id_to_path = HashMap::new();
+        let resolved_categories = HashMap::new();
+
+        // Pass None for loan_tag_id
+        let (inserts, updates, deletes) = diff_transactions(
+            expenses,
+            &config,
+            &target_accounts,
+            &HashMap::new(),
+            &mut lm_map,
+            &sw_category_id_to_path,
+            &resolved_categories,
+            None,
+            Some(444), // tag_id
+            None,      // loan_tag_id is None
+            None,
+        );
+
+        assert!(updates.is_empty());
+        assert!(deletes.is_empty());
+        assert_eq!(inserts.len(), 1);
+
+        // Transaction 1: net_balance is 50.00 (positive). Should only have tag_id, not loan_tag_id.
+        let tx1 = inserts
+            .iter()
+            .find(|tx| tx.amount == Decimal::new(5000, 2))
+            .unwrap();
+        assert_eq!(tx1.tag_ids, Some(vec![444]));
     }
 
     #[test]
