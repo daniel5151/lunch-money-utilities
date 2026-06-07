@@ -34,20 +34,33 @@ struct SyncRecord {
     notes: String,
 }
 
+struct ToSyncRecordArgs<'a> {
+    payee: &'a str,
+    amount: Decimal,
+    currency: &'a crate::api::Currency,
+    date: jiff::civil::Date,
+    notes: &'a str,
+    sw_category_name: Option<&'a str>,
+    lm_category_name: Option<&'a str>,
+    max_num_len: usize,
+    max_currency_len: usize,
+}
+
 /// Formats a transaction sync record into a `SyncRecord`.
 /// We accept the pre-calculated `max_num_len` and `max_currency_len` to format the transaction
 /// amount cell with alignment, ensuring decimals and currency codes line up vertically.
-fn to_sync_record(
-    payee: &str,
-    amount: Decimal,
-    currency: &crate::api::Currency,
-    date: jiff::civil::Date,
-    notes: &str,
-    sw_category_name: Option<&str>,
-    lm_category_name: Option<&str>,
-    max_num_len: usize,
-    max_currency_len: usize,
-) -> SyncRecord {
+fn to_sync_record(args: ToSyncRecordArgs<'_>) -> SyncRecord {
+    let ToSyncRecordArgs {
+        payee,
+        amount,
+        currency,
+        date,
+        notes,
+        sw_category_name,
+        lm_category_name,
+        max_num_len,
+        max_currency_len,
+    } = args;
     let date_str = date.strftime("%Y-%m-%d").to_string();
 
     let mut clean_payee = payee.to_string();
@@ -364,13 +377,13 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     )
     .await;
 
-    let lm_transactions = fetch_lunch_money_transactions(
-        &lm_client,
-        &target_accounts,
-        &accounts_res,
-        &start_window_str,
-        &end_window_str,
-    )
+    let lm_transactions = fetch_lunch_money_transactions(FetchLunchMoneyTransactionsArgs {
+        lm_client: &lm_client,
+        target_accounts: &target_accounts,
+        accounts_res: &accounts_res,
+        start_date_str: &start_window_str,
+        end_date_str: &end_window_str,
+    })
     .await;
 
     println! { "  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}" };
@@ -386,35 +399,35 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         .filter_map(|t| t.external_id.clone().map(|ext_id| (ext_id, t)))
         .collect();
 
-    let (inserts, updates, deletes) = diff_transactions(
+    let (inserts, updates, deletes) = diff_transactions(DiffTransactionsArgs {
         expenses,
-        &config,
-        &target_accounts,
-        &group_map,
-        &mut lm_map,
-        &sw_category_id_to_path,
-        &resolved_categories,
-        None,
-        sync_args.no_ignore,
+        config: &config,
+        target_accounts: &target_accounts,
+        group_map: &group_map,
+        lm_map: &mut lm_map,
+        sw_category_id_to_path: &sw_category_id_to_path,
+        resolved_categories: &resolved_categories,
+        ignored_groups_exclude: None,
+        bypass_ignore_groups: sync_args.no_ignore,
         tag_id,
         loan_tag_id,
-        None,
-    );
+        force_category_id: None,
+    });
 
-    execute_sync_actions(
-        &deletes,
-        &updates,
-        &inserts,
-        sync_args.dry_run,
-        &lm_client,
-        &accounts_res,
-        &target_accounts,
-        &lm_category_names,
-        &sw_expense_categories,
-        &sw_category_id_to_path,
-        &lm_tx_categories,
-        sync_args.csv.as_deref(),
-    )
+    execute_sync_actions(ExecuteSyncActionsArgs {
+        deletes: &deletes,
+        updates: &updates,
+        inserts: &inserts,
+        dry_run: sync_args.dry_run,
+        lm_client: &lm_client,
+        accounts_res: &accounts_res,
+        target_accounts: &target_accounts,
+        lm_category_names: &lm_category_names,
+        sw_expense_categories: &sw_expense_categories,
+        sw_category_id_to_path: &sw_category_id_to_path,
+        lm_tx_categories: &lm_tx_categories,
+        csv_path: sync_args.csv.as_deref(),
+    })
     .await;
 }
 
@@ -540,13 +553,13 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         .strftime("%Y-%m-%d")
         .to_string();
 
-    let lm_transactions = fetch_lunch_money_transactions(
-        &lm_client,
-        &target_accounts,
-        &accounts_res,
-        "2000-01-01",
-        &end_window_str,
-    )
+    let lm_transactions = fetch_lunch_money_transactions(FetchLunchMoneyTransactionsArgs {
+        lm_client: &lm_client,
+        target_accounts: &target_accounts,
+        accounts_res: &accounts_res,
+        start_date_str: "2000-01-01",
+        end_date_str: &end_window_str,
+    })
     .await;
 
     println! { "  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}" };
@@ -562,20 +575,20 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         .filter_map(|t| t.external_id.clone().map(|ext_id| (ext_id, t)))
         .collect();
 
-    let (inserts, updates, mut deletes) = diff_transactions(
-        expenses_res.expenses,
-        &config,
-        &target_accounts,
-        &group_map,
-        &mut lm_map,
-        &sw_category_id_to_path,
-        &resolved_categories,
-        Some(target_group.id),
-        sync_args.no_ignore,
+    let (inserts, updates, mut deletes) = diff_transactions(DiffTransactionsArgs {
+        expenses: expenses_res.expenses,
+        config: &config,
+        target_accounts: &target_accounts,
+        group_map: &group_map,
+        lm_map: &mut lm_map,
+        sw_category_id_to_path: &sw_category_id_to_path,
+        resolved_categories: &resolved_categories,
+        ignored_groups_exclude: Some(target_group.id),
+        bypass_ignore_groups: sync_args.no_ignore,
         tag_id,
         loan_tag_id,
         force_category_id,
-    );
+    });
 
     // Filter deletes to only target transactions belonging to this specific group
     let is_non_group = target_group.id == 0;
@@ -598,20 +611,20 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         }
     }
 
-    execute_sync_actions(
-        &deletes,
-        &updates,
-        &inserts,
-        sync_args.dry_run,
-        &lm_client,
-        &accounts_res,
-        &target_accounts,
-        &lm_category_names,
-        &sw_expense_categories,
-        &sw_category_id_to_path,
-        &lm_tx_categories,
-        csv_path.as_deref(),
-    )
+    execute_sync_actions(ExecuteSyncActionsArgs {
+        deletes: &deletes,
+        updates: &updates,
+        inserts: &inserts,
+        dry_run: sync_args.dry_run,
+        lm_client: &lm_client,
+        accounts_res: &accounts_res,
+        target_accounts: &target_accounts,
+        lm_category_names: &lm_category_names,
+        sw_expense_categories: &sw_expense_categories,
+        sw_category_id_to_path: &sw_category_id_to_path,
+        lm_tx_categories: &lm_tx_categories,
+        csv_path: csv_path.as_deref(),
+    })
     .await;
 }
 
@@ -661,13 +674,24 @@ async fn fetch_splitwise_categories(
     sw_category_id_to_path
 }
 
+struct FetchLunchMoneyTransactionsArgs<'a> {
+    lm_client: &'a crate::api::lunch_money::Client,
+    target_accounts: &'a HashMap<crate::api::Currency, u64>,
+    accounts_res: &'a ManualAccountsResponse,
+    start_date_str: &'a str,
+    end_date_str: &'a str,
+}
+
 async fn fetch_lunch_money_transactions(
-    lm_client: &crate::api::lunch_money::Client,
-    target_accounts: &HashMap<crate::api::Currency, u64>,
-    accounts_res: &ManualAccountsResponse,
-    start_date_str: &str,
-    end_date_str: &str,
+    args: FetchLunchMoneyTransactionsArgs<'_>,
 ) -> Vec<Transaction> {
+    let FetchLunchMoneyTransactionsArgs {
+        lm_client,
+        target_accounts,
+        accounts_res,
+        start_date_str,
+        end_date_str,
+    } = args;
     println! { "  {STYLE_DIM}Fetching Lunch Money transactions...{STYLE_DIM:#}" };
     let mut lm_transactions = Vec::new();
     for &account_id in target_accounts.values() {
@@ -699,20 +723,38 @@ async fn fetch_lunch_money_transactions(
     lm_transactions
 }
 
-fn diff_transactions(
+struct DiffTransactionsArgs<'a> {
     expenses: Vec<crate::api::splitwise::schema::Expense>,
-    config: &crate::config::Config,
-    target_accounts: &HashMap<crate::api::Currency, u64>,
-    group_map: &HashMap<u64, String>,
-    lm_map: &mut HashMap<crate::api::ExternalId, Transaction>,
-    sw_category_id_to_path: &HashMap<u32, String>,
-    resolved_categories: &HashMap<String, u64>,
+    config: &'a crate::config::Config,
+    target_accounts: &'a HashMap<crate::api::Currency, u64>,
+    group_map: &'a HashMap<u64, String>,
+    lm_map: &'a mut HashMap<crate::api::ExternalId, Transaction>,
+    sw_category_id_to_path: &'a HashMap<u32, String>,
+    resolved_categories: &'a HashMap<String, u64>,
     ignored_groups_exclude: Option<u64>,
     bypass_ignore_groups: bool,
     tag_id: Option<u64>,
     loan_tag_id: Option<u64>,
     force_category_id: Option<u64>,
+}
+
+fn diff_transactions(
+    args: DiffTransactionsArgs<'_>,
 ) -> (Vec<InsertObject>, Vec<UpdateObject>, Vec<Transaction>) {
+    let DiffTransactionsArgs {
+        expenses,
+        config,
+        target_accounts,
+        group_map,
+        lm_map,
+        sw_category_id_to_path,
+        resolved_categories,
+        ignored_groups_exclude,
+        bypass_ignore_groups,
+        tag_id,
+        loan_tag_id,
+        force_category_id,
+    } = args;
     let mut inserts = Vec::new();
     let mut updates = Vec::new();
     let mut deletes = Vec::new();
@@ -827,20 +869,36 @@ fn diff_transactions(
     (inserts, updates, deletes)
 }
 
-async fn execute_sync_actions(
-    deletes: &[Transaction],
-    updates: &[UpdateObject],
-    inserts: &[InsertObject],
+struct ExecuteSyncActionsArgs<'a> {
+    deletes: &'a [Transaction],
+    updates: &'a [UpdateObject],
+    inserts: &'a [InsertObject],
     dry_run: bool,
-    lm_client: &crate::api::lunch_money::Client,
-    accounts_res: &ManualAccountsResponse,
-    target_accounts: &HashMap<crate::api::Currency, u64>,
-    lm_category_names: &HashMap<u64, String>,
-    sw_expense_categories: &HashMap<crate::api::ExternalId, Option<(u32, String)>>,
-    sw_category_id_to_path: &HashMap<u32, String>,
-    lm_tx_categories: &HashMap<u64, (Option<crate::api::ExternalId>, Option<u64>)>,
-    csv_path: Option<&std::path::Path>,
-) {
+    lm_client: &'a crate::api::lunch_money::Client,
+    accounts_res: &'a ManualAccountsResponse,
+    target_accounts: &'a HashMap<crate::api::Currency, u64>,
+    lm_category_names: &'a HashMap<u64, String>,
+    sw_expense_categories: &'a HashMap<crate::api::ExternalId, Option<(u32, String)>>,
+    sw_category_id_to_path: &'a HashMap<u32, String>,
+    lm_tx_categories: &'a HashMap<u64, (Option<crate::api::ExternalId>, Option<u64>)>,
+    csv_path: Option<&'a std::path::Path>,
+}
+
+async fn execute_sync_actions(args: ExecuteSyncActionsArgs<'_>) {
+    let ExecuteSyncActionsArgs {
+        deletes,
+        updates,
+        inserts,
+        dry_run,
+        lm_client,
+        accounts_res,
+        target_accounts,
+        lm_category_names,
+        sw_expense_categories,
+        sw_category_id_to_path,
+        lm_tx_categories,
+        csv_path,
+    } = args;
     if let Some(path) = csv_path {
         #[derive(serde::Serialize)]
         struct CsvRow<'a> {
@@ -972,17 +1030,17 @@ async fn execute_sync_actions(
                             .or(Some(cat_name.as_str()))
                     })
                 });
-            records.push(to_sync_record(
-                &t.payee,
-                t.amount,
-                &t.currency,
-                t.date,
-                t.notes.as_deref().unwrap_or(""),
+            records.push(to_sync_record(ToSyncRecordArgs {
+                payee: &t.payee,
+                amount: t.amount,
+                currency: &t.currency,
+                date: t.date,
+                notes: t.notes.as_deref().unwrap_or(""),
                 sw_category_name,
-                category_name.as_deref(),
+                lm_category_name: category_name.as_deref(),
                 max_num_len,
                 max_currency_len,
-            ));
+            }));
         }
         let mut table = Table::new(records);
         table.with(Style::rounded());
@@ -1022,17 +1080,17 @@ async fn execute_sync_actions(
                     })
                 });
             let category_name = category_id.and_then(|id| lm_category_names.get(&id).cloned());
-            records.push(to_sync_record(
-                &u.payee,
-                u.amount,
-                &u.currency,
-                u.date,
-                &u.notes,
+            records.push(to_sync_record(ToSyncRecordArgs {
+                payee: &u.payee,
+                amount: u.amount,
+                currency: &u.currency,
+                date: u.date,
+                notes: &u.notes,
                 sw_category_name,
-                category_name.as_deref(),
+                lm_category_name: category_name.as_deref(),
                 max_num_len,
                 max_currency_len,
-            ));
+            }));
         }
         let mut table = Table::new(records);
         table.with(Style::rounded());
@@ -1088,17 +1146,17 @@ async fn execute_sync_actions(
                                 .or(Some(cat_name.as_str()))
                         })
                     });
-            records.push(to_sync_record(
-                &ins.payee,
-                ins.amount,
-                &ins.currency,
-                ins.date,
-                &ins.notes,
+            records.push(to_sync_record(ToSyncRecordArgs {
+                payee: &ins.payee,
+                amount: ins.amount,
+                currency: &ins.currency,
+                date: ins.date,
+                notes: &ins.notes,
                 sw_category_name,
-                category_name.as_deref(),
+                lm_category_name: category_name.as_deref(),
                 max_num_len,
                 max_currency_len,
-            ));
+            }));
         }
         let mut table = Table::new(records);
         table.with(Style::rounded());
@@ -1200,20 +1258,20 @@ mod tests {
         let sw_category_id_to_path = HashMap::new();
         let resolved_categories = HashMap::new();
 
-        let (inserts, updates, deletes) = diff_transactions(
+        let (inserts, updates, deletes) = diff_transactions(DiffTransactionsArgs {
             expenses,
-            &config,
-            &target_accounts,
-            &HashMap::new(),
-            &mut lm_map,
-            &sw_category_id_to_path,
-            &resolved_categories,
-            None,
-            false,
-            Some(444), // tag_id
-            Some(555), // loan_tag_id
-            None,
-        );
+            config: &config,
+            target_accounts: &target_accounts,
+            group_map: &HashMap::new(),
+            lm_map: &mut lm_map,
+            sw_category_id_to_path: &sw_category_id_to_path,
+            resolved_categories: &resolved_categories,
+            ignored_groups_exclude: None,
+            bypass_ignore_groups: false,
+            tag_id: Some(444),
+            loan_tag_id: Some(555),
+            force_category_id: None,
+        });
 
         assert!(updates.is_empty());
         assert!(deletes.is_empty());
@@ -1274,20 +1332,20 @@ mod tests {
         let resolved_categories = HashMap::new();
 
         // Pass None for loan_tag_id
-        let (inserts, updates, deletes) = diff_transactions(
+        let (inserts, updates, deletes) = diff_transactions(DiffTransactionsArgs {
             expenses,
-            &config,
-            &target_accounts,
-            &HashMap::new(),
-            &mut lm_map,
-            &sw_category_id_to_path,
-            &resolved_categories,
-            None,
-            false,
-            Some(444), // tag_id
-            None,      // loan_tag_id is None
-            None,
-        );
+            config: &config,
+            target_accounts: &target_accounts,
+            group_map: &HashMap::new(),
+            lm_map: &mut lm_map,
+            sw_category_id_to_path: &sw_category_id_to_path,
+            resolved_categories: &resolved_categories,
+            ignored_groups_exclude: None,
+            bypass_ignore_groups: false,
+            tag_id: Some(444),
+            loan_tag_id: None,
+            force_category_id: None,
+        });
 
         assert!(updates.is_empty());
         assert!(deletes.is_empty());
@@ -1379,20 +1437,20 @@ mod tests {
         let mut lm_tx_categories = HashMap::new();
         lm_tx_categories.insert(20, (Some(ExternalId::Splitwise(200)), Some(7)));
 
-        execute_sync_actions(
-            &deletes,
-            &updates,
-            &inserts,
-            true, // dry_run
-            &lm_client,
-            &accounts_res,
-            &target_accounts,
-            &lm_category_names,
-            &sw_expense_categories,
-            &sw_category_id_to_path,
-            &lm_tx_categories,
-            Some(&csv_path),
-        )
+        execute_sync_actions(ExecuteSyncActionsArgs {
+            deletes: &deletes,
+            updates: &updates,
+            inserts: &inserts,
+            dry_run: true,
+            lm_client: &lm_client,
+            accounts_res: &accounts_res,
+            target_accounts: &target_accounts,
+            lm_category_names: &lm_category_names,
+            sw_expense_categories: &sw_expense_categories,
+            sw_category_id_to_path: &sw_category_id_to_path,
+            lm_tx_categories: &lm_tx_categories,
+            csv_path: Some(&csv_path),
+        })
         .await;
 
         assert!(csv_path.exists());
@@ -1459,20 +1517,20 @@ mod tests {
         let sw_category_id_to_path = HashMap::new();
         let resolved_categories = HashMap::new();
 
-        let (inserts, updates, deletes) = diff_transactions(
+        let (inserts, updates, deletes) = diff_transactions(DiffTransactionsArgs {
             expenses,
-            &config,
-            &target_accounts,
-            &HashMap::new(),
-            &mut lm_map,
-            &sw_category_id_to_path,
-            &resolved_categories,
-            None,
-            false,
-            None,
-            None,
-            Some(777), // force_category_id
-        );
+            config: &config,
+            target_accounts: &target_accounts,
+            group_map: &HashMap::new(),
+            lm_map: &mut lm_map,
+            sw_category_id_to_path: &sw_category_id_to_path,
+            resolved_categories: &resolved_categories,
+            ignored_groups_exclude: None,
+            bypass_ignore_groups: false,
+            tag_id: None,
+            loan_tag_id: None,
+            force_category_id: Some(777),
+        });
 
         assert!(updates.is_empty());
         assert!(deletes.is_empty());
@@ -1546,20 +1604,20 @@ mod tests {
         let mut group_map = HashMap::new();
         group_map.insert(789, "Roommates".to_string());
 
-        let (inserts, _, _) = diff_transactions(
+        let (inserts, _, _) = diff_transactions(DiffTransactionsArgs {
             expenses,
-            &config,
-            &target_accounts,
-            &group_map,
-            &mut lm_map,
-            &sw_category_id_to_path,
-            &resolved_categories,
-            None,
-            false,
-            None,
-            None,
-            None,
-        );
+            config: &config,
+            target_accounts: &target_accounts,
+            group_map: &group_map,
+            lm_map: &mut lm_map,
+            sw_category_id_to_path: &sw_category_id_to_path,
+            resolved_categories: &resolved_categories,
+            ignored_groups_exclude: None,
+            bypass_ignore_groups: false,
+            tag_id: None,
+            loan_tag_id: None,
+            force_category_id: None,
+        });
 
         assert_eq!(inserts.len(), 2);
 
@@ -1624,37 +1682,37 @@ mod tests {
         group_map.insert(789, "Roommates".to_string());
 
         // Case 1: bypass_ignore_groups = false (should be ignored, inserts is empty)
-        let (inserts1, _, _) = diff_transactions(
-            expenses1,
-            &config,
-            &target_accounts,
-            &group_map,
-            &mut lm_map,
-            &sw_category_id_to_path,
-            &resolved_categories,
-            None,
-            false, // bypass_ignore_groups = false
-            None,
-            None,
-            None,
-        );
+        let (inserts1, _, _) = diff_transactions(DiffTransactionsArgs {
+            expenses: expenses1,
+            config: &config,
+            target_accounts: &target_accounts,
+            group_map: &group_map,
+            lm_map: &mut lm_map,
+            sw_category_id_to_path: &sw_category_id_to_path,
+            resolved_categories: &resolved_categories,
+            ignored_groups_exclude: None,
+            bypass_ignore_groups: false,
+            tag_id: None,
+            loan_tag_id: None,
+            force_category_id: None,
+        });
         assert!(inserts1.is_empty());
 
         // Case 2: bypass_ignore_groups = true (should NOT be ignored, inserts has 1 item)
-        let (inserts2, _, _) = diff_transactions(
-            expenses2,
-            &config,
-            &target_accounts,
-            &group_map,
-            &mut lm_map,
-            &sw_category_id_to_path,
-            &resolved_categories,
-            None,
-            true, // bypass_ignore_groups = true
-            None,
-            None,
-            None,
-        );
+        let (inserts2, _, _) = diff_transactions(DiffTransactionsArgs {
+            expenses: expenses2,
+            config: &config,
+            target_accounts: &target_accounts,
+            group_map: &group_map,
+            lm_map: &mut lm_map,
+            sw_category_id_to_path: &sw_category_id_to_path,
+            resolved_categories: &resolved_categories,
+            ignored_groups_exclude: None,
+            bypass_ignore_groups: true,
+            tag_id: None,
+            loan_tag_id: None,
+            force_category_id: None,
+        });
         assert_eq!(inserts2.len(), 1);
     }
 }
