@@ -132,6 +132,10 @@ pub struct SyncBalancesArgs {
     /// Print what would be synced without modifying Lunch Money
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Path to a new CSV file to dump the sync operations
+    #[arg(long)]
+    pub csv: Option<std::path::PathBuf>,
 }
 
 #[derive(Parser, Debug)]
@@ -155,6 +159,10 @@ pub struct SyncWindowArgs {
     /// Only include non-group transactions (i.e. between individuals, outside a group)
     #[arg(long)]
     pub no_groups: bool,
+
+    /// Path to a new CSV file to dump the sync operations
+    #[arg(long)]
+    pub csv: Option<std::path::PathBuf>,
 }
 
 #[derive(Parser, Debug)]
@@ -173,4 +181,72 @@ pub struct SyncGroupArgs {
     /// Bypass the check for ignored groups
     #[arg(long)]
     pub bypass_ignore: bool,
+
+    /// Path to a new CSV file to dump the sync operations (defaults to <group_name>.csv if omitted)
+    #[arg(long, num_args = 0..=1)]
+    pub csv: Option<Option<std::path::PathBuf>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn test_sync_group_csv_parsing() {
+        // Case 1: no csv flag passed
+        let args =
+            Args::try_parse_from(["splitwise-lunchmoney", "sync", "group", "Roommates"]).unwrap();
+        if let Commands::Sync(sync_args) = args.command {
+            if let SyncSubcommands::Group(group_args) = sync_args.command {
+                assert_eq!(group_args.csv, None);
+            } else {
+                panic!("Expected SyncSubcommands::Group");
+            }
+        } else {
+            panic!("Expected Commands::Sync");
+        }
+
+        // Case 2: csv flag passed without argument
+        let args = Args::try_parse_from([
+            "splitwise-lunchmoney",
+            "sync",
+            "group",
+            "Roommates",
+            "--csv",
+        ])
+        .unwrap();
+        if let Commands::Sync(sync_args) = args.command {
+            if let SyncSubcommands::Group(group_args) = sync_args.command {
+                assert_eq!(group_args.csv, Some(None));
+            } else {
+                panic!("Expected SyncSubcommands::Group");
+            }
+        } else {
+            panic!("Expected Commands::Sync");
+        }
+
+        // Case 3: csv flag passed with argument
+        let args = Args::try_parse_from([
+            "splitwise-lunchmoney",
+            "sync",
+            "group",
+            "Roommates",
+            "--csv",
+            "output.csv",
+        ])
+        .unwrap();
+        if let Commands::Sync(sync_args) = args.command {
+            if let SyncSubcommands::Group(group_args) = sync_args.command {
+                assert_eq!(
+                    group_args.csv,
+                    Some(Some(std::path::PathBuf::from("output.csv")))
+                );
+            } else {
+                panic!("Expected SyncSubcommands::Group");
+            }
+        } else {
+            panic!("Expected Commands::Sync");
+        }
+    }
 }

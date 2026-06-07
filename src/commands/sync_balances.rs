@@ -68,6 +68,7 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
     );
 
     let mut has_updates = false;
+    let mut csv_rows = Vec::new();
 
     for (currency, &account_id) in &target_accounts {
         let acc = match accounts_res
@@ -104,6 +105,13 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
         let acc_name = acc.display_name.as_deref().unwrap_or(&acc.name);
 
         if acc.balance != target_balance {
+            csv_rows.push((
+                account_id,
+                acc_name.to_string(),
+                currency.to_string(),
+                acc.balance,
+                target_balance,
+            ));
             has_updates = true;
             if args.dry_run {
                 println! { "  {} ({})  {}~ Would update balance: {} -> {}{}", acc_name, currency, STYLE_WARNING, acc.balance, target_balance, STYLE_WARNING.render_reset() };
@@ -121,6 +129,52 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
             }
         } else {
             println! { "  {} ({})  {}✓ Up to date: {}{}", acc_name, currency, STYLE_SUCCESS, acc.balance, STYLE_SUCCESS.render_reset() };
+        }
+    }
+
+    // Write CSV if requested
+    if let Some(ref csv_path) = args.csv {
+        #[derive(serde::Serialize)]
+        struct CsvRow<'a> {
+            operation: &'static str,
+            account_id: u64,
+            account_name: &'a str,
+            currency: &'a str,
+            old_balance: Decimal,
+            new_balance: Decimal,
+        }
+
+        let mut wtr = match csv::Writer::from_path(csv_path) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln! {};
+                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to create CSV file at '{}': {}", csv_path.display(), e };
+                eprintln! {};
+                std::process::exit(1);
+            }
+        };
+
+        for (account_id, name, curr, old_bal, new_bal) in csv_rows {
+            if let Err(e) = wtr.serialize(CsvRow {
+                operation: "update",
+                account_id,
+                account_name: &name,
+                currency: &curr,
+                old_balance: old_bal,
+                new_balance: new_bal,
+            }) {
+                eprintln! {};
+                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to write CSV row: {}", e };
+                eprintln! {};
+                std::process::exit(1);
+            }
+        }
+
+        if let Err(e) = wtr.flush() {
+            eprintln! {};
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to flush CSV file: {}", e };
+            eprintln! {};
+            std::process::exit(1);
         }
     }
 

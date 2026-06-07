@@ -352,6 +352,7 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         &sw_expense_categories,
         &sw_category_id_to_path,
         &lm_tx_categories,
+        sync_args.csv.as_deref(),
     )
     .await;
 }
@@ -406,6 +407,15 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     }
 
     let group_name = target_group.name.clone();
+
+    let csv_path = match sync_args.csv {
+        Some(Some(path)) => Some(path),
+        Some(None) => {
+            let filename = format!("{}.csv", group_name);
+            Some(std::path::PathBuf::from(filename))
+        }
+        None => None,
+    };
 
     println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", group_name, target_group.id };
     if target_group.id != 0 {
@@ -523,6 +533,7 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         &sw_expense_categories,
         &sw_category_id_to_path,
         &lm_tx_categories,
+        csv_path.as_deref(),
     )
     .await;
 }
@@ -742,7 +753,117 @@ async fn execute_sync_actions(
     sw_expense_categories: &HashMap<crate::api::ExternalId, Option<(u32, String)>>,
     sw_category_id_to_path: &HashMap<u32, String>,
     lm_tx_categories: &HashMap<u64, (Option<crate::api::ExternalId>, Option<u64>)>,
+    csv_path: Option<&std::path::Path>,
 ) {
+    if let Some(path) = csv_path {
+        #[derive(serde::Serialize)]
+        struct CsvRow<'a> {
+            operation: &'static str,
+            lunch_money_id: Option<u64>,
+            external_id: Option<String>,
+            date: String,
+            payee: &'a str,
+            amount: Decimal,
+            currency: &'a str,
+            notes: &'a str,
+            category: &'a str,
+        }
+
+        let mut wtr = match csv::Writer::from_path(path) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln! {};
+                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to create CSV file at '{}': {}", path.display(), e };
+                eprintln! {};
+                std::process::exit(1);
+            }
+        };
+
+        // Write deletes
+        for t in deletes {
+            let category_name = t
+                .category_id
+                .and_then(|id| lm_category_names.get(&id).cloned())
+                .unwrap_or_default();
+            let ext_id_str = t.external_id.as_ref().map(|ext_id| ext_id.to_string());
+            if let Err(e) = wtr.serialize(CsvRow {
+                operation: "delete",
+                lunch_money_id: Some(t.id),
+                external_id: ext_id_str,
+                date: t.date.to_string(),
+                payee: &t.payee,
+                amount: t.amount,
+                currency: t.currency.as_str(),
+                notes: t.notes.as_deref().unwrap_or(""),
+                category: &category_name,
+            }) {
+                eprintln! {};
+                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to write CSV row: {}", e };
+                eprintln! {};
+                std::process::exit(1);
+            }
+        }
+
+        // Write updates
+        for u in updates {
+            let (external_id, category_id) = lm_tx_categories
+                .get(&u.id)
+                .map(|(ext_id, cat_id)| (ext_id.as_ref(), *cat_id))
+                .unwrap_or((None, None));
+            let category_name = category_id
+                .and_then(|id| lm_category_names.get(&id).cloned())
+                .unwrap_or_default();
+            let ext_id_str = external_id.map(|ext_id| ext_id.to_string());
+            if let Err(e) = wtr.serialize(CsvRow {
+                operation: "update",
+                lunch_money_id: Some(u.id),
+                external_id: ext_id_str,
+                date: u.date.to_string(),
+                payee: &u.payee,
+                amount: u.amount,
+                currency: u.currency.as_str(),
+                notes: &u.notes,
+                category: &category_name,
+            }) {
+                eprintln! {};
+                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to write CSV row: {}", e };
+                eprintln! {};
+                std::process::exit(1);
+            }
+        }
+
+        // Write inserts
+        for ins in inserts {
+            let category_name = ins
+                .category_id
+                .and_then(|id| lm_category_names.get(&id).cloned())
+                .unwrap_or_default();
+            if let Err(e) = wtr.serialize(CsvRow {
+                operation: "insert",
+                lunch_money_id: None,
+                external_id: Some(ins.external_id.to_string()),
+                date: ins.date.to_string(),
+                payee: &ins.payee,
+                amount: ins.amount,
+                currency: ins.currency.as_str(),
+                notes: &ins.notes,
+                category: &category_name,
+            }) {
+                eprintln! {};
+                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to write CSV row: {}", e };
+                eprintln! {};
+                std::process::exit(1);
+            }
+        }
+
+        if let Err(e) = wtr.flush() {
+            eprintln! {};
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to flush CSV file: {}", e };
+            eprintln! {};
+            std::process::exit(1);
+        }
+    }
+
     // Execute batches
     if !deletes.is_empty() {
         println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", deletes.len() };
@@ -1065,5 +1186,124 @@ mod tests {
         assert_eq!(expenses.len(), 1);
         assert_eq!(expenses[0].id, 1);
         assert_eq!(expenses[0].group_id, None);
+    }
+
+    #[tokio::test]
+    async fn test_execute_sync_actions_csv() {
+        use crate::api::Currency;
+        use crate::api::ExternalId;
+        use crate::api::lunch_money::schema::InsertObject;
+        use crate::api::lunch_money::schema::ManualAccountsResponse;
+        use crate::api::lunch_money::schema::Transaction;
+        use crate::api::lunch_money::schema::TransactionStatus;
+        use crate::api::lunch_money::schema::UpdateObject;
+        use rust_decimal::Decimal;
+        use std::collections::HashMap;
+
+        let temp_dir = std::env::temp_dir();
+        let csv_path = temp_dir.join("sync_actions_test.csv");
+        if csv_path.exists() {
+            let _ = std::fs::remove_file(&csv_path);
+        }
+
+        let deletes = vec![Transaction {
+            id: 10,
+            date: jiff::civil::date(2026, 6, 1),
+            amount: Decimal::new(-1000, 2),
+            currency: Currency::new("USD"),
+            payee: "Delete Payee".to_string(),
+            notes: Some("Delete Notes".to_string()),
+            external_id: Some(ExternalId::Splitwise(100)),
+            manual_account_id: Some(999),
+            is_split_parent: None,
+            group_parent_id: None,
+            status: TransactionStatus::Reviewed,
+            category_id: Some(5),
+        }];
+
+        let updates = vec![UpdateObject {
+            id: 20,
+            date: jiff::civil::date(2026, 6, 2),
+            amount: Decimal::new(2000, 2),
+            currency: Currency::new("USD"),
+            payee: "Update Payee".to_string(),
+            notes: "Update Notes".to_string(),
+        }];
+
+        let inserts = vec![InsertObject {
+            date: jiff::civil::date(2026, 6, 3),
+            amount: Decimal::new(3000, 2),
+            currency: Currency::new("USD"),
+            payee: "Insert Payee".to_string(),
+            notes: "Insert Notes".to_string(),
+            external_id: ExternalId::Splitwise(300),
+            manual_account_id: 999,
+            status: TransactionStatus::Unreviewed,
+            tag_ids: None,
+            category_id: Some(6),
+        }];
+
+        let lm_client =
+            crate::api::lunch_money::Client::new(reqwest::Client::new(), "dummy".to_string());
+        let accounts_res = ManualAccountsResponse {
+            manual_accounts: vec![],
+        };
+        let target_accounts = HashMap::new();
+
+        let mut lm_category_names = HashMap::new();
+        lm_category_names.insert(5, "Delete Category".to_string());
+        lm_category_names.insert(6, "Insert Category".to_string());
+        lm_category_names.insert(7, "Update Category".to_string());
+
+        let mut sw_expense_categories = HashMap::new();
+        sw_expense_categories.insert(
+            ExternalId::Splitwise(100),
+            Some((100, "SW Cat".to_string())),
+        );
+
+        let sw_category_id_to_path = HashMap::new();
+
+        let mut lm_tx_categories = HashMap::new();
+        lm_tx_categories.insert(20, (Some(ExternalId::Splitwise(200)), Some(7)));
+
+        execute_sync_actions(
+            &deletes,
+            &updates,
+            &inserts,
+            true, // dry_run
+            &lm_client,
+            &accounts_res,
+            &target_accounts,
+            &lm_category_names,
+            &sw_expense_categories,
+            &sw_category_id_to_path,
+            &lm_tx_categories,
+            Some(&csv_path),
+        )
+        .await;
+
+        assert!(csv_path.exists());
+        let content = std::fs::read_to_string(&csv_path).unwrap();
+        let lines: Vec<&str> = content.lines().collect();
+
+        assert_eq!(lines.len(), 4);
+        assert_eq!(
+            lines[0],
+            "operation,lunch_money_id,external_id,date,payee,amount,currency,notes,category"
+        );
+        assert_eq!(
+            lines[1],
+            "delete,10,splitwise_100,2026-06-01,Delete Payee,-10.00,USD,Delete Notes,Delete Category"
+        );
+        assert_eq!(
+            lines[2],
+            "update,20,splitwise_200,2026-06-02,Update Payee,20.00,USD,Update Notes,Update Category"
+        );
+        assert_eq!(
+            lines[3],
+            "insert,,splitwise_300,2026-06-03,Insert Payee,30.00,USD,Insert Notes,Insert Category"
+        );
+
+        let _ = std::fs::remove_file(csv_path);
     }
 }
