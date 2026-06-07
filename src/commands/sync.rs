@@ -581,7 +581,8 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
 
     for (_ext_id, t) in lm_map {
         let belongs_to_group = if is_non_group {
-            t.payee == "Splitwise - Non-group"
+            !t.payee.starts_with("Splitwise - ")
+                || t.payee == "Splitwise - Non-group"
                 || (!group_map
                     .values()
                     .any(|gn| t.payee == format!("Splitwise - {}", gn))
@@ -748,10 +749,14 @@ fn diff_transactions(
 
         let date_civil = expense.date.to_zoned(jiff::tz::TimeZone::UTC).date();
 
-        let payee_str = format!(
-            "Splitwise - {}",
+        let payee_str = if expense.group_id.is_none() {
             super::resolve_splitwise_payee(&expense, config.splitwise.user_id, group_map)
-        );
+        } else {
+            format!(
+                "Splitwise - {}",
+                super::resolve_splitwise_payee(&expense, config.splitwise.user_id, group_map)
+            )
+        };
 
         if let Some(existing_lm) = lm_map.remove(&external_id) {
             if existing_lm.is_split_parent == Some(true) {
@@ -1508,5 +1513,102 @@ mod tests {
         assert!(deletes.is_empty());
         assert_eq!(inserts.len(), 1);
         assert_eq!(inserts[0].category_id, Some(777));
+    }
+
+    #[test]
+    fn test_individual_payee_formatting() {
+        let config_str = r#"
+            [splitwise]
+            api_key = "dummy"
+            user_id = 123
+            ignored_groups = []
+
+            [lunch_money]
+            api_key = "dummy"
+            custom_accounts = { USD = 999 }
+        "#;
+        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+
+        // 1. Non-group expense (individual)
+        // One other user in the expense should provide the name
+        let expenses_json = r#"[
+            {
+                "id": 1,
+                "description": "Lunch with Alice",
+                "date": "2026-06-06T12:00:00Z",
+                "currency_code": "USD",
+                "users": [
+                    {
+                        "user_id": 123,
+                        "net_balance": "50.00"
+                    },
+                    {
+                        "user_id": 456,
+                        "net_balance": "-50.00",
+                        "user": {
+                            "first_name": "Alice",
+                            "last_name": "Smith"
+                        }
+                    }
+                ],
+                "payment": false
+            },
+            {
+                "id": 2,
+                "group_id": 789,
+                "description": "Group dinner",
+                "date": "2026-06-06T12:00:00Z",
+                "currency_code": "USD",
+                "users": [
+                    {
+                        "user_id": 123,
+                        "net_balance": "-20.00"
+                    }
+                ],
+                "payment": false
+            }
+        ]"#;
+        let expenses: Vec<crate::api::splitwise::schema::Expense> =
+            serde_json::from_str(expenses_json).unwrap();
+
+        let mut target_accounts = HashMap::new();
+        target_accounts.insert(crate::api::Currency::new("USD"), 999);
+
+        let mut lm_map = HashMap::new();
+        let sw_category_id_to_path = HashMap::new();
+        let resolved_categories = HashMap::new();
+
+        let mut group_map = HashMap::new();
+        group_map.insert(789, "Roommates".to_string());
+
+        let (inserts, _, _) = diff_transactions(
+            expenses,
+            &config,
+            &target_accounts,
+            &group_map,
+            &mut lm_map,
+            &sw_category_id_to_path,
+            &resolved_categories,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(inserts.len(), 2);
+
+        // Individual expense (id: 1) should have payee "Alice Smith" (no "Splitwise - " prefix)
+        let tx_individual = inserts
+            .iter()
+            .find(|tx| tx.external_id == crate::api::ExternalId::Splitwise(1))
+            .unwrap();
+        assert_eq!(tx_individual.payee, "Alice Smith");
+
+        // Group expense (id: 2) should have payee "Splitwise - Roommates"
+        let tx_group = inserts
+            .iter()
+            .find(|tx| tx.external_id == crate::api::ExternalId::Splitwise(2))
+            .unwrap();
+        assert_eq!(tx_group.payee, "Splitwise - Roommates");
     }
 }
