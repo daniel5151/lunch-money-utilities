@@ -37,6 +37,10 @@
   - Transactions are fetched with `include_group_children=true` and `include_split_parents=true`.
   - Split parent transactions are ignored in diffing and skipped for deletion to preserve manual splits in Lunch Money.
   - Transactions are only updated in Lunch Money if `amount` or `currency` changes. Edits to `payee`, `notes`, or `date` in Lunch Money are preserved.
+- **Group Matching & Resolution**: Splitwise groups can be resolved by ID or exact name (case-sensitive). A fallback synthetic non-group ID of `0` is resolved if querying `0` or `"non-group"` exactly. Configured ignored groups also match by ID or exact name (case-sensitive).
+- **Group Exclusion**: Transactions associated with a group can be excluded by specifying `--no-groups` on `query expenses` and `sync window` commands.
+- **CSV Reporting**: Synchronization commands (`sync window`, `sync group`, `sync balances`) support dumping their operations (inserts, updates, deletes) to a CSV file via the `--csv` option.
+- **Forced Categories**: The `sync group` command supports a `--force-category` flag to override the default category mappings and map all synchronized transactions to a specific active Lunch Money category (by ID or exact name).
 - **Transaction Sign Inversion**: In manual accounts of type `Loan` (liability), transaction amount signs are inverted during sync analysis and API inserts/updates to match Lunch Money's double-entry rules.
 - **Global Balance Sync**:
   - Net outstanding balances are computed by querying `/get_friends` and summing the `balance` array per currency across all friends.
