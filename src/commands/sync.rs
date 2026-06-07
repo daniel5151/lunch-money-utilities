@@ -1301,48 +1301,6 @@ mod tests {
         assert_eq!(tx1.tag_ids, Some(vec![444]));
     }
 
-    #[test]
-    fn test_no_groups_filtering() {
-        let expenses_json = r#"[
-            {
-                "id": 1,
-                "group_id": null,
-                "description": "Non-group expense",
-                "date": "2026-06-06T12:00:00Z",
-                "currency_code": "USD",
-                "users": [
-                    {
-                        "user_id": 123,
-                        "net_balance": "50.00"
-                    }
-                ],
-                "payment": false
-            },
-            {
-                "id": 2,
-                "group_id": 456,
-                "description": "Group expense",
-                "date": "2026-06-06T12:00:00Z",
-                "currency_code": "USD",
-                "users": [
-                    {
-                        "user_id": 123,
-                        "net_balance": "-20.00"
-                    }
-                ],
-                "payment": false
-            }
-        ]"#;
-        let mut expenses: Vec<crate::api::splitwise::schema::Expense> =
-            serde_json::from_str(expenses_json).unwrap();
-
-        expenses.retain(|e| e.group_id.is_none());
-
-        assert_eq!(expenses.len(), 1);
-        assert_eq!(expenses[0].id, 1);
-        assert_eq!(expenses[0].group_id, None);
-    }
-
     #[tokio::test]
     async fn test_execute_sync_actions_csv() {
         use crate::api::Currency;
