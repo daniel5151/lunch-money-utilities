@@ -353,19 +353,6 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
 pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     let config = crate::load_config();
 
-    if config
-        .splitwise
-        .ignored_groups
-        .contains(&sync_args.group_id)
-        && !sync_args.bypass_ignore
-    {
-        eprintln! {};
-        eprintln! { "{STYLE_WARNING}⚠️ Warning:{STYLE_WARNING:#} Group {} is marked as ignored in configuration.", sync_args.group_id };
-        eprintln! { "To force synchronization for this group, use the --bypass-ignore flag." };
-        eprintln! {};
-        std::process::exit(1);
-    }
-
     let http_pool = reqwest::Client::new();
     let sw_client =
         crate::api::splitwise::Client::new(http_pool.clone(), config.splitwise.api_key.clone());
@@ -390,22 +377,38 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         .map(|g| (g.id, g.name.clone()))
         .collect();
 
-    let target_group = groups_res
-        .groups
-        .iter()
-        .find(|g| g.id == sync_args.group_id);
-    let group_name = target_group
-        .map(|g| g.name.clone())
-        .unwrap_or_else(|| "Unknown Group".to_string());
+    let target_group = match super::resolve_group(&groups_res.groups, &sync_args.group) {
+        Ok(g) => g,
+        Err(err) => {
+            eprintln! {};
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} {}", err };
+            eprintln! {};
+            std::process::exit(1);
+        }
+    };
 
-    println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", group_name, sync_args.group_id };
-    if let Some(g) = target_group {
-        let balance_str = super::format_group_balances(g, config.splitwise.user_id);
+    if config
+        .splitwise
+        .is_group_ignored(target_group.id, Some(&target_group.name))
+        && !sync_args.bypass_ignore
+    {
+        eprintln! {};
+        eprintln! { "{STYLE_WARNING}⚠️ Warning:{STYLE_WARNING:#} Group {} is marked as ignored in configuration.", target_group.id };
+        eprintln! { "To force synchronization for this group, use the --bypass-ignore flag." };
+        eprintln! {};
+        std::process::exit(1);
+    }
+
+    let group_name = target_group.name.clone();
+
+    println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", group_name, target_group.id };
+    if target_group.id != 0 {
+        let balance_str = super::format_group_balances(&target_group, config.splitwise.user_id);
         println! { "{STYLE_INFO}💰 Balance:{STYLE_INFO:#} {}", balance_str };
     }
     println! {};
 
-    let group_id_str = sync_args.group_id.to_string();
+    let group_id_str = target_group.id.to_string();
     let sw_query = [("group_id", group_id_str.as_str()), ("limit", "0")];
     let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
 
@@ -477,13 +480,13 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         &mut lm_map,
         &sw_category_id_to_path,
         &resolved_categories,
-        Some(sync_args.group_id),
+        Some(target_group.id),
         tag_id,
         loan_tag_id,
     );
 
     // Filter deletes to only target transactions belonging to this specific group
-    let is_non_group = sync_args.group_id == 0;
+    let is_non_group = target_group.id == 0;
     let group_payee = format!("Splitwise - {}", group_name);
 
     for (_ext_id, t) in lm_map {
@@ -629,7 +632,8 @@ fn diff_transactions(
             .unwrap_or(Decimal::ZERO);
 
         let is_ignored = expense.group_id.is_some_and(|gid| {
-            config.splitwise.ignored_groups.contains(&gid) && Some(gid) != ignored_groups_exclude
+            let name = group_map.get(&gid).map(|s| s.as_str());
+            config.splitwise.is_group_ignored(gid, name) && Some(gid) != ignored_groups_exclude
         });
 
         // Skip ignored, deleted, or un-involved expenses

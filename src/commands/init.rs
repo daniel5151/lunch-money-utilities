@@ -137,21 +137,22 @@ api_key = "{splitwise_api_key}"
 # Your Splitwise user ID
 user_id = {splitwise_user_id} # {splitwise_user_name}
 
-# Array of Splitwise group IDs to ignore (optional)
-# HINT: use `splitwise-lunchmoney query splitwise get-groups` to easily get IDs
-# ignored_groups = [123456, 789012]
+# (Optional) Array of Splitwise group IDs or names to ignore
+#  HINT: use `splitwise-lunchmoney query splitwise groups` to list your groups and their IDs
+# ignored_groups = [123456, "Test Group"]
 
 [lunch_money]
 # Your Lunch Money developer API key
 api_key = "{lunch_money_api_key}"
 
-# Optional: Map currencies to custom manual account IDs in Lunch Money (power user feature)
+# (Optional) Map currencies to custom manual account IDs in Lunch Money
+#  For folks who really don't like the `Splitwise - {{currency}}` naming convention
 # [lunch_money.custom_accounts]
 # USD = 123456
 # GBP = 789012
 
 [sync]
-# Optional: Extra tag to associate with transactions where you've loaned out money
+# (Optional) Extra tag to associate with transactions where you've loaned out money
 #  This can be used to make it easy to spot which splitwise transactions should be
 #  (manually) grouped with another account's transaction in lunch money.
 #  e.g: grouping a $100 dinner transaction from a credit-card with a $50 splitwise loan
@@ -159,9 +160,8 @@ api_key = "{lunch_money_api_key}"
 
 [categories]
 # Map Splitwise category names/IDs to Lunch Money category names/IDs (optional)
-#
-# HINT: use `splitwise-lunchmoney query splitwise categories` and
-# `splitwise-lunchmoney query lunchmoney categories` to find names and IDs.
+#  HINT: use `splitwise-lunchmoney query splitwise categories` and
+#  `splitwise-lunchmoney query lunchmoney categories` to find names and IDs.
 #
 {categories_toml}
 "#

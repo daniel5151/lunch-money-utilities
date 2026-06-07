@@ -40,7 +40,10 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
             sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
 
         for group in groups_res.groups {
-            if config.splitwise.ignored_groups.contains(&group.id) {
+            if config
+                .splitwise
+                .is_group_ignored(group.id, Some(&group.name))
+            {
                 if let Some(members) = &group.members {
                     if let Some(member) = members.iter().find(|m| m.id == config.splitwise.user_id)
                     {

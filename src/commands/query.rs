@@ -1,6 +1,7 @@
 use crate::api::splitwise::schema::ExpensesResponse;
 use crate::api::splitwise::schema::GroupResponse;
 use crate::style::*;
+use anstream::eprintln;
 use anstream::println;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
@@ -65,9 +66,10 @@ fn print_expenses_table(
             clean_payee.push_str("...");
         }
 
-        let is_ignored = expense
-            .group_id
-            .is_some_and(|gid| config.splitwise.ignored_groups.contains(&gid));
+        let is_ignored = expense.group_id.is_some_and(|gid| {
+            let name = group_map.get(&gid).map(|s| s.as_str());
+            config.splitwise.is_group_ignored(gid, name)
+        });
 
         // Styling and status tag
         let (style, status_tag, is_uninvolved) = if expense.deleted_at.is_some() {
@@ -197,20 +199,24 @@ pub(crate) async fn run_query_splitwise_group(args: crate::cli::QuerySplitwiseGr
         .map(|g| (g.id, g.name.clone()))
         .collect();
 
-    let target_group = groups_res.groups.iter().find(|g| g.id == args.group_id);
+    let target_group = match super::resolve_group(&groups_res.groups, &args.group) {
+        Ok(g) => g,
+        Err(err) => {
+            eprintln! {};
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} {}", err };
+            eprintln! {};
+            std::process::exit(1);
+        }
+    };
 
-    let group_name = target_group
-        .map(|g| g.name.clone())
-        .unwrap_or_else(|| "Unknown Group".to_string());
-
-    println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", group_name, args.group_id };
-    if let Some(g) = target_group {
-        let balance_str = super::format_group_balances(g, config.splitwise.user_id);
+    println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", target_group.name, target_group.id };
+    if target_group.id != 0 {
+        let balance_str = super::format_group_balances(&target_group, config.splitwise.user_id);
         println! { "{STYLE_INFO}💰 Balance:{STYLE_INFO:#} {}", balance_str };
     }
     println! {};
 
-    let group_id_str = args.group_id.to_string();
+    let group_id_str = target_group.id.to_string();
     let sw_query = [("group_id", group_id_str.as_str()), ("limit", "0")];
     let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
 

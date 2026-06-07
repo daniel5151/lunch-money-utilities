@@ -103,8 +103,8 @@ pub struct QuerySplitwiseWindowArgs {
 
 #[derive(Parser, Debug)]
 pub struct QuerySplitwiseGroupArgs {
-    /// The Splitwise Group ID to filter by
-    pub group_id: u64,
+    /// The Splitwise Group ID or name to filter by
+    pub group: String,
 }
 
 #[derive(Parser, Debug)]
@@ -151,8 +151,8 @@ pub struct SyncWindowArgs {
 
 #[derive(Parser, Debug)]
 pub struct SyncGroupArgs {
-    /// The Splitwise Group ID to synchronize
-    pub group_id: u64,
+    /// The Splitwise Group ID or name to synchronize
+    pub group: String,
 
     /// Print what would be synced without modifying Lunch Money
     #[arg(long)]

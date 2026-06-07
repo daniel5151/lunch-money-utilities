@@ -61,7 +61,7 @@ pub mod schema {
         pub groups: Vec<Group>,
     }
 
-    #[derive(Deserialize, Debug)]
+    #[derive(Deserialize, Debug, Clone)]
     pub struct Group {
         pub id: u64,
         pub name: String,
@@ -69,13 +69,13 @@ pub mod schema {
         pub members: Option<Vec<GroupMember>>,
     }
 
-    #[derive(Deserialize, Debug)]
+    #[derive(Deserialize, Debug, Clone)]
     pub struct GroupMember {
         pub id: u64,
         pub balance: Vec<Balance>,
     }
 
-    #[derive(Deserialize, Debug)]
+    #[derive(Deserialize, Debug, Clone)]
     pub struct Balance {
         pub currency_code: crate::api::Currency,
         #[serde(with = "rust_decimal::serde::str")]
