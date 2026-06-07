@@ -104,14 +104,22 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
 
         let acc_name = acc.display_name.as_deref().unwrap_or(&acc.name);
 
+        let operation = if acc.balance != target_balance {
+            "update"
+        } else {
+            "none"
+        };
+
+        csv_rows.push((
+            operation,
+            account_id,
+            acc_name.to_string(),
+            currency.to_string(),
+            acc.balance,
+            target_balance,
+        ));
+
         if acc.balance != target_balance {
-            csv_rows.push((
-                account_id,
-                acc_name.to_string(),
-                currency.to_string(),
-                acc.balance,
-                target_balance,
-            ));
             has_updates = true;
             if args.dry_run {
                 println! { "  {} ({})  {}~ Would update balance: {} -> {}{}", acc_name, currency, STYLE_WARNING, acc.balance, target_balance, STYLE_WARNING.render_reset() };
@@ -133,7 +141,13 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
     }
 
     // Write CSV if requested
-    if let Some(ref csv_path) = args.csv {
+    let csv_path = match args.csv {
+        Some(Some(path)) => Some(path),
+        Some(None) => Some(std::path::PathBuf::from("balances.csv")),
+        None => None,
+    };
+
+    if let Some(ref csv_path) = csv_path {
         #[derive(serde::Serialize)]
         struct CsvRow<'a> {
             operation: &'static str,
@@ -154,9 +168,9 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
             }
         };
 
-        for (account_id, name, curr, old_bal, new_bal) in csv_rows {
+        for (op, account_id, name, curr, old_bal, new_bal) in csv_rows {
             if let Err(e) = wtr.serialize(CsvRow {
-                operation: "update",
+                operation: op,
                 account_id,
                 account_name: &name,
                 currency: &curr,

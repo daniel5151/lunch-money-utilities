@@ -133,9 +133,10 @@ pub struct SyncBalancesArgs {
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Path to a new CSV file to dump the sync operations
-    #[arg(long)]
-    pub csv: Option<std::path::PathBuf>,
+    /// Path to a new CSV file to dump the sync operations (defaults to balances.csv if omitted)
+    #[arg(long, num_args = 0..=1)]
+    #[expect(clippy::option_option)]
+    pub csv: Option<Option<std::path::PathBuf>>,
 
     /// Skip the configured loan_tag in config toml
     #[arg(long)]
@@ -261,6 +262,56 @@ mod tests {
                 );
             } else {
                 panic!("Expected SyncSubcommands::Group");
+            }
+        } else {
+            panic!("Expected Commands::Sync");
+        }
+    }
+
+    #[test]
+    fn test_sync_balances_csv_parsing() {
+        // Case 1: no csv flag passed
+        let args = Args::try_parse_from(["splitwise-lunchmoney", "sync", "balances"]).unwrap();
+        if let Commands::Sync(sync_args) = args.command {
+            if let SyncSubcommands::Balances(balances_args) = sync_args.command {
+                assert_eq!(balances_args.csv, None);
+            } else {
+                panic!("Expected SyncSubcommands::Balances");
+            }
+        } else {
+            panic!("Expected Commands::Sync");
+        }
+
+        // Case 2: csv flag passed without argument
+        let args =
+            Args::try_parse_from(["splitwise-lunchmoney", "sync", "balances", "--csv"]).unwrap();
+        if let Commands::Sync(sync_args) = args.command {
+            if let SyncSubcommands::Balances(balances_args) = sync_args.command {
+                assert_eq!(balances_args.csv, Some(None));
+            } else {
+                panic!("Expected SyncSubcommands::Balances");
+            }
+        } else {
+            panic!("Expected Commands::Sync");
+        }
+
+        // Case 3: csv flag passed with argument
+        let args = Args::try_parse_from([
+            "splitwise-lunchmoney",
+            "sync",
+            "balances",
+            "--csv",
+            "output.csv",
+        ])
+        .unwrap();
+        if let Commands::Sync(sync_args) = args.command {
+            if let SyncSubcommands::Balances(balances_args) = sync_args.command {
+                assert_eq!(
+                    balances_args.csv,
+                    Some(Some(std::path::PathBuf::from("output.csv")))
+                );
+            } else {
+                panic!("Expected SyncSubcommands::Balances");
             }
         } else {
             panic!("Expected Commands::Sync");
