@@ -245,6 +245,9 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     println! { "{STYLE_HEADER}⚡ Splitwise to Lunch Money Sync{}{STYLE_HEADER:#}", dry_run_suffix };
     println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
     println! { "{STYLE_INFO}📅 Sync window boundary:{STYLE_INFO:#} {} to {}", start_window_str, end_window_str };
+    if sync_args.no_groups {
+        println! { "{STYLE_INFO}🚫 Filter:{STYLE_INFO:#} Non-group transactions only" };
+    }
     println! {};
 
     // Fetch dependencies
@@ -264,7 +267,10 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     }
     let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
 
-    let expenses = expenses_res.expenses;
+    let mut expenses = expenses_res.expenses;
+    if sync_args.no_groups {
+        expenses.retain(|e| e.group_id.is_none());
+    }
 
     let mut sw_expense_categories = HashMap::new();
     for expense in &expenses {
@@ -1017,5 +1023,47 @@ mod tests {
             .find(|tx| tx.amount == Decimal::new(-2000, 2))
             .unwrap();
         assert_eq!(tx2.tag_ids, Some(vec![444]));
+    }
+
+    #[test]
+    fn test_no_groups_filtering() {
+        let expenses_json = r#"[
+            {
+                "id": 1,
+                "group_id": null,
+                "description": "Non-group expense",
+                "date": "2026-06-06T12:00:00Z",
+                "currency_code": "USD",
+                "users": [
+                    {
+                        "user_id": 123,
+                        "net_balance": "50.00"
+                    }
+                ],
+                "payment": false
+            },
+            {
+                "id": 2,
+                "group_id": 456,
+                "description": "Group expense",
+                "date": "2026-06-06T12:00:00Z",
+                "currency_code": "USD",
+                "users": [
+                    {
+                        "user_id": 123,
+                        "net_balance": "-20.00"
+                    }
+                ],
+                "payment": false
+            }
+        ]"#;
+        let mut expenses: Vec<crate::api::splitwise::schema::Expense> =
+            serde_json::from_str(expenses_json).unwrap();
+
+        expenses.retain(|e| e.group_id.is_none());
+
+        assert_eq!(expenses.len(), 1);
+        assert_eq!(expenses[0].id, 1);
+        assert_eq!(expenses[0].group_id, None);
     }
 }

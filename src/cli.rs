@@ -99,6 +99,10 @@ pub struct QuerySplitwiseWindowArgs {
     /// Optional date to offset the window from (YYYY-MM-DD, defaults to today's date)
     #[arg(long)]
     pub from: Option<jiff::civil::Date>,
+
+    /// Only include non-group transactions (i.e. between individuals, outside a group)
+    #[arg(long)]
+    pub no_groups: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -147,6 +151,10 @@ pub struct SyncWindowArgs {
     /// Optional tag to associate with imported transactions in Lunch Money
     #[arg(long)]
     pub tag: Option<String>,
+
+    /// Only include non-group transactions (i.e. between individuals, outside a group)
+    #[arg(long)]
+    pub no_groups: bool,
 }
 
 #[derive(Parser, Debug)]

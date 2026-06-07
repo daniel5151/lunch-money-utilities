@@ -149,6 +149,9 @@ pub(crate) async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseW
     println! { "{STYLE_HEADER}🔍 Querying Splitwise Expenses{STYLE_HEADER:#}" };
     println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
     println! { "{STYLE_INFO}📅 Window boundary:{STYLE_INFO:#} {} to {}", start_window_str, end_window_str };
+    if args.no_groups {
+        println! { "{STYLE_INFO}🚫 Filter:{STYLE_INFO:#} Non-group expenses only" };
+    }
     println! {};
 
     println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
@@ -167,7 +170,10 @@ pub(crate) async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseW
     }
     let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
 
-    let expenses = expenses_res.expenses;
+    let mut expenses = expenses_res.expenses;
+    if args.no_groups {
+        expenses.retain(|e| e.group_id.is_none());
+    }
 
     if expenses.is_empty() {
         println! { "{STYLE_SUCCESS}✨ No expenses found in this window.{STYLE_SUCCESS:#}" };
