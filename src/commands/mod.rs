@@ -204,33 +204,8 @@ pub(crate) fn resolve_group(
         return Ok(exact_matches[0].clone());
     }
 
-    // 2. Search for case-insensitive name matches in real groups
-    let lower_input = input_trimmed.to_lowercase();
-    let mut case_insensitive_matches = Vec::new();
-    for g in groups {
-        if g.name.to_lowercase() == lower_input {
-            case_insensitive_matches.push(g.clone());
-        }
-    }
-
-    if case_insensitive_matches.len() > 1 {
-        let mut msg = format!(
-            "Multiple groups found matching \"{}\" (case-insensitive):\n",
-            input_trimmed
-        );
-        for g in &case_insensitive_matches {
-            msg.push_str(&format!("  - ID: {} (Name: \"{}\")\n", g.id, g.name));
-        }
-        msg.push_str("Please specify the group by its ID to resolve ambiguity.");
-        return Err(msg);
-    }
-
-    if case_insensitive_matches.len() == 1 {
-        return Ok(case_insensitive_matches[0].clone());
-    }
-
-    // 3. Fallback to synthetic non-group if input is "0" or "non-group" (case-insensitive)
-    if input_trimmed == "0" || lower_input == "non-group" {
+    // 2. Fallback to synthetic non-group if input is "0" or "non-group"
+    if input_trimmed == "0" || input_trimmed == "non-group" {
         return Ok(crate::api::splitwise::schema::Group {
             id: 0,
             name: "Non-group".to_string(),
@@ -239,7 +214,7 @@ pub(crate) fn resolve_group(
         });
     }
 
-    // 4. Not found
+    // 3. Not found
     Err(format!(
         "No Splitwise group found matching \"{}\".",
         input_trimmed
@@ -280,12 +255,11 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_group_case_insensitive() {
+    fn test_resolve_group_case_insensitive_fails() {
         let groups = vec![make_group(12345, "Roommates"), make_group(67890, "Family")];
 
-        let resolved = resolve_group(&groups, "family").unwrap();
-        assert_eq!(resolved.id, 67890);
-        assert_eq!(resolved.name, "Family");
+        let err = resolve_group(&groups, "family").unwrap_err();
+        assert!(err.contains("No Splitwise group found matching"));
     }
 
     #[test]
@@ -294,22 +268,6 @@ mod tests {
 
         // "12345" matches ID of group 1, and name of group 2
         let err = resolve_group(&groups, "12345").unwrap_err();
-        assert!(err.contains("Multiple groups found matching"));
-    }
-
-    #[test]
-    fn test_resolve_group_ambiguity_case_insensitive() {
-        let groups = vec![
-            make_group(12345, "Roommates"),
-            make_group(67890, "roommates"),
-        ];
-
-        // "Roommates" matches both exact and case-insensitive. But one is exact, so it is preferred!
-        let resolved = resolve_group(&groups, "Roommates").unwrap();
-        assert_eq!(resolved.id, 12345);
-
-        // "ROOMMATES" is case-insensitive for both, so it is ambiguous
-        let err = resolve_group(&groups, "ROOMMATES").unwrap_err();
         assert!(err.contains("Multiple groups found matching"));
     }
 
@@ -330,10 +288,14 @@ mod tests {
     fn test_resolve_group_synthetic_non_group_overridden() {
         let groups = vec![make_group(12345, "Roommates"), make_group(999, "Non-group")];
 
-        // If there's a real group named "Non-group", it takes precedence
-        let resolved = resolve_group(&groups, "non-group").unwrap();
+        // If queried exactly as "Non-group", the real group takes precedence
+        let resolved = resolve_group(&groups, "Non-group").unwrap();
         assert_eq!(resolved.id, 999);
         assert_eq!(resolved.name, "Non-group");
+
+        // If queried exactly as "non-group", it falls back to the synthetic group
+        let resolved2 = resolve_group(&groups, "non-group").unwrap();
+        assert_eq!(resolved2.id, 0);
     }
 
     #[test]

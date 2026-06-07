@@ -160,6 +160,59 @@ async fn resolve_categories(
     (resolved, names)
 }
 
+async fn resolve_force_category(
+    lm_client: &crate::api::lunch_money::Client,
+    force_category_str: &str,
+    lm_category_names: &mut HashMap<u64, String>,
+) -> u64 {
+    println! { "  {STYLE_DIM}Fetching Lunch Money categories to resolve forced category...{STYLE_DIM:#}" };
+    let categories_res: crate::api::lunch_money::schema::CategoriesResponse = lm_client
+        .fetch("categories", &[("format", "flattened")] as &[(&str, &str)])
+        .await;
+
+    if let Ok(id) = force_category_str.parse::<u64>() {
+        if let Some(c) = categories_res
+            .categories
+            .iter()
+            .find(|c| c.id == id && !c.archived)
+        {
+            lm_category_names.insert(id, c.name.clone());
+            return id;
+        } else {
+            eprintln! {};
+            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Forced category ID {} does not exist or is archived in Lunch Money.", id };
+            eprintln! {};
+            std::process::exit(1);
+        }
+    }
+
+    let matches: Vec<_> = categories_res
+        .categories
+        .iter()
+        .filter(|c| c.name == force_category_str && !c.archived)
+        .collect();
+
+    if matches.is_empty() {
+        eprintln! {};
+        eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Forced category '{}' does not exist or is archived in Lunch Money.", force_category_str };
+        eprintln! {};
+        std::process::exit(1);
+    } else if matches.len() > 1 {
+        eprintln! {};
+        eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Multiple active Lunch Money categories found with the name '{}':", force_category_str };
+        for m in matches {
+            eprintln! { "  • ID: {} (is_group: {})", m.id, m.is_group };
+        }
+        eprintln! { "Please specify the category ID instead to resolve ambiguity." };
+        eprintln! {};
+        std::process::exit(1);
+    } else {
+        let matched = matches[0];
+        lm_category_names.insert(matched.id, matched.name.clone());
+        matched.id
+    }
+}
+
 async fn resolve_or_create_tag(
     lm_client: &crate::api::lunch_money::Client,
     tags_res: &crate::api::lunch_money::schema::TagsResponse,
@@ -338,6 +391,7 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         None,
         tag_id,
         loan_tag_id,
+        None,
     );
 
     execute_sync_actions(
@@ -449,7 +503,14 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     );
     verify_target_accounts(&target_accounts, &accounts_res);
 
-    let (resolved_categories, lm_category_names) = resolve_categories(&lm_client, &config).await;
+    let (resolved_categories, mut lm_category_names) =
+        resolve_categories(&lm_client, &config).await;
+
+    let force_category_id = if let Some(ref fc) = sync_args.force_category {
+        Some(resolve_force_category(&lm_client, fc, &mut lm_category_names).await)
+    } else {
+        None
+    };
 
     let sw_category_id_to_path = fetch_splitwise_categories(&sw_client, &config).await;
 
@@ -499,6 +560,7 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         Some(target_group.id),
         tag_id,
         loan_tag_id,
+        force_category_id,
     );
 
     // Filter deletes to only target transactions belonging to this specific group
@@ -633,6 +695,7 @@ fn diff_transactions(
     ignored_groups_exclude: Option<u64>,
     tag_id: Option<u64>,
     loan_tag_id: Option<u64>,
+    force_category_id: Option<u64>,
 ) -> (Vec<InsertObject>, Vec<UpdateObject>, Vec<Transaction>) {
     let mut inserts = Vec::new();
     let mut updates = Vec::new();
@@ -697,7 +760,9 @@ fn diff_transactions(
         } else {
             let manual_account_id = target_accounts[&expense.currency_code];
             let mut category_id = None;
-            if expense.payment {
+            if force_category_id.is_some() {
+                category_id = force_category_id;
+            } else if expense.payment {
                 category_id = resolved_categories.get("Payment").copied();
             } else if let Some(ref cat) = expense.category {
                 let path = sw_category_id_to_path.get(&cat.id);
@@ -1125,6 +1190,7 @@ mod tests {
             None,
             Some(444), // tag_id
             Some(555), // loan_tag_id
+            None,
         );
 
         assert!(updates.is_empty());
@@ -1305,5 +1371,64 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(csv_path);
+    }
+
+    #[test]
+    fn test_diff_transactions_force_category() {
+        let config_str = r#"
+            [splitwise]
+            api_key = "dummy"
+            user_id = 123
+            ignored_groups = []
+
+            [lunch_money]
+            api_key = "dummy"
+            custom_accounts = { USD = 999 }
+        "#;
+        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+
+        let expenses_json = r#"[
+            {
+                "id": 1,
+                "description": "Forced category expense",
+                "date": "2026-06-06T12:00:00Z",
+                "currency_code": "USD",
+                "users": [
+                    {
+                        "user_id": 123,
+                        "net_balance": "50.00"
+                    }
+                ],
+                "payment": false
+            }
+        ]"#;
+        let expenses: Vec<crate::api::splitwise::schema::Expense> =
+            serde_json::from_str(expenses_json).unwrap();
+
+        let mut target_accounts = HashMap::new();
+        target_accounts.insert(crate::api::Currency::new("USD"), 999);
+
+        let mut lm_map = HashMap::new();
+        let sw_category_id_to_path = HashMap::new();
+        let resolved_categories = HashMap::new();
+
+        let (inserts, updates, deletes) = diff_transactions(
+            expenses,
+            &config,
+            &target_accounts,
+            &HashMap::new(),
+            &mut lm_map,
+            &sw_category_id_to_path,
+            &resolved_categories,
+            None,
+            None,
+            None,
+            Some(777), // force_category_id
+        );
+
+        assert!(updates.is_empty());
+        assert!(deletes.is_empty());
+        assert_eq!(inserts.len(), 1);
+        assert_eq!(inserts[0].category_id, Some(777));
     }
 }

@@ -178,12 +178,17 @@ pub struct SyncGroupArgs {
     #[arg(long)]
     pub tag: Option<String>,
 
+    /// Force all transactions to get mapped to this Lunch Money category (ID or name)
+    #[arg(long)]
+    pub force_category: Option<String>,
+
     /// Bypass the check for ignored groups
     #[arg(long)]
     pub bypass_ignore: bool,
 
     /// Path to a new CSV file to dump the sync operations (defaults to <group_name>.csv if omitted)
     #[arg(long, num_args = 0..=1)]
+    #[expect(clippy::option_option)]
     pub csv: Option<Option<std::path::PathBuf>>,
 }
 
@@ -242,6 +247,28 @@ mod tests {
                     group_args.csv,
                     Some(Some(std::path::PathBuf::from("output.csv")))
                 );
+            } else {
+                panic!("Expected SyncSubcommands::Group");
+            }
+        } else {
+            panic!("Expected Commands::Sync");
+        }
+    }
+
+    #[test]
+    fn test_sync_group_force_category_parsing() {
+        let args = Args::try_parse_from([
+            "splitwise-lunchmoney",
+            "sync",
+            "group",
+            "Roommates",
+            "--force-category",
+            "Food",
+        ])
+        .unwrap();
+        if let Commands::Sync(sync_args) = args.command {
+            if let SyncSubcommands::Group(group_args) = sync_args.command {
+                assert_eq!(group_args.force_category, Some("Food".to_string()));
             } else {
                 panic!("Expected SyncSubcommands::Group");
             }

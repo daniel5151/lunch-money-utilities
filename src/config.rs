@@ -41,7 +41,7 @@ impl IgnoredGroup {
                     }
                 }
                 if let Some(n) = name {
-                    n.to_lowercase() == ignored_name.to_lowercase()
+                    n == ignored_name
                 } else {
                     false
                 }
@@ -97,8 +97,8 @@ mod tests {
         assert!(config.splitwise.is_group_ignored(123, Some("Any Name")));
         // 2. Matches Name "Roommates" (which was a string in TOML) - exact
         assert!(config.splitwise.is_group_ignored(999, Some("Roommates")));
-        // 3. Matches Name "roommates" (which was a string in TOML) - case-insensitive
-        assert!(config.splitwise.is_group_ignored(999, Some("roommates")));
+        // 3. Does NOT match Name "roommates" (case-sensitive now)
+        assert!(!config.splitwise.is_group_ignored(999, Some("roommates")));
         // 4. Matches ID 456 (which was a string `"456"` in TOML but parses as ID)
         assert!(config.splitwise.is_group_ignored(456, Some("Any Name")));
 
