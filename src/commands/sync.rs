@@ -395,6 +395,7 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         &sw_category_id_to_path,
         &resolved_categories,
         None,
+        sync_args.no_ignore,
         tag_id,
         loan_tag_id,
         None,
@@ -457,11 +458,11 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     if config
         .splitwise
         .is_group_ignored(target_group.id, Some(&target_group.name))
-        && !sync_args.bypass_ignore
+        && !sync_args.no_ignore
     {
         eprintln! {};
         eprintln! { "{STYLE_WARNING}⚠️ Warning:{STYLE_WARNING:#} Group {} is marked as ignored in configuration.", target_group.id };
-        eprintln! { "To force synchronization for this group, use the --bypass-ignore flag." };
+        eprintln! { "To force synchronization for this group, use the --no-ignore flag." };
         eprintln! {};
         std::process::exit(1);
     }
@@ -570,6 +571,7 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         &sw_category_id_to_path,
         &resolved_categories,
         Some(target_group.id),
+        sync_args.no_ignore,
         tag_id,
         loan_tag_id,
         force_category_id,
@@ -706,6 +708,7 @@ fn diff_transactions(
     sw_category_id_to_path: &HashMap<u32, String>,
     resolved_categories: &HashMap<String, u64>,
     ignored_groups_exclude: Option<u64>,
+    bypass_ignore_groups: bool,
     tag_id: Option<u64>,
     loan_tag_id: Option<u64>,
     force_category_id: Option<u64>,
@@ -724,10 +727,11 @@ fn diff_transactions(
             .map(|u| u.net_balance)
             .unwrap_or(Decimal::ZERO);
 
-        let is_ignored = expense.group_id.is_some_and(|gid| {
-            let name = group_map.get(&gid).map(|s| s.as_str());
-            config.splitwise.is_group_ignored(gid, name) && Some(gid) != ignored_groups_exclude
-        });
+        let is_ignored = !bypass_ignore_groups
+            && expense.group_id.is_some_and(|gid| {
+                let name = group_map.get(&gid).map(|s| s.as_str());
+                config.splitwise.is_group_ignored(gid, name) && Some(gid) != ignored_groups_exclude
+            });
 
         // Skip ignored, deleted, or un-involved expenses
         if expense.deleted_at.is_some() || is_ignored || net_balance.is_zero() {
@@ -1205,6 +1209,7 @@ mod tests {
             &sw_category_id_to_path,
             &resolved_categories,
             None,
+            false,
             Some(444), // tag_id
             Some(555), // loan_tag_id
             None,
@@ -1278,6 +1283,7 @@ mod tests {
             &sw_category_id_to_path,
             &resolved_categories,
             None,
+            false,
             Some(444), // tag_id
             None,      // loan_tag_id is None
             None,
@@ -1504,6 +1510,7 @@ mod tests {
             &sw_category_id_to_path,
             &resolved_categories,
             None,
+            false,
             None,
             None,
             Some(777), // force_category_id
@@ -1590,6 +1597,7 @@ mod tests {
             &sw_category_id_to_path,
             &resolved_categories,
             None,
+            false,
             None,
             None,
             None,
@@ -1610,5 +1618,85 @@ mod tests {
             .find(|tx| tx.external_id == crate::api::ExternalId::Splitwise(2))
             .unwrap();
         assert_eq!(tx_group.payee, "Splitwise - Roommates");
+    }
+
+    #[test]
+    fn test_diff_transactions_no_ignore() {
+        let config_str = r#"
+            [splitwise]
+            api_key = "dummy"
+            user_id = 123
+            ignored_groups = [ 789 ]
+
+            [lunch_money]
+            api_key = "dummy"
+            custom_accounts = { USD = 999 }
+        "#;
+        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+
+        let expenses_json = r#"[
+            {
+                "id": 1,
+                "description": "Group expense",
+                "date": "2026-06-06T12:00:00Z",
+                "currency_code": "USD",
+                "group_id": 789,
+                "users": [
+                    {
+                        "user_id": 123,
+                        "net_balance": "50.00"
+                    }
+                ],
+                "payment": false
+            }
+        ]"#;
+        let expenses1: Vec<crate::api::splitwise::schema::Expense> =
+            serde_json::from_str(expenses_json).unwrap();
+        let expenses2: Vec<crate::api::splitwise::schema::Expense> =
+            serde_json::from_str(expenses_json).unwrap();
+
+        let mut target_accounts = HashMap::new();
+        target_accounts.insert(crate::api::Currency::new("USD"), 999);
+
+        let mut lm_map = HashMap::new();
+        let sw_category_id_to_path = HashMap::new();
+        let resolved_categories = HashMap::new();
+
+        let mut group_map = HashMap::new();
+        group_map.insert(789, "Roommates".to_string());
+
+        // Case 1: bypass_ignore_groups = false (should be ignored, inserts is empty)
+        let (inserts1, _, _) = diff_transactions(
+            expenses1,
+            &config,
+            &target_accounts,
+            &group_map,
+            &mut lm_map,
+            &sw_category_id_to_path,
+            &resolved_categories,
+            None,
+            false, // bypass_ignore_groups = false
+            None,
+            None,
+            None,
+        );
+        assert!(inserts1.is_empty());
+
+        // Case 2: bypass_ignore_groups = true (should NOT be ignored, inserts has 1 item)
+        let (inserts2, _, _) = diff_transactions(
+            expenses2,
+            &config,
+            &target_accounts,
+            &group_map,
+            &mut lm_map,
+            &sw_category_id_to_path,
+            &resolved_categories,
+            None,
+            true, // bypass_ignore_groups = true
+            None,
+            None,
+            None,
+        );
+        assert_eq!(inserts2.len(), 1);
     }
 }

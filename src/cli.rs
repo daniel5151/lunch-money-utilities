@@ -172,6 +172,10 @@ pub struct SyncWindowArgs {
     /// Skip the configured loan_tag in config toml
     #[arg(long)]
     pub no_loan_tag: bool,
+
+    /// Bypass the check for ignored groups
+    #[arg(long)]
+    pub no_ignore: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -193,7 +197,7 @@ pub struct SyncGroupArgs {
 
     /// Bypass the check for ignored groups
     #[arg(long)]
-    pub bypass_ignore: bool,
+    pub no_ignore: bool,
 
     /// Path to a new CSV file to dump the sync operations (defaults to <group_name>.csv if omitted)
     #[arg(long, num_args = 0..=1)]
@@ -387,6 +391,47 @@ mod tests {
         if let Commands::Sync(sync_args) = args.command {
             if let SyncSubcommands::Group(group_args) = sync_args.command {
                 assert!(group_args.no_loan_tag);
+            } else {
+                panic!("Expected SyncSubcommands::Group");
+            }
+        } else {
+            panic!("Expected Commands::Sync");
+        }
+    }
+
+    #[test]
+    fn test_sync_no_ignore_parsing() {
+        // Window
+        let args = Args::try_parse_from([
+            "splitwise-lunchmoney",
+            "sync",
+            "window",
+            "3d",
+            "--no-ignore",
+        ])
+        .unwrap();
+        if let Commands::Sync(sync_args) = args.command {
+            if let SyncSubcommands::Window(window_args) = sync_args.command {
+                assert!(window_args.no_ignore);
+            } else {
+                panic!("Expected SyncSubcommands::Window");
+            }
+        } else {
+            panic!("Expected Commands::Sync");
+        }
+
+        // Group
+        let args = Args::try_parse_from([
+            "splitwise-lunchmoney",
+            "sync",
+            "group",
+            "Roommates",
+            "--no-ignore",
+        ])
+        .unwrap();
+        if let Commands::Sync(sync_args) = args.command {
+            if let SyncSubcommands::Group(group_args) = sync_args.command {
+                assert!(group_args.no_ignore);
             } else {
                 panic!("Expected SyncSubcommands::Group");
             }

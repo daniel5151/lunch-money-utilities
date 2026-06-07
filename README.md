@@ -65,6 +65,7 @@ Sync Splitwise transactions (and global outstanding balances) into Lunch Money m
   - `--no-groups`: Only sync individual (non-group) transactions.
   - `--csv <PATH>`: Write the operations to a CSV file.
   - `--no-loan-tag`: Bypass applying the configured `loan_tag` to synced transactions.
+  - `--no-ignore`: Bypass check for ignored groups.
   ```bash
   cargo run -- sync window "3 days" --dry-run
   ```
@@ -74,7 +75,7 @@ Sync Splitwise transactions (and global outstanding balances) into Lunch Money m
   - `--dry-run`: Preview changes.
   - `--tag <TAG>`: Apply a custom tag to imported transactions in Lunch Money.
   - `--force-category <CATEGORY>`: Force all transactions to get mapped to this Lunch Money category (ID or name).
-  - `--bypass-ignore`: Bypass check for ignored groups.
+  - `--no-ignore`: Bypass check for ignored groups.
   - `--csv [PATH]`: Write operations to a CSV file. If `--csv` is specified without an argument, it defaults to `<group_name>.csv`.
   - `--no-loan-tag`: Bypass applying the configured `loan_tag`.
   ```bash
