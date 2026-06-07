@@ -1,7 +1,7 @@
 use crate::api::lunch_money::schema::ManualAccountsResponse;
 use crate::style::*;
-use anstream::eprintln;
 use anstream::println;
+use anyhow::Context;
 use std::collections::HashMap;
 use std::fs;
 
@@ -24,12 +24,9 @@ struct CurrentUserResponse {
     user: SplitwiseUser,
 }
 
-pub(crate) async fn run_init() {
+pub(crate) async fn run_init() -> anyhow::Result<()> {
     if std::path::Path::new("splitwise-lunchmoney.toml").exists() {
-        eprintln! {};
-        eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} splitwise-lunchmoney.toml already exists in this directory." };
-        eprintln! {};
-        std::process::exit(1);
+        anyhow::bail!("splitwise-lunchmoney.toml already exists in this directory.");
     }
 
     println! {};
@@ -43,7 +40,7 @@ pub(crate) async fn run_init() {
         .with_display_mode(inquire::PasswordDisplayMode::Masked)
         .without_confirmation()
         .prompt()
-        .expect("Failed to get Splitwise API Key");
+        .context("Failed to get Splitwise API Key")?;
 
     let http_client = reqwest::Client::new();
 
@@ -54,26 +51,21 @@ pub(crate) async fn run_init() {
         .header("Authorization", format!("Bearer {splitwise_api_key}"))
         .send()
         .await
-        .expect(
-            "Failed to query Splitwise API. Please check your API key and internet connection.",
-        );
+        .context("Failed to query Splitwise API")?;
 
     if !sw_user_response.status().is_success() {
-        eprintln! {};
-        eprintln! { "{STYLE_ERROR}❌ Error querying Splitwise:{STYLE_ERROR:#} {}", sw_user_response.status() };
-        eprintln! {};
-        std::process::exit(1);
+        anyhow::bail!("Error querying Splitwise: {}", sw_user_response.status());
     }
 
     let user_res: CurrentUserResponse = sw_user_response
         .json()
         .await
-        .expect("Failed to parse Splitwise current user response");
+        .context("Failed to parse Splitwise current user response")?;
 
     let current_user = user_res.user;
     let selected_user = inquire::Select::new("Select Splitwise User:", vec![current_user])
         .prompt()
-        .expect("Failed to select Splitwise User");
+        .context("Failed to select Splitwise User")?;
 
     let splitwise_user_id = selected_user.id;
     let splitwise_user_name = format!(
@@ -90,14 +82,14 @@ pub(crate) async fn run_init() {
         crate::api::splitwise::Client::new(http_client.clone(), splitwise_api_key.clone());
     let sw_categories: crate::api::splitwise::schema::CategoriesResponse = sw_client
         .fetch("get_categories", &[] as &[(&str, &str)])
-        .await;
+        .await?;
 
     let lunch_money_api_key = inquire::Password::new("Lunch Money API Key:")
         .with_help_message("Your Lunch Money developer API key")
         .with_display_mode(inquire::PasswordDisplayMode::Masked)
         .without_confirmation()
         .prompt()
-        .expect("Failed to get Lunch Money API Key");
+        .context("Failed to get Lunch Money API Key")?;
 
     println! {};
     println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API...{STYLE_INFO:#}" };
@@ -105,7 +97,7 @@ pub(crate) async fn run_init() {
         crate::api::lunch_money::Client::new(http_client.clone(), lunch_money_api_key.clone());
     let accounts_res: ManualAccountsResponse = lm_client
         .fetch("manual_accounts", &[] as &[(&str, &str)])
-        .await;
+        .await?;
 
     let inferred = crate::commands::resolve_target_accounts(&accounts_res, &HashMap::new());
     if !inferred.is_empty() {
@@ -168,7 +160,7 @@ api_key = "{lunch_money_api_key}"
     );
 
     fs::write("splitwise-lunchmoney.toml", template)
-        .expect("Failed to write splitwise-lunchmoney.toml");
+        .context("Failed to write splitwise-lunchmoney.toml")?;
 
     println! {};
     println! { "{STYLE_SUCCESS}🎉 Configuration created successfully!{STYLE_SUCCESS:#}" };
@@ -176,4 +168,5 @@ api_key = "{lunch_money_api_key}"
     println! {};
     println! { "{STYLE_DIM}Run {STYLE_DIM:#}{STYLE_HEADER}splitwise-lunchmoney sync window --window \"3 days\"{STYLE_HEADER:#}{STYLE_DIM} to begin syncing.{STYLE_DIM:#}" };
     println! {};
+    Ok(())
 }

@@ -1,4 +1,4 @@
-use crate::style::*;
+use anyhow::Context;
 
 pub struct Client {
     http: reqwest::Client,
@@ -14,7 +14,7 @@ impl Client {
         &self,
         endpoint: &str,
         query: &Q,
-    ) -> T {
+    ) -> anyhow::Result<T> {
         let url = format!("https://secure.splitwise.com/api/v3.0/{}", endpoint);
         let res = self
             .http
@@ -23,16 +23,12 @@ impl Client {
             .query(query)
             .send()
             .await
-            .expect("Splitwise HTTP call failed");
+            .context("Splitwise HTTP call failed")?;
 
         if !res.status().is_success() {
-            anstream::eprintln!(
-                "\n{STYLE_ERROR}❌ Splitwise request failed:{STYLE_ERROR:#} {}\n",
-                res.status()
-            );
-            std::process::exit(1);
+            anyhow::bail!("Splitwise request failed: {}", res.status());
         }
-        res.json().await.expect("Failed parsing Splitwise JSON")
+        res.json().await.context("Failed parsing Splitwise JSON")
     }
 }
 

@@ -1,13 +1,13 @@
 use crate::api::lunch_money::schema::ManualAccountsResponse;
 use crate::style::*;
-use anstream::eprintln;
 use anstream::println;
+use anyhow::Context;
 use reqwest::Method;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
-pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
-    let config = crate::load_config();
+pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) -> anyhow::Result<()> {
+    let config = crate::load_config()?;
 
     let http_pool = reqwest::Client::new();
     let sw_client =
@@ -23,8 +23,9 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
     println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
 
     println! { "  {STYLE_DIM}Fetching Splitwise friends...{STYLE_DIM:#}" };
-    let friends_res: crate::api::splitwise::schema::FriendsResponse =
-        sw_client.fetch("get_friends", &[] as &[(&str, &str)]).await;
+    let friends_res: crate::api::splitwise::schema::FriendsResponse = sw_client
+        .fetch("get_friends", &[] as &[(&str, &str)])
+        .await?;
 
     let mut global_balances: HashMap<crate::api::Currency, Decimal> = HashMap::new();
     for friend in friends_res.friends {
@@ -36,8 +37,9 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
 
     if !config.splitwise.ignored_groups.is_empty() {
         println! { "  {STYLE_DIM}Fetching Splitwise groups...{STYLE_DIM:#}" };
-        let groups_res: crate::api::splitwise::schema::GroupResponse =
-            sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
+        let groups_res: crate::api::splitwise::schema::GroupResponse = sw_client
+            .fetch("get_groups", &[] as &[(&str, &str)])
+            .await?;
 
         for group in groups_res.groups {
             if config
@@ -60,7 +62,7 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
     println! { "  {STYLE_DIM}Fetching Lunch Money manual accounts...{STYLE_DIM:#}" };
     let accounts_res: ManualAccountsResponse = lm_client
         .fetch("manual_accounts", &[] as &[(&str, &str)])
-        .await;
+        .await?;
 
     let target_accounts = crate::commands::resolve_target_accounts(
         &accounts_res,
@@ -78,9 +80,11 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
         {
             Some(a) => a,
             None => {
-                eprintln! {};
-                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
-                std::process::exit(1);
+                anyhow::bail!(
+                    "Manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.",
+                    account_id,
+                    currency
+                );
             }
         };
 
@@ -133,7 +137,7 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
                             balance: target_balance,
                         },
                     )
-                    .await;
+                    .await?;
             }
         } else {
             println! { "  {} ({})  {}✓ Up to date: {}{}", acc_name, currency, STYLE_SUCCESS, acc.balance, STYLE_SUCCESS.render_reset() };
@@ -158,38 +162,22 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
             new_balance: Decimal,
         }
 
-        let mut wtr = match csv::Writer::from_path(csv_path) {
-            Ok(w) => w,
-            Err(e) => {
-                eprintln! {};
-                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to create CSV file at '{}': {}", csv_path.display(), e };
-                eprintln! {};
-                std::process::exit(1);
-            }
-        };
+        let mut wtr = csv::Writer::from_path(csv_path)
+            .with_context(|| format!("Failed to create CSV file at '{}'", csv_path.display()))?;
 
         for (op, account_id, name, curr, old_bal, new_bal) in csv_rows {
-            if let Err(e) = wtr.serialize(CsvRow {
+            wtr.serialize(CsvRow {
                 operation: op,
                 account_id,
                 account_name: &name,
                 currency: &curr,
                 old_balance: old_bal,
                 new_balance: new_bal,
-            }) {
-                eprintln! {};
-                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to write CSV row: {}", e };
-                eprintln! {};
-                std::process::exit(1);
-            }
+            })
+            .context("Failed to write CSV row")?;
         }
 
-        if let Err(e) = wtr.flush() {
-            eprintln! {};
-            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to flush CSV file: {}", e };
-            eprintln! {};
-            std::process::exit(1);
-        }
+        wtr.flush().context("Failed to flush CSV file")?;
     }
 
     // List unmapped non-zero balances
@@ -225,4 +213,5 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) {
     }
 
     println! {};
+    Ok(())
 }

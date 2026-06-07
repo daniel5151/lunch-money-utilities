@@ -1,8 +1,8 @@
 use crate::api::splitwise::schema::ExpensesResponse;
 use crate::api::splitwise::schema::GroupResponse;
 use crate::style::*;
-use anstream::eprintln;
 use anstream::println;
+use anyhow::Context;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use tabled::Table;
@@ -130,11 +130,13 @@ fn print_expenses_table(
     }
 }
 
-pub(crate) async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseWindowArgs) {
+pub(crate) async fn run_query_splitwise_window(
+    args: crate::cli::QuerySplitwiseWindowArgs,
+) -> anyhow::Result<()> {
     let window_duration =
-        jiff::SignedDuration::try_from(args.window).expect("window duration is too large");
+        jiff::SignedDuration::try_from(args.window).context("window duration is too large")?;
 
-    let config = crate::load_config();
+    let config = crate::load_config()?;
 
     let http_pool = reqwest::Client::new();
     let sw_client =
@@ -155,7 +157,9 @@ pub(crate) async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseW
     println! {};
 
     println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
-    let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
+    let groups_res: GroupResponse = sw_client
+        .fetch("get_groups", &[] as &[(&str, &str)])
+        .await?;
     let group_map: HashMap<u64, String> = groups_res
         .groups
         .into_iter()
@@ -168,7 +172,7 @@ pub(crate) async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseW
         dated_before_str = format!("{}T23:59:59Z", end_window_str);
         sw_query.push(("dated_before", dated_before_str.as_str()));
     }
-    let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
+    let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await?;
 
     let mut expenses = expenses_res.expenses;
     if args.no_groups {
@@ -178,14 +182,17 @@ pub(crate) async fn run_query_splitwise_window(args: crate::cli::QuerySplitwiseW
     if expenses.is_empty() {
         println! { "{STYLE_SUCCESS}✨ No expenses found in this window.{STYLE_SUCCESS:#}" };
         println! {};
-        return;
+        return Ok(());
     }
 
     print_expenses_table(expenses, &config, &group_map);
+    Ok(())
 }
 
-pub(crate) async fn run_query_splitwise_group(args: crate::cli::QuerySplitwiseGroupArgs) {
-    let config = crate::load_config();
+pub(crate) async fn run_query_splitwise_group(
+    args: crate::cli::QuerySplitwiseGroupArgs,
+) -> anyhow::Result<()> {
+    let config = crate::load_config()?;
 
     let http_pool = reqwest::Client::new();
     let sw_client =
@@ -198,22 +205,16 @@ pub(crate) async fn run_query_splitwise_group(args: crate::cli::QuerySplitwiseGr
     println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
-    let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
+    let groups_res: GroupResponse = sw_client
+        .fetch("get_groups", &[] as &[(&str, &str)])
+        .await?;
     let group_map: HashMap<u64, String> = groups_res
         .groups
         .iter()
         .map(|g| (g.id, g.name.clone()))
         .collect();
 
-    let target_group = match super::resolve_group(&groups_res.groups, &args.group) {
-        Ok(g) => g,
-        Err(err) => {
-            eprintln! {};
-            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} {}", err };
-            eprintln! {};
-            std::process::exit(1);
-        }
-    };
+    let target_group = super::resolve_group(&groups_res.groups, &args.group)?;
 
     println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", target_group.name, target_group.id };
     if target_group.id != 0 {
@@ -224,15 +225,16 @@ pub(crate) async fn run_query_splitwise_group(args: crate::cli::QuerySplitwiseGr
 
     let group_id_str = target_group.id.to_string();
     let sw_query = [("group_id", group_id_str.as_str()), ("limit", "0")];
-    let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
+    let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await?;
 
     if expenses_res.expenses.is_empty() {
         println! { "{STYLE_SUCCESS}✨ No expenses found for this group.{STYLE_SUCCESS:#}" };
         println! {};
-        return;
+        return Ok(());
     }
 
     print_expenses_table(expenses_res.expenses, &config, &group_map);
+    Ok(())
 }
 
 #[derive(Tabled)]
@@ -247,8 +249,8 @@ struct GroupRecord {
     balance: String,
 }
 
-pub(crate) async fn run_query_splitwise_groups() {
-    let config = crate::load_config();
+pub(crate) async fn run_query_splitwise_groups() -> anyhow::Result<()> {
+    let config = crate::load_config()?;
 
     let http_pool = reqwest::Client::new();
     let sw_client =
@@ -258,12 +260,14 @@ pub(crate) async fn run_query_splitwise_groups() {
     println! { "{STYLE_HEADER}🔍 Querying Splitwise Groups{STYLE_HEADER:#}" };
     println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
 
-    let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
+    let groups_res: GroupResponse = sw_client
+        .fetch("get_groups", &[] as &[(&str, &str)])
+        .await?;
 
     if groups_res.groups.is_empty() {
         println! { "{STYLE_WARNING}No groups found.{STYLE_WARNING:#}" };
         println! {};
-        return;
+        return Ok(());
     }
 
     let mut groups = groups_res.groups;
@@ -295,10 +299,11 @@ pub(crate) async fn run_query_splitwise_groups() {
     table.with(Style::rounded());
     println!("{}", table);
     println! {};
+    Ok(())
 }
 
-pub(crate) async fn run_query_lunchmoney_categories() {
-    let config = crate::load_config();
+pub(crate) async fn run_query_lunchmoney_categories() -> anyhow::Result<()> {
+    let config = crate::load_config()?;
 
     let http_pool = reqwest::Client::new();
     let lm_client =
@@ -312,14 +317,14 @@ pub(crate) async fn run_query_lunchmoney_categories() {
 
     let categories_res: crate::api::lunch_money::schema::CategoriesResponse = lm_client
         .fetch("categories", &[("format", "nested")] as &[(&str, &str)])
-        .await;
+        .await?;
 
     let categories: Vec<_> = categories_res.categories;
 
     if categories.is_empty() {
         println! { "{STYLE_WARNING}No categories found.{STYLE_WARNING:#}" };
         println! {};
-        return;
+        return Ok(());
     }
 
     println! { "  {:<10} {}", "ID", "Category Name" };
@@ -366,6 +371,7 @@ pub(crate) async fn run_query_lunchmoney_categories() {
         println! { "  {STYLE_DIM}* denotes archived categories{STYLE_DIM:#}" };
         println! {};
     }
+    Ok(())
 }
 
 #[derive(Tabled)]
@@ -376,8 +382,8 @@ struct TagRecord {
     tag_name: String,
 }
 
-pub(crate) async fn run_query_lunchmoney_tags() {
-    let config = crate::load_config();
+pub(crate) async fn run_query_lunchmoney_tags() -> anyhow::Result<()> {
+    let config = crate::load_config()?;
 
     let http_pool = reqwest::Client::new();
     let lm_client =
@@ -388,14 +394,14 @@ pub(crate) async fn run_query_lunchmoney_tags() {
     println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
 
     let tags_res: crate::api::lunch_money::schema::TagsResponse =
-        lm_client.fetch("tags", &[] as &[(&str, &str)]).await;
+        lm_client.fetch("tags", &[] as &[(&str, &str)]).await?;
 
     let tags = tags_res.tags;
 
     if tags.is_empty() {
         println! { "{STYLE_WARNING}No tags found.{STYLE_WARNING:#}" };
         println! {};
-        return;
+        return Ok(());
     }
 
     let mut has_archived = false;
@@ -428,10 +434,11 @@ pub(crate) async fn run_query_lunchmoney_tags() {
         println! { "  {STYLE_DIM}* denotes archived tags{STYLE_DIM:#}" };
         println! {};
     }
+    Ok(())
 }
 
-pub(crate) async fn run_query_splitwise_categories() {
-    let config = crate::load_config();
+pub(crate) async fn run_query_splitwise_categories() -> anyhow::Result<()> {
+    let config = crate::load_config()?;
 
     let http_pool = reqwest::Client::new();
     let sw_client = crate::api::splitwise::Client::new(http_pool, config.splitwise.api_key.clone());
@@ -444,14 +451,14 @@ pub(crate) async fn run_query_splitwise_categories() {
 
     let categories_res: crate::api::splitwise::schema::CategoriesResponse = sw_client
         .fetch("get_categories", &[] as &[(&str, &str)])
-        .await;
+        .await?;
 
     let categories = categories_res.categories;
 
     if categories.is_empty() {
         println! { "{STYLE_WARNING}No categories found.{STYLE_WARNING:#}" };
         println! {};
-        return;
+        return Ok(());
     }
 
     println! { "  {:<10} {}", "ID", "Category Name" };
@@ -473,6 +480,7 @@ pub(crate) async fn run_query_splitwise_categories() {
         }
     }
     println! {};
+    Ok(())
 }
 
 #[derive(Tabled)]
@@ -491,8 +499,8 @@ struct AccountRecord {
     mapped: String,
 }
 
-pub(crate) async fn run_query_lunchmoney_accounts() {
-    let config = crate::load_config();
+pub(crate) async fn run_query_lunchmoney_accounts() -> anyhow::Result<()> {
+    let config = crate::load_config()?;
 
     let http_pool = reqwest::Client::new();
     let lm_client =
@@ -504,7 +512,7 @@ pub(crate) async fn run_query_lunchmoney_accounts() {
 
     let accounts_res: crate::api::lunch_money::schema::ManualAccountsResponse = lm_client
         .fetch("manual_accounts", &[] as &[(&str, &str)])
-        .await;
+        .await?;
 
     let target_accounts: HashMap<u64, crate::api::Currency> =
         crate::commands::resolve_target_accounts(
@@ -520,7 +528,7 @@ pub(crate) async fn run_query_lunchmoney_accounts() {
     if accounts.is_empty() {
         println! { "{STYLE_WARNING}No manual accounts found.{STYLE_WARNING:#}" };
         println! {};
-        return;
+        return Ok(());
     }
 
     // Sort accounts: active first, then by name
@@ -605,4 +613,5 @@ pub(crate) async fn run_query_lunchmoney_accounts() {
     table.with(Style::rounded());
     println!("{}", table);
     println! {};
+    Ok(())
 }

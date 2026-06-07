@@ -1,4 +1,4 @@
-use crate::style::*;
+use anyhow::Context;
 
 pub struct Client {
     http: reqwest::Client,
@@ -14,7 +14,7 @@ impl Client {
         &self,
         endpoint: &str,
         query: &Q,
-    ) -> T {
+    ) -> anyhow::Result<T> {
         let url = format!("https://api.lunchmoney.dev/v2/{}", endpoint);
         let res = self
             .http
@@ -23,19 +23,14 @@ impl Client {
             .query(query)
             .send()
             .await
-            .expect("Lunch Money HTTP call failed");
+            .context("Lunch Money HTTP call failed")?;
 
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
-            anstream::eprintln!(
-                "\n{STYLE_ERROR}❌ Lunch Money request failed:{STYLE_ERROR:#} {} - {}\n",
-                status,
-                body
-            );
-            std::process::exit(1);
+            anyhow::bail!("Lunch Money request failed ({}): {}", status, body.trim());
         }
-        res.json().await.expect("Failed parsing Lunch Money JSON")
+        res.json().await.context("Failed parsing Lunch Money JSON")
     }
 
     pub async fn exec<P: serde::Serialize>(
@@ -43,7 +38,7 @@ impl Client {
         method: reqwest::Method,
         endpoint: &str,
         payload: &P,
-    ) {
+    ) -> anyhow::Result<()> {
         let url = format!("https://api.lunchmoney.dev/v2/{}", endpoint);
         let res = self
             .http
@@ -52,18 +47,14 @@ impl Client {
             .json(payload)
             .send()
             .await
-            .expect("Lunch Money HTTP call failed");
+            .context("Lunch Money HTTP call failed")?;
 
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
-            anstream::eprintln!(
-                "\n{STYLE_ERROR}❌ Lunch Money request failed:{STYLE_ERROR:#} {} - {}\n",
-                status,
-                body
-            );
-            std::process::exit(1);
+            anyhow::bail!("Lunch Money request failed ({}): {}", status, body.trim());
         }
+        Ok(())
     }
 
     pub async fn exec_with_response<T: serde::de::DeserializeOwned, P: serde::Serialize>(
@@ -71,7 +62,7 @@ impl Client {
         method: reqwest::Method,
         endpoint: &str,
         payload: &P,
-    ) -> T {
+    ) -> anyhow::Result<T> {
         let url = format!("https://api.lunchmoney.dev/v2/{}", endpoint);
         let res = self
             .http
@@ -80,19 +71,14 @@ impl Client {
             .json(payload)
             .send()
             .await
-            .expect("Lunch Money HTTP call failed");
+            .context("Lunch Money HTTP call failed")?;
 
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
-            anstream::eprintln!(
-                "\n{STYLE_ERROR}❌ Lunch Money request failed:{STYLE_ERROR:#} {} - {}\n",
-                status,
-                body
-            );
-            std::process::exit(1);
+            anyhow::bail!("Lunch Money request failed ({}): {}", status, body.trim());
         }
-        res.json().await.expect("Failed parsing Lunch Money JSON")
+        res.json().await.context("Failed parsing Lunch Money JSON")
     }
 }
 

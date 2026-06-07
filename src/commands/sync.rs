@@ -9,8 +9,8 @@ use crate::api::lunch_money::schema::UpdatePayload;
 use crate::api::splitwise::schema::ExpensesResponse;
 use crate::api::splitwise::schema::GroupResponse;
 use crate::style::*;
-use anstream::eprintln;
 use anstream::println;
+use anyhow::Context;
 use reqwest::Method;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
@@ -113,15 +113,15 @@ fn to_sync_record(args: ToSyncRecordArgs<'_>) -> SyncRecord {
 async fn resolve_categories(
     lm_client: &crate::api::lunch_money::Client,
     config: &crate::config::Config,
-) -> (HashMap<String, u64>, HashMap<u64, String>) {
+) -> anyhow::Result<(HashMap<String, u64>, HashMap<u64, String>)> {
     if config.categories.is_empty() {
-        return (HashMap::new(), HashMap::new());
+        return Ok((HashMap::new(), HashMap::new()));
     }
 
     println! { "  {STYLE_DIM}Fetching Lunch Money categories...{STYLE_DIM:#}" };
     let categories_res: crate::api::lunch_money::schema::CategoriesResponse = lm_client
         .fetch("categories", &[("format", "flattened")] as &[(&str, &str)])
-        .await;
+        .await?;
 
     let names: HashMap<u64, String> = categories_res
         .categories
@@ -154,14 +154,15 @@ async fn resolve_categories(
                     println! { "  ⚠️  {STYLE_WARNING}Warning:{STYLE_WARNING:#} Configured Lunch Money category '{}' (for Splitwise category '{}') does not exist or is archived.", name, sw_key };
                     continue;
                 } else if matches.len() > 1 {
-                    eprintln! {};
-                    eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Multiple active Lunch Money categories found with the name '{}':", name };
+                    let mut msg = format!(
+                        "Multiple active Lunch Money categories found with the name '{}':\n",
+                        name
+                    );
                     for m in matches {
-                        eprintln! { "  • ID: {} (is_group: {})", m.id, m.is_group };
+                        msg.push_str(&format!("  • ID: {} (is_group: {})\n", m.id, m.is_group));
                     }
-                    eprintln! { "Please map by category ID instead to resolve ambiguity." };
-                    eprintln! {};
-                    std::process::exit(1);
+                    msg.push_str("Please map by category ID instead to resolve ambiguity.");
+                    anyhow::bail!("{}", msg);
                 } else {
                     matches[0].id
                 }
@@ -170,18 +171,18 @@ async fn resolve_categories(
 
         resolved.insert(sw_key.clone(), resolved_id);
     }
-    (resolved, names)
+    Ok((resolved, names))
 }
 
 async fn resolve_force_category(
     lm_client: &crate::api::lunch_money::Client,
     force_category_str: &str,
     lm_category_names: &mut HashMap<u64, String>,
-) -> u64 {
+) -> anyhow::Result<u64> {
     println! { "  {STYLE_DIM}Fetching Lunch Money categories to resolve forced category...{STYLE_DIM:#}" };
     let categories_res: crate::api::lunch_money::schema::CategoriesResponse = lm_client
         .fetch("categories", &[("format", "flattened")] as &[(&str, &str)])
-        .await;
+        .await?;
 
     if let Ok(id) = force_category_str.parse::<u64>() {
         if let Some(c) = categories_res
@@ -190,12 +191,12 @@ async fn resolve_force_category(
             .find(|c| c.id == id && !c.archived)
         {
             lm_category_names.insert(id, c.name.clone());
-            return id;
+            return Ok(id);
         } else {
-            eprintln! {};
-            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Forced category ID {} does not exist or is archived in Lunch Money.", id };
-            eprintln! {};
-            std::process::exit(1);
+            anyhow::bail!(
+                "Forced category ID {} does not exist or is archived in Lunch Money.",
+                id
+            );
         }
     }
 
@@ -206,23 +207,24 @@ async fn resolve_force_category(
         .collect();
 
     if matches.is_empty() {
-        eprintln! {};
-        eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Forced category '{}' does not exist or is archived in Lunch Money.", force_category_str };
-        eprintln! {};
-        std::process::exit(1);
+        anyhow::bail!(
+            "Forced category '{}' does not exist or is archived in Lunch Money.",
+            force_category_str
+        );
     } else if matches.len() > 1 {
-        eprintln! {};
-        eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Multiple active Lunch Money categories found with the name '{}':", force_category_str };
+        let mut msg = format!(
+            "Multiple active Lunch Money categories found with the name '{}':\n",
+            force_category_str
+        );
         for m in matches {
-            eprintln! { "  • ID: {} (is_group: {})", m.id, m.is_group };
+            msg.push_str(&format!("  • ID: {} (is_group: {})\n", m.id, m.is_group));
         }
-        eprintln! { "Please specify the category ID instead to resolve ambiguity." };
-        eprintln! {};
-        std::process::exit(1);
+        msg.push_str("Please specify the category ID instead to resolve ambiguity.");
+        anyhow::bail!("{}", msg);
     } else {
         let matched = matches[0];
         lm_category_names.insert(matched.id, matched.name.clone());
-        matched.id
+        Ok(matched.id)
     }
 }
 
@@ -231,16 +233,16 @@ async fn resolve_or_create_tag(
     tags_res: &crate::api::lunch_money::schema::TagsResponse,
     tag_name: &str,
     dry_run: bool,
-) -> u64 {
+) -> anyhow::Result<u64> {
     if let Some(existing_tag) = tags_res
         .tags
         .iter()
         .find(|t| t.name.eq_ignore_ascii_case(tag_name))
     {
-        existing_tag.id
+        Ok(existing_tag.id)
     } else if dry_run {
         println! { "   {STYLE_WARNING}Would create tag:{STYLE_WARNING:#} '{}'", tag_name };
-        0
+        Ok(0)
     } else {
         println! { "  {STYLE_DIM}Creating new tag '{}'...{STYLE_DIM:#}", tag_name };
         let new_tag: crate::api::lunch_money::schema::Tag = lm_client
@@ -251,8 +253,8 @@ async fn resolve_or_create_tag(
                     name: tag_name.to_string(),
                 },
             )
-            .await;
-        new_tag.id
+            .await?;
+        Ok(new_tag.id)
     }
 }
 
@@ -261,37 +263,37 @@ async fn resolve_tags(
     tag_name: Option<&str>,
     loan_tag_name: Option<&str>,
     dry_run: bool,
-) -> (Option<u64>, Option<u64>) {
+) -> anyhow::Result<(Option<u64>, Option<u64>)> {
     let mut tag_id = None;
     let mut loan_tag_id = None;
 
     if tag_name.is_none() && loan_tag_name.is_none() {
-        return (None, None);
+        return Ok((None, None));
     }
 
     println! { "  {STYLE_DIM}Fetching Lunch Money tags...{STYLE_DIM:#}" };
     let tags_res: crate::api::lunch_money::schema::TagsResponse =
-        lm_client.fetch("tags", &[] as &[(&str, &str)]).await;
+        lm_client.fetch("tags", &[] as &[(&str, &str)]).await?;
 
     if let Some(name) = tag_name {
-        tag_id = Some(resolve_or_create_tag(lm_client, &tags_res, name, dry_run).await);
+        tag_id = Some(resolve_or_create_tag(lm_client, &tags_res, name, dry_run).await?);
     }
     if let Some(name) = loan_tag_name {
         if Some(name) == tag_name {
             loan_tag_id = tag_id;
         } else {
-            loan_tag_id = Some(resolve_or_create_tag(lm_client, &tags_res, name, dry_run).await);
+            loan_tag_id = Some(resolve_or_create_tag(lm_client, &tags_res, name, dry_run).await?);
         }
     }
 
-    (tag_id, loan_tag_id)
+    Ok((tag_id, loan_tag_id))
 }
 
-pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
+pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) -> anyhow::Result<()> {
     let window_duration =
-        jiff::SignedDuration::try_from(sync_args.window).expect("window duration is too large");
+        jiff::SignedDuration::try_from(sync_args.window).context("window duration is too large")?;
 
-    let config = crate::load_config();
+    let config = crate::load_config()?;
 
     let http_pool = reqwest::Client::new();
     let sw_client =
@@ -318,7 +320,9 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
 
     // Fetch dependencies
     println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
-    let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
+    let groups_res: GroupResponse = sw_client
+        .fetch("get_groups", &[] as &[(&str, &str)])
+        .await?;
     let group_map: HashMap<u64, String> = groups_res
         .groups
         .into_iter()
@@ -331,7 +335,7 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         dated_before_str = format!("{}T23:59:59Z", end_window_str);
         sw_query.push(("dated_before", dated_before_str.as_str()));
     }
-    let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
+    let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await?;
 
     let mut expenses = expenses_res.expenses;
     if sync_args.no_groups {
@@ -352,16 +356,16 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
     // Verify configured manual accounts exist in Lunch Money
     let accounts_res: ManualAccountsResponse = lm_client
         .fetch("manual_accounts", &[] as &[(&str, &str)])
-        .await;
+        .await?;
     let target_accounts = crate::commands::resolve_target_accounts(
         &accounts_res,
         &config.lunch_money.custom_accounts,
     );
-    verify_target_accounts(&target_accounts, &accounts_res);
+    verify_target_accounts(&target_accounts, &accounts_res)?;
 
-    let (resolved_categories, lm_category_names) = resolve_categories(&lm_client, &config).await;
+    let (resolved_categories, lm_category_names) = resolve_categories(&lm_client, &config).await?;
 
-    let sw_category_id_to_path = fetch_splitwise_categories(&sw_client, &config).await;
+    let sw_category_id_to_path = fetch_splitwise_categories(&sw_client, &config).await?;
 
     let loan_tag_name = if sync_args.no_loan_tag {
         None
@@ -375,7 +379,7 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         loan_tag_name,
         sync_args.dry_run,
     )
-    .await;
+    .await?;
 
     let lm_transactions = fetch_lunch_money_transactions(FetchLunchMoneyTransactionsArgs {
         lm_client: &lm_client,
@@ -384,7 +388,7 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         start_date_str: &start_window_str,
         end_date_str: &end_window_str,
     })
-    .await;
+    .await?;
 
     println! { "  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}" };
     println! {};
@@ -412,7 +416,7 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         tag_id,
         loan_tag_id,
         force_category_id: None,
-    });
+    })?;
 
     execute_sync_actions(ExecuteSyncActionsArgs {
         deletes: &deletes,
@@ -428,11 +432,12 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) {
         lm_tx_categories: &lm_tx_categories,
         csv_path: sync_args.csv.as_deref(),
     })
-    .await;
+    .await?;
+    Ok(())
 }
 
-pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
-    let config = crate::load_config();
+pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) -> anyhow::Result<()> {
+    let config = crate::load_config()?;
 
     let http_pool = reqwest::Client::new();
     let sw_client =
@@ -451,33 +456,26 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
 
     // Fetch dependencies
     println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
-    let groups_res: GroupResponse = sw_client.fetch("get_groups", &[] as &[(&str, &str)]).await;
+    let groups_res: GroupResponse = sw_client
+        .fetch("get_groups", &[] as &[(&str, &str)])
+        .await?;
     let group_map: HashMap<u64, String> = groups_res
         .groups
         .iter()
         .map(|g| (g.id, g.name.clone()))
         .collect();
 
-    let target_group = match super::resolve_group(&groups_res.groups, &sync_args.group) {
-        Ok(g) => g,
-        Err(err) => {
-            eprintln! {};
-            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} {}", err };
-            eprintln! {};
-            std::process::exit(1);
-        }
-    };
+    let target_group = super::resolve_group(&groups_res.groups, &sync_args.group)?;
 
     if config
         .splitwise
         .is_group_ignored(target_group.id, Some(&target_group.name))
         && !sync_args.no_ignore
     {
-        eprintln! {};
-        eprintln! { "{STYLE_WARNING}⚠️ Warning:{STYLE_WARNING:#} Group {} is marked as ignored in configuration.", target_group.id };
-        eprintln! { "To force synchronization for this group, use the --no-ignore flag." };
-        eprintln! {};
-        std::process::exit(1);
+        anyhow::bail!(
+            "Group {} is marked as ignored in configuration. To force synchronization for this group, use the --no-ignore flag.",
+            target_group.id
+        );
     }
 
     let group_name = target_group.name.clone();
@@ -500,7 +498,7 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
 
     let group_id_str = target_group.id.to_string();
     let sw_query = [("group_id", group_id_str.as_str()), ("limit", "0")];
-    let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await;
+    let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await?;
 
     let mut sw_expense_categories = HashMap::new();
     for expense in &expenses_res.expenses {
@@ -516,23 +514,23 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
     // Verify configured manual accounts exist in Lunch Money
     let accounts_res: ManualAccountsResponse = lm_client
         .fetch("manual_accounts", &[] as &[(&str, &str)])
-        .await;
+        .await?;
     let target_accounts = crate::commands::resolve_target_accounts(
         &accounts_res,
         &config.lunch_money.custom_accounts,
     );
-    verify_target_accounts(&target_accounts, &accounts_res);
+    verify_target_accounts(&target_accounts, &accounts_res)?;
 
     let (resolved_categories, mut lm_category_names) =
-        resolve_categories(&lm_client, &config).await;
+        resolve_categories(&lm_client, &config).await?;
 
     let force_category_id = if let Some(ref fc) = sync_args.force_category {
-        Some(resolve_force_category(&lm_client, fc, &mut lm_category_names).await)
+        Some(resolve_force_category(&lm_client, fc, &mut lm_category_names).await?)
     } else {
         None
     };
 
-    let sw_category_id_to_path = fetch_splitwise_categories(&sw_client, &config).await;
+    let sw_category_id_to_path = fetch_splitwise_categories(&sw_client, &config).await?;
 
     let loan_tag_name = if sync_args.no_loan_tag {
         None
@@ -546,7 +544,7 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         loan_tag_name,
         sync_args.dry_run,
     )
-    .await;
+    .await?;
 
     let end_window_str = jiff::Timestamp::now()
         .to_zoned(jiff::tz::TimeZone::UTC)
@@ -560,7 +558,7 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         start_date_str: "2000-01-01",
         end_date_str: &end_window_str,
     })
-    .await;
+    .await?;
 
     println! { "  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}" };
     println! {};
@@ -588,7 +586,7 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         tag_id,
         loan_tag_id,
         force_category_id,
-    });
+    })?;
 
     // Filter deletes to only target transactions belonging to this specific group
     let is_non_group = target_group.id == 0;
@@ -625,18 +623,18 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) {
         lm_tx_categories: &lm_tx_categories,
         csv_path: csv_path.as_deref(),
     })
-    .await;
+    .await?;
+    Ok(())
 }
 
 fn verify_target_accounts(
     target_accounts: &HashMap<crate::api::Currency, u64>,
     accounts_res: &ManualAccountsResponse,
-) {
+) -> anyhow::Result<()> {
     if target_accounts.is_empty() {
-        eprintln! {};
-        eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No active manual accounts found. Please set up an active 'Splitwise <CURRENCY>' manual account (e.g. 'Splitwise USD') in Lunch Money or configure [lunch_money.custom_accounts]." };
-        eprintln! {};
-        std::process::exit(1);
+        anyhow::bail!(
+            "No active manual accounts found. Please set up an active 'Splitwise <CURRENCY>' manual account (e.g. 'Splitwise USD') in Lunch Money or configure [lunch_money.custom_accounts]."
+        );
     }
 
     for (currency, &account_id) in target_accounts {
@@ -645,24 +643,26 @@ fn verify_target_accounts(
             .iter()
             .any(|acc| acc.id == account_id)
         {
-            eprintln! {};
-            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.", account_id, currency };
-            eprintln! {};
-            std::process::exit(1);
+            anyhow::bail!(
+                "Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.",
+                account_id,
+                currency
+            );
         }
     }
+    Ok(())
 }
 
 async fn fetch_splitwise_categories(
     sw_client: &crate::api::splitwise::Client,
     config: &crate::config::Config,
-) -> HashMap<u32, String> {
+) -> anyhow::Result<HashMap<u32, String>> {
     let mut sw_category_id_to_path = HashMap::new();
     if !config.categories.is_empty() {
         println! { "  {STYLE_DIM}Fetching Splitwise categories...{STYLE_DIM:#}" };
         let sw_categories_res: crate::api::splitwise::schema::CategoriesResponse = sw_client
             .fetch("get_categories", &[] as &[(&str, &str)])
-            .await;
+            .await?;
         for parent in sw_categories_res.categories {
             sw_category_id_to_path.insert(parent.id, parent.name.clone());
             for sub in parent.subcategories {
@@ -671,7 +671,7 @@ async fn fetch_splitwise_categories(
             }
         }
     }
-    sw_category_id_to_path
+    Ok(sw_category_id_to_path)
 }
 
 struct FetchLunchMoneyTransactionsArgs<'a> {
@@ -684,7 +684,7 @@ struct FetchLunchMoneyTransactionsArgs<'a> {
 
 async fn fetch_lunch_money_transactions(
     args: FetchLunchMoneyTransactionsArgs<'_>,
-) -> Vec<Transaction> {
+) -> anyhow::Result<Vec<Transaction>> {
     let FetchLunchMoneyTransactionsArgs {
         lm_client,
         target_accounts,
@@ -704,7 +704,7 @@ async fn fetch_lunch_money_transactions(
             ("include_group_children", "true"),
             ("include_split_parents", "true"),
         ];
-        let lm_res: TransactionsResponse = lm_client.fetch("transactions", &lm_query).await;
+        let lm_res: TransactionsResponse = lm_client.fetch("transactions", &lm_query).await?;
         let is_loan = accounts_res
             .manual_accounts
             .iter()
@@ -720,7 +720,7 @@ async fn fetch_lunch_money_transactions(
         }
         lm_transactions.extend(txs);
     }
-    lm_transactions
+    Ok(lm_transactions)
 }
 
 struct DiffTransactionsArgs<'a> {
@@ -740,7 +740,7 @@ struct DiffTransactionsArgs<'a> {
 
 fn diff_transactions(
     args: DiffTransactionsArgs<'_>,
-) -> (Vec<InsertObject>, Vec<UpdateObject>, Vec<Transaction>) {
+) -> anyhow::Result<(Vec<InsertObject>, Vec<UpdateObject>, Vec<Transaction>)> {
     let DiffTransactionsArgs {
         expenses,
         config,
@@ -786,11 +786,12 @@ fn diff_transactions(
         }
 
         if !target_accounts.contains_key(&expense.currency_code) {
-            eprintln! {};
-            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} No manual account configured for currency '{}'.", expense.currency_code };
-            eprintln! { "Please set up an active 'Splitwise {}' manual account in Lunch Money or configure [lunch_money.custom_accounts].", expense.currency_code };
-            eprintln! {};
-            std::process::exit(1);
+            anyhow::bail!(
+                "No manual account configured for currency '{}'.\n\
+                Please set up an active 'Splitwise {}' manual account in Lunch Money or configure [lunch_money.custom_accounts].",
+                expense.currency_code,
+                expense.currency_code
+            );
         }
 
         let date_civil = expense.date.to_zoned(jiff::tz::TimeZone::UTC).date();
@@ -866,7 +867,7 @@ fn diff_transactions(
         }
     }
 
-    (inserts, updates, deletes)
+    Ok((inserts, updates, deletes))
 }
 
 struct ExecuteSyncActionsArgs<'a> {
@@ -884,7 +885,7 @@ struct ExecuteSyncActionsArgs<'a> {
     csv_path: Option<&'a std::path::Path>,
 }
 
-async fn execute_sync_actions(args: ExecuteSyncActionsArgs<'_>) {
+async fn execute_sync_actions(args: ExecuteSyncActionsArgs<'_>) -> anyhow::Result<()> {
     let ExecuteSyncActionsArgs {
         deletes,
         updates,
@@ -913,15 +914,8 @@ async fn execute_sync_actions(args: ExecuteSyncActionsArgs<'_>) {
             category: &'a str,
         }
 
-        let mut wtr = match csv::Writer::from_path(path) {
-            Ok(w) => w,
-            Err(e) => {
-                eprintln! {};
-                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to create CSV file at '{}': {}", path.display(), e };
-                eprintln! {};
-                std::process::exit(1);
-            }
-        };
+        let mut wtr = csv::Writer::from_path(path)
+            .with_context(|| format!("Failed to create CSV file at '{}'", path.display()))?;
 
         // Write deletes
         for t in deletes {
@@ -930,7 +924,7 @@ async fn execute_sync_actions(args: ExecuteSyncActionsArgs<'_>) {
                 .and_then(|id| lm_category_names.get(&id).cloned())
                 .unwrap_or_default();
             let ext_id_str = t.external_id.as_ref().map(|ext_id| ext_id.to_string());
-            if let Err(e) = wtr.serialize(CsvRow {
+            wtr.serialize(CsvRow {
                 operation: "delete",
                 lunch_money_id: Some(t.id),
                 external_id: ext_id_str,
@@ -940,12 +934,8 @@ async fn execute_sync_actions(args: ExecuteSyncActionsArgs<'_>) {
                 currency: t.currency.as_str(),
                 notes: t.notes.as_deref().unwrap_or(""),
                 category: &category_name,
-            }) {
-                eprintln! {};
-                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to write CSV row: {}", e };
-                eprintln! {};
-                std::process::exit(1);
-            }
+            })
+            .context("Failed to write CSV row")?;
         }
 
         // Write updates
@@ -958,7 +948,7 @@ async fn execute_sync_actions(args: ExecuteSyncActionsArgs<'_>) {
                 .and_then(|id| lm_category_names.get(&id).cloned())
                 .unwrap_or_default();
             let ext_id_str = external_id.map(|ext_id| ext_id.to_string());
-            if let Err(e) = wtr.serialize(CsvRow {
+            wtr.serialize(CsvRow {
                 operation: "update",
                 lunch_money_id: Some(u.id),
                 external_id: ext_id_str,
@@ -968,12 +958,8 @@ async fn execute_sync_actions(args: ExecuteSyncActionsArgs<'_>) {
                 currency: u.currency.as_str(),
                 notes: &u.notes,
                 category: &category_name,
-            }) {
-                eprintln! {};
-                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to write CSV row: {}", e };
-                eprintln! {};
-                std::process::exit(1);
-            }
+            })
+            .context("Failed to write CSV row")?;
         }
 
         // Write inserts
@@ -982,7 +968,7 @@ async fn execute_sync_actions(args: ExecuteSyncActionsArgs<'_>) {
                 .category_id
                 .and_then(|id| lm_category_names.get(&id).cloned())
                 .unwrap_or_default();
-            if let Err(e) = wtr.serialize(CsvRow {
+            wtr.serialize(CsvRow {
                 operation: "insert",
                 lunch_money_id: None,
                 external_id: Some(ins.external_id.to_string()),
@@ -992,20 +978,11 @@ async fn execute_sync_actions(args: ExecuteSyncActionsArgs<'_>) {
                 currency: ins.currency.as_str(),
                 notes: &ins.notes,
                 category: &category_name,
-            }) {
-                eprintln! {};
-                eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to write CSV row: {}", e };
-                eprintln! {};
-                std::process::exit(1);
-            }
+            })
+            .context("Failed to write CSV row")?;
         }
 
-        if let Err(e) = wtr.flush() {
-            eprintln! {};
-            eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} Failed to flush CSV file: {}", e };
-            eprintln! {};
-            std::process::exit(1);
-        }
+        wtr.flush().context("Failed to flush CSV file")?;
     }
 
     // Execute batches
@@ -1055,7 +1032,7 @@ async fn execute_sync_actions(args: ExecuteSyncActionsArgs<'_>) {
                     "transactions",
                     &DeletePayload { ids: delete_ids },
                 )
-                .await;
+                .await?;
         }
     }
 
@@ -1121,7 +1098,7 @@ async fn execute_sync_actions(args: ExecuteSyncActionsArgs<'_>) {
                             transactions: chunk_txs,
                         },
                     )
-                    .await;
+                    .await?;
             }
         }
     }
@@ -1187,7 +1164,7 @@ async fn execute_sync_actions(args: ExecuteSyncActionsArgs<'_>) {
                             transactions: chunk_txs,
                         },
                     )
-                    .await;
+                    .await?;
             }
         }
     }
@@ -1200,6 +1177,7 @@ async fn execute_sync_actions(args: ExecuteSyncActionsArgs<'_>) {
         println! { "{STYLE_SUCCESS}✨ Synchronization cycle complete!{STYLE_SUCCESS:#}" };
     }
     println! {};
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1271,7 +1249,8 @@ mod tests {
             tag_id: Some(444),
             loan_tag_id: Some(555),
             force_category_id: None,
-        });
+        })
+        .unwrap();
 
         assert!(updates.is_empty());
         assert!(deletes.is_empty());
@@ -1345,7 +1324,8 @@ mod tests {
             tag_id: Some(444),
             loan_tag_id: None,
             force_category_id: None,
-        });
+        })
+        .unwrap();
 
         assert!(updates.is_empty());
         assert!(deletes.is_empty());
@@ -1451,7 +1431,8 @@ mod tests {
             lm_tx_categories: &lm_tx_categories,
             csv_path: Some(&csv_path),
         })
-        .await;
+        .await
+        .unwrap();
 
         assert!(csv_path.exists());
         let content = std::fs::read_to_string(&csv_path).unwrap();
@@ -1530,7 +1511,8 @@ mod tests {
             tag_id: None,
             loan_tag_id: None,
             force_category_id: Some(777),
-        });
+        })
+        .unwrap();
 
         assert!(updates.is_empty());
         assert!(deletes.is_empty());
@@ -1617,7 +1599,8 @@ mod tests {
             tag_id: None,
             loan_tag_id: None,
             force_category_id: None,
-        });
+        })
+        .unwrap();
 
         assert_eq!(inserts.len(), 2);
 
@@ -1695,7 +1678,8 @@ mod tests {
             tag_id: None,
             loan_tag_id: None,
             force_category_id: None,
-        });
+        })
+        .unwrap();
         assert!(inserts1.is_empty());
 
         // Case 2: bypass_ignore_groups = true (should NOT be ignored, inserts has 1 item)
@@ -1712,7 +1696,8 @@ mod tests {
             tag_id: None,
             loan_tag_id: None,
             force_category_id: None,
-        });
+        })
+        .unwrap();
         assert_eq!(inserts2.len(), 1);
     }
 }

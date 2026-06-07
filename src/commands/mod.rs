@@ -177,7 +177,7 @@ pub(crate) fn format_aligned_balance(
 pub(crate) fn resolve_group(
     groups: &[crate::api::splitwise::schema::Group],
     input: &str,
-) -> Result<crate::api::splitwise::schema::Group, String> {
+) -> anyhow::Result<crate::api::splitwise::schema::Group> {
     let input_trimmed = input.trim();
     let parsed_id = input_trimmed.parse::<u64>().ok();
 
@@ -197,7 +197,7 @@ pub(crate) fn resolve_group(
             msg.push_str(&format!("  - ID: {} (Name: \"{}\")\n", g.id, g.name));
         }
         msg.push_str("Please specify the group by its ID to resolve ambiguity.");
-        return Err(msg);
+        anyhow::bail!("{}", msg);
     }
 
     if exact_matches.len() == 1 {
@@ -215,10 +215,7 @@ pub(crate) fn resolve_group(
     }
 
     // 3. Not found
-    Err(format!(
-        "No Splitwise group found matching \"{}\".",
-        input_trimmed
-    ))
+    anyhow::bail!("No Splitwise group found matching \"{}\".", input_trimmed)
 }
 
 #[cfg(test)]
@@ -259,7 +256,10 @@ mod tests {
         let groups = vec![make_group(12345, "Roommates"), make_group(67890, "Family")];
 
         let err = resolve_group(&groups, "family").unwrap_err();
-        assert!(err.contains("No Splitwise group found matching"));
+        assert!(
+            err.to_string()
+                .contains("No Splitwise group found matching")
+        );
     }
 
     #[test]
@@ -268,7 +268,7 @@ mod tests {
 
         // "12345" matches ID of group 1, and name of group 2
         let err = resolve_group(&groups, "12345").unwrap_err();
-        assert!(err.contains("Multiple groups found matching"));
+        assert!(err.to_string().contains("Multiple groups found matching"));
     }
 
     #[test]
@@ -303,6 +303,9 @@ mod tests {
         let groups = vec![make_group(12345, "Roommates")];
 
         let err = resolve_group(&groups, "Unknown").unwrap_err();
-        assert!(err.contains("No Splitwise group found matching"));
+        assert!(
+            err.to_string()
+                .contains("No Splitwise group found matching")
+        );
     }
 }
