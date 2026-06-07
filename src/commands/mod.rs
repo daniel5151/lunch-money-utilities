@@ -104,10 +104,15 @@ fn format_group_balances(group: &crate::api::splitwise::schema::Group, user_id: 
     }
 }
 
+pub(crate) struct WindowBounds {
+    pub start: String,
+    pub end: String,
+}
+
 fn calculate_window_bounds(
     from_date: Option<jiff::civil::Date>,
     window_duration: jiff::SignedDuration,
-) -> (String, String) {
+) -> WindowBounds {
     let end_date = from_date.unwrap_or_else(|| {
         jiff::Timestamp::now()
             .to_zoned(jiff::tz::TimeZone::UTC)
@@ -123,12 +128,20 @@ fn calculate_window_bounds(
         .to_zoned(jiff::tz::TimeZone::UTC)
         .date();
 
-    (start_date.to_string(), end_date.to_string())
+    WindowBounds {
+        start: start_date.to_string(),
+        end: end_date.to_string(),
+    }
+}
+
+pub(crate) struct MaxWidths {
+    pub max_num_len: usize,
+    pub max_currency_len: usize,
 }
 
 /// Computes the maximum width of the formatted numeric part and currency code
 /// across a sequence of amounts and currencies.
-pub(crate) fn compute_max_widths<'a, I>(items: I) -> (usize, usize)
+pub(crate) fn compute_max_widths<'a, I>(items: I) -> MaxWidths
 where
     I: IntoIterator<Item = (rust_decimal::Decimal, &'a crate::api::Currency)>,
 {
@@ -144,7 +157,10 @@ where
             max_currency_len = currency_len;
         }
     }
-    (max_num_len, max_currency_len)
+    MaxWidths {
+        max_num_len,
+        max_currency_len,
+    }
 }
 
 /// Formats a decimal amount and a currency code into a padded string to align decimals and

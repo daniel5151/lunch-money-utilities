@@ -30,16 +30,18 @@ fn print_expenses_table(
 
     // Scan expenses to compute the maximum width of the numeric and currency sub-components.
     // This allows us to manually pad them for proper decimal/currency alignment.
-    let (max_num_len, max_currency_len) =
-        super::compute_max_widths(expenses.iter().map(|expense| {
-            let net_balance = expense
-                .users
-                .iter()
-                .find(|u| u.user_id == config.splitwise.user_id)
-                .map(|u| u.net_balance)
-                .unwrap_or(Decimal::ZERO);
-            (net_balance, &expense.currency_code)
-        }));
+    let super::MaxWidths {
+        max_num_len,
+        max_currency_len,
+    } = super::compute_max_widths(expenses.iter().map(|expense| {
+        let net_balance = expense
+            .users
+            .iter()
+            .find(|u| u.user_id == config.splitwise.user_id)
+            .map(|u| u.net_balance)
+            .unwrap_or(Decimal::ZERO);
+        (net_balance, &expense.currency_code)
+    }));
 
     let mut records = Vec::new();
     for expense in expenses {
@@ -142,8 +144,10 @@ pub(crate) async fn run_query_splitwise_window(
     let sw_client =
         crate::api::splitwise::Client::new(http_pool.clone(), config.splitwise.api_key.clone());
 
-    let (start_window_str, end_window_str) =
-        super::calculate_window_bounds(args.from, window_duration);
+    let super::WindowBounds {
+        start: start_window_str,
+        end: end_window_str,
+    } = super::calculate_window_bounds(args.from, window_duration);
 
     let bar = "─".repeat(92);
 
@@ -547,8 +551,10 @@ pub(crate) async fn run_query_lunchmoney_accounts() -> anyhow::Result<()> {
     // We calculate the max width of the balance and currency sub-components. By right-aligning
     // the numeric part and left-aligning the currency code, we ensure that decimals and
     // currency codes line up vertically across all rows, independent of negative signs.
-    let (max_num_len, max_currency_len) =
-        super::compute_max_widths(accounts.iter().map(|acc| (acc.balance, &acc.currency)));
+    let super::MaxWidths {
+        max_num_len,
+        max_currency_len,
+    } = super::compute_max_widths(accounts.iter().map(|acc| (acc.balance, &acc.currency)));
 
     let mut records = Vec::new();
     for acc in accounts {
