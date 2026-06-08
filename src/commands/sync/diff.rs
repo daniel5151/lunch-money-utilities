@@ -4,7 +4,7 @@ use crate::api::ExternalId;
 use crate::api::lunch_money::schema::InsertObject;
 use crate::api::lunch_money::schema::Transaction;
 use crate::api::lunch_money::schema::UpdateObject;
-use crate::api::splitwise::schema::Expense;
+use crate::api::splitwise::Expense;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
@@ -45,9 +45,10 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
     let mut deletes = Vec::new();
 
     for expense in expenses {
-        let external_id = ExternalId::Splitwise(expense.id);
+        let external_id = ExternalId::Splitwise(expense.parsed.id);
 
         let net_balance = expense
+            .parsed
             .users
             .iter()
             .find(|u| u.user_id == config.splitwise.user_id)
@@ -55,13 +56,13 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
             .unwrap_or(Decimal::ZERO);
 
         let is_ignored = !bypass_ignore_groups
-            && expense.group_id.is_some_and(|gid| {
+            && expense.parsed.group_id.is_some_and(|gid| {
                 let name = group_map.get(&gid).map(|s| s.as_str());
                 config.splitwise.is_group_ignored(gid, name) && Some(gid) != ignored_groups_exclude
             });
 
         // Skip ignored, deleted, or un-involved expenses
-        if expense.deleted_at.is_some() || is_ignored || net_balance.is_zero() {
+        if expense.parsed.deleted_at.is_some() || is_ignored || net_balance.is_zero() {
             if let Some(existing_lm) = lm_map.remove(&external_id) {
                 if existing_lm.is_split_parent != Some(true) {
                     deletes.push(existing_lm);
@@ -70,24 +71,28 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
             continue;
         }
 
-        if !target_accounts.contains_key(&expense.currency_code) {
+        if !target_accounts.contains_key(&expense.parsed.currency_code) {
             anyhow::bail!(
                 "No manual account configured for currency '{}'.\n\
                 Please set up an active 'Splitwise {}' manual account in Lunch Money or configure [lunch_money.custom_accounts].",
-                expense.currency_code,
-                expense.currency_code
+                expense.parsed.currency_code,
+                expense.parsed.currency_code
             );
         }
 
-        let date_civil = expense.date.to_zoned(jiff::tz::TimeZone::UTC).date();
+        let date_civil = expense.parsed.date.to_zoned(jiff::tz::TimeZone::UTC).date();
 
-        let payee_str = if expense.group_id.is_none() {
-            crate::commands::resolve_splitwise_payee(&expense, config.splitwise.user_id, group_map)
+        let payee_str = if expense.parsed.group_id.is_none() {
+            crate::commands::resolve_splitwise_payee(
+                &expense.parsed,
+                config.splitwise.user_id,
+                group_map,
+            )
         } else {
             format!(
                 "Splitwise - {}",
                 crate::commands::resolve_splitwise_payee(
-                    &expense,
+                    &expense.parsed,
                     config.splitwise.user_id,
                     group_map
                 )
@@ -100,24 +105,24 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
             }
             let amount_changed = existing_lm.amount != net_balance;
 
-            if amount_changed || existing_lm.currency != expense.currency_code {
+            if amount_changed || existing_lm.currency != expense.parsed.currency_code {
                 updates.push(UpdateObject {
                     id: existing_lm.id,
                     date: existing_lm.date,
                     amount: net_balance,
-                    currency: expense.currency_code.clone(),
+                    currency: expense.parsed.currency_code.clone(),
                     payee: existing_lm.payee.clone(),
                     notes: existing_lm.notes.clone().unwrap_or_default(),
                 });
             }
         } else {
-            let manual_account_id = target_accounts[&expense.currency_code];
+            let manual_account_id = target_accounts[&expense.parsed.currency_code];
             let mut category_id = None;
             if force_category_id.is_some() {
                 category_id = force_category_id;
-            } else if expense.payment {
+            } else if expense.parsed.payment {
                 category_id = resolved_categories.get("Payment").copied();
-            } else if let Some(ref cat) = expense.category {
+            } else if let Some(ref cat) = expense.parsed.category {
                 let path = sw_category_id_to_path.get(&cat.id);
                 category_id = path
                     .and_then(|p| resolved_categories.get(p))
@@ -144,9 +149,9 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
             inserts.push(InsertObject {
                 date: date_civil,
                 amount: net_balance,
-                currency: expense.currency_code.clone(),
+                currency: expense.parsed.currency_code.clone(),
                 payee: payee_str,
-                notes: expense.description,
+                notes: expense.parsed.description,
                 external_id,
                 manual_account_id,
                 status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,

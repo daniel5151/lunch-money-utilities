@@ -119,7 +119,7 @@ impl<'a> SyncOrchestrator<'a> {
                     .await?;
 
                 if *no_groups {
-                    txs.retain(|e| e.group_id.is_none());
+                    txs.retain(|e| e.parsed.group_id.is_none());
                 }
                 txs
             }
@@ -165,11 +165,15 @@ impl<'a> SyncOrchestrator<'a> {
         // Prepare helper map for printing and CSV writing
         let mut sw_expense_categories = HashMap::new();
         for expense in &expenses {
-            let ext_id = crate::api::ExternalId::Splitwise(expense.id);
-            let cat_info = if expense.payment {
+            let ext_id = crate::api::ExternalId::Splitwise(expense.parsed.id);
+            let cat_info = if expense.parsed.payment {
                 Some((0, "Payment".to_string()))
             } else {
-                expense.category.as_ref().map(|c| (c.id, c.name.clone()))
+                expense
+                    .parsed
+                    .category
+                    .as_ref()
+                    .map(|c| (c.id, c.name.clone()))
             };
             sw_expense_categories.insert(ext_id, cat_info);
         }

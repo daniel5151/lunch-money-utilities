@@ -5,6 +5,23 @@ pub struct Client {
     api_key: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct Expense {
+    pub raw: serde_json::Value,
+    pub parsed: schema::Expense,
+}
+
+impl<'de> serde::Deserialize<'de> for Expense {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let parsed = schema::Expense::deserialize(raw.clone()).map_err(serde::de::Error::custom)?;
+        Ok(Self { raw, parsed })
+    }
+}
+
 impl Client {
     pub fn new(http: reqwest::Client, api_key: String) -> Self {
         Self { http, api_key }
@@ -49,12 +66,23 @@ impl Client {
         Ok(res.groups)
     }
 
-    pub async fn fetch_expenses(
-        &self,
-        query: &ExpensesQuery,
-    ) -> anyhow::Result<Vec<schema::Expense>> {
-        let res: schema::ExpensesResponse = self.fetch("get_expenses", query).await?;
-        Ok(res.expenses)
+    pub async fn fetch_expenses(&self, query: &ExpensesQuery) -> anyhow::Result<Vec<Expense>> {
+        let res: serde_json::Value = self.fetch("get_expenses", query).await?;
+        let raw_expenses = match res.get("expenses") {
+            Some(serde_json::Value::Array(arr)) => arr,
+            _ => anyhow::bail!("Expected 'expenses' key to contain an array in Splitwise response"),
+        };
+
+        let mut expenses = Vec::with_capacity(raw_expenses.len());
+        for val in raw_expenses {
+            let parsed: schema::Expense =
+                serde_json::from_value(val.clone()).context("Failed to parse Splitwise expense")?;
+            expenses.push(Expense {
+                raw: val.clone(),
+                parsed,
+            });
+        }
+        Ok(expenses)
     }
 
     pub async fn fetch_friends(&self) -> anyhow::Result<Vec<schema::Friend>> {
@@ -202,11 +230,6 @@ pub mod schema {
         pub currency_code: crate::api::Currency,
         #[serde(with = "rust_decimal::serde::str")]
         pub amount: Decimal,
-    }
-
-    #[derive(Deserialize, Debug, Clone)]
-    pub struct ExpensesResponse {
-        pub expenses: Vec<Expense>,
     }
 
     #[derive(Deserialize, Debug, Clone)]

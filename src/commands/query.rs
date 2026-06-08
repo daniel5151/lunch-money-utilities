@@ -21,7 +21,7 @@ struct ExpenseRecord {
 }
 
 fn print_expenses_table(
-    expenses: Vec<crate::api::splitwise::schema::Expense>,
+    expenses: Vec<crate::api::splitwise::Expense>,
     config: &crate::config::Config,
     group_map: &HashMap<u64, String>,
 ) {
@@ -34,17 +34,19 @@ fn print_expenses_table(
         max_currency_len,
     } = super::compute_max_widths(expenses.iter().map(|expense| {
         let net_balance = expense
+            .parsed
             .users
             .iter()
             .find(|u| u.user_id == config.splitwise.user_id)
             .map(|u| u.net_balance)
             .unwrap_or(Decimal::ZERO);
-        (net_balance, &expense.currency_code)
+        (net_balance, &expense.parsed.currency_code)
     }));
 
     let mut records = Vec::new();
     for expense in expenses {
         let net_balance = expense
+            .parsed
             .users
             .iter()
             .find(|u| u.user_id == config.splitwise.user_id)
@@ -52,6 +54,7 @@ fn print_expenses_table(
             .unwrap_or(Decimal::ZERO);
 
         let date_str = expense
+            .parsed
             .date
             .to_zoned(jiff::tz::TimeZone::UTC)
             .date()
@@ -59,7 +62,7 @@ fn print_expenses_table(
             .to_string();
 
         let payee_str =
-            super::resolve_splitwise_payee(&expense, config.splitwise.user_id, group_map);
+            super::resolve_splitwise_payee(&expense.parsed, config.splitwise.user_id, group_map);
 
         let mut clean_payee = payee_str;
         if clean_payee.chars().count() > 30 {
@@ -67,13 +70,13 @@ fn print_expenses_table(
             clean_payee.push_str("...");
         }
 
-        let is_ignored = expense.group_id.is_some_and(|gid| {
+        let is_ignored = expense.parsed.group_id.is_some_and(|gid| {
             let name = group_map.get(&gid).map(|s| s.as_str());
             config.splitwise.is_group_ignored(gid, name)
         });
 
         // Styling and status tag
-        let (style, status_tag, is_uninvolved) = if expense.deleted_at.is_some() {
+        let (style, status_tag, is_uninvolved) = if expense.parsed.deleted_at.is_some() {
             (STYLE_DIM, " [DELETED]", false)
         } else if is_ignored {
             (STYLE_WARNING, " [IGNORED]", false)
@@ -88,7 +91,7 @@ fn print_expenses_table(
 
         // Determine max allowed length for description
         let max_desc_len = 30_usize.saturating_sub(status_tag.len());
-        let mut clean_desc = expense.description.trim().to_string();
+        let mut clean_desc = expense.parsed.description.trim().to_string();
         if clean_desc.chars().count() > max_desc_len {
             let truncate_to = max_desc_len.saturating_sub(3);
             clean_desc = clean_desc.chars().take(truncate_to).collect::<String>();
@@ -104,7 +107,7 @@ fn print_expenses_table(
         // Format and align the balance column using our shared helper
         let balance_plain = super::format_aligned_balance(
             net_balance,
-            &expense.currency_code,
+            &expense.parsed.currency_code,
             max_num_len,
             max_currency_len,
             is_uninvolved,
@@ -174,7 +177,7 @@ pub(crate) async fn run_query_splitwise_window(
         })
         .await?;
     if args.no_groups {
-        expenses.retain(|e| e.group_id.is_none());
+        expenses.retain(|e| e.parsed.group_id.is_none());
     }
 
     if expenses.is_empty() {
