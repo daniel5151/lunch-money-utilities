@@ -80,12 +80,97 @@ pub mod schema {
     use rust_decimal::Decimal;
     use serde::Deserialize;
 
-    #[derive(Deserialize, Debug)]
+    #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+    #[serde(rename_all = "lowercase")]
+    pub enum RepeatInterval {
+        Never,
+        Weekly,
+        Fortnightly,
+        Monthly,
+        Yearly,
+    }
+
+    #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum CommentType {
+        System,
+        User,
+    }
+
+    #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum CommentRelationType {
+        ExpenseComment,
+    }
+
+    #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+    #[serde(rename_all = "lowercase")]
+    pub enum RegistrationStatus {
+        Confirmed,
+        Dummy,
+        Invited,
+    }
+
+    #[derive(Deserialize, Debug, Clone)]
+    pub struct Repayment {
+        pub from: u64,
+        pub to: u64,
+        #[serde(with = "rust_decimal::serde::str")]
+        pub amount: Decimal,
+    }
+
+    #[derive(Deserialize, Debug, Clone)]
+    pub struct Receipt {
+        pub large: Option<String>,
+        pub original: Option<String>,
+    }
+
+    #[derive(Deserialize, Debug, Clone)]
+    pub struct SlimIcon {
+        pub small: Option<String>,
+        pub large: Option<String>,
+    }
+
+    #[derive(Deserialize, Debug, Clone)]
+    pub struct SquareIcon {
+        pub large: Option<String>,
+        pub xlarge: Option<String>,
+    }
+
+    #[derive(Deserialize, Debug, Clone)]
+    pub struct IconTypes {
+        pub slim: Option<SlimIcon>,
+        pub square: Option<SquareIcon>,
+    }
+
+    #[derive(Deserialize, Debug, Clone)]
+    pub struct UserPicture {
+        pub medium: Option<String>,
+    }
+
+    #[derive(Deserialize, Debug, Clone)]
+    pub struct UserPictureDetailed {
+        pub small: Option<String>,
+        pub medium: Option<String>,
+        pub large: Option<String>,
+    }
+
+    #[derive(Deserialize, Debug, Clone)]
+    pub struct Comment {
+        pub id: u64,
+        pub content: String,
+        pub comment_type: CommentType,
+        pub relation_type: CommentRelationType,
+        pub relation_id: u64,
+        pub created_at: jiff::Timestamp,
+        pub deleted_at: Option<jiff::Timestamp>,
+        pub user: Option<UserDetails>,
+    }
+
+    #[derive(Deserialize, Debug, Clone)]
     pub struct FriendsResponse {
         pub friends: Vec<Friend>,
     }
 
-    #[derive(Deserialize, Debug)]
+    #[derive(Deserialize, Debug, Clone)]
     pub struct Friend {
         pub id: u64,
         pub first_name: String,
@@ -93,7 +178,7 @@ pub mod schema {
         pub balance: Vec<Balance>,
     }
 
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Debug, Clone)]
     pub struct GroupResponse {
         pub groups: Vec<Group>,
     }
@@ -119,40 +204,69 @@ pub mod schema {
         pub amount: Decimal,
     }
 
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Debug, Clone)]
     pub struct ExpensesResponse {
         pub expenses: Vec<Expense>,
     }
 
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Debug, Clone)]
     pub struct Expense {
         pub id: u64,
         pub group_id: Option<u64>,
+        pub friendship_id: Option<u64>,
+        pub expense_bundle_id: Option<u64>,
         pub description: String,
-        pub date: jiff::Timestamp,
-        pub currency_code: crate::api::Currency,
-        pub deleted_at: Option<jiff::Timestamp>,
-        pub users: Vec<ExpenseUser>,
-        pub category: Option<Category>,
+        #[serde(default)]
+        pub repeats: bool,
+        pub repeat_interval: Option<RepeatInterval>,
+        pub email_reminder: Option<bool>,
+        pub email_reminder_in_advance: Option<i32>,
+        pub next_repeat: Option<String>,
+        pub details: Option<String>,
+        pub comments_count: Option<u32>,
         #[serde(default)]
         pub payment: bool,
+        pub transaction_confirmed: Option<bool>,
+        #[serde(default, with = "rust_decimal::serde::str_option")]
+        pub cost: Option<Decimal>,
+        pub currency_code: crate::api::Currency,
+        #[serde(default)]
+        pub repayments: Vec<Repayment>,
+        pub date: jiff::Timestamp,
+        pub created_at: Option<jiff::Timestamp>,
+        pub created_by: Option<User>,
+        pub updated_at: Option<jiff::Timestamp>,
+        pub updated_by: Option<User>,
+        pub deleted_at: Option<jiff::Timestamp>,
+        pub deleted_by: Option<User>,
+        pub category: Option<Category>,
+        pub category_id: Option<u32>,
+        pub receipt: Option<Receipt>,
+        pub users: Vec<ExpenseUser>,
+        pub comments: Option<Vec<Comment>>,
     }
 
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Debug, Clone)]
     pub struct ExpenseUser {
         pub user_id: u64,
         #[serde(with = "rust_decimal::serde::str")]
         pub net_balance: Decimal,
+        #[serde(default, with = "rust_decimal::serde::str_option")]
+        pub paid_share: Option<Decimal>,
+        #[serde(default, with = "rust_decimal::serde::str_option")]
+        pub owed_share: Option<Decimal>,
         pub user: Option<UserDetails>,
     }
 
-    #[derive(Deserialize)]
+    #[derive(Deserialize, Debug, Clone)]
     pub struct UserDetails {
+        pub id: Option<u64>,
         pub first_name: Option<String>,
         pub last_name: Option<String>,
+        pub picture: Option<UserPicture>,
     }
 
-    #[derive(Deserialize, Debug)]
+    #[derive(Deserialize, Debug, Clone)]
     pub struct CategoriesResponse {
         pub categories: Vec<ParentCategory>,
     }
@@ -161,16 +275,18 @@ pub mod schema {
     pub struct Category {
         pub id: u32,
         pub name: String,
+        pub icon: Option<String>,
+        pub icon_types: Option<IconTypes>,
     }
 
-    #[derive(Deserialize, Debug)]
+    #[derive(Deserialize, Debug, Clone)]
     pub struct ParentCategory {
         pub id: u32,
         pub name: String,
         pub subcategories: Vec<Category>,
     }
 
-    #[derive(Deserialize, Debug)]
+    #[derive(Deserialize, Debug, Clone)]
     pub struct CurrentUserResponse {
         pub user: User,
     }
@@ -180,5 +296,9 @@ pub mod schema {
         pub id: u64,
         pub first_name: String,
         pub last_name: Option<String>,
+        pub email: Option<String>,
+        pub registration_status: Option<RegistrationStatus>,
+        pub picture: Option<UserPictureDetailed>,
+        pub custom_picture: Option<bool>,
     }
 }
