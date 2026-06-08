@@ -45,6 +45,7 @@ pub struct ExpensesQuery {
 }
 
 pub trait SplitwiseService: Send + Sync {
+    async fn fetch_current_user(&self) -> anyhow::Result<schema::User>;
     async fn fetch_categories(&self) -> anyhow::Result<Vec<schema::ParentCategory>>;
     async fn fetch_groups(&self) -> anyhow::Result<Vec<schema::Group>>;
     async fn fetch_expenses(&self, query: &ExpensesQuery) -> anyhow::Result<Vec<schema::Expense>>;
@@ -52,6 +53,13 @@ pub trait SplitwiseService: Send + Sync {
 }
 
 impl SplitwiseService for Client {
+    async fn fetch_current_user(&self) -> anyhow::Result<schema::User> {
+        let res: schema::CurrentUserResponse = self
+            .fetch("get_current_user", &[] as &[(&str, &str)])
+            .await?;
+        Ok(res.user)
+    }
+
     async fn fetch_categories(&self) -> anyhow::Result<Vec<schema::ParentCategory>> {
         let res: schema::CategoriesResponse =
             self.fetch("get_categories", &[] as &[(&str, &str)]).await?;
@@ -170,5 +178,17 @@ pub mod schema {
         pub id: u32,
         pub name: String,
         pub subcategories: Vec<Category>,
+    }
+
+    #[derive(Deserialize, Debug)]
+    pub struct CurrentUserResponse {
+        pub user: User,
+    }
+
+    #[derive(Deserialize, Debug, Clone)]
+    pub struct User {
+        pub id: u64,
+        pub first_name: String,
+        pub last_name: Option<String>,
     }
 }

@@ -7,23 +7,19 @@ use anyhow::Context;
 use std::collections::HashMap;
 use std::fs;
 
-#[derive(serde::Deserialize, Clone)]
-struct SplitwiseUser {
-    id: u64,
-    first_name: String,
-    last_name: Option<String>,
-}
+struct SplitwiseUser(crate::api::splitwise::schema::User);
 
 impl std::fmt::Display for SplitwiseUser {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let last = self.last_name.as_deref().unwrap_or("");
-        write!(f, "{} {} (ID: {})", self.first_name, last.trim(), self.id)
+        let last = self.0.last_name.as_deref().unwrap_or("");
+        write!(
+            f,
+            "{} {} (ID: {})",
+            self.0.first_name,
+            last.trim(),
+            self.0.id
+        )
     }
-}
-
-#[derive(serde::Deserialize)]
-struct CurrentUserResponse {
-    user: SplitwiseUser,
 }
 
 pub(crate) async fn run_init() -> anyhow::Result<()> {
@@ -45,43 +41,32 @@ pub(crate) async fn run_init() -> anyhow::Result<()> {
         .context("Failed to get Splitwise API Key")?;
 
     let http_client = reqwest::Client::new();
+    let sw_client =
+        crate::api::splitwise::Client::new(http_client.clone(), splitwise_api_key.clone());
 
     println! {};
     println! { "{STYLE_INFO}🔗 Connecting to Splitwise API...{STYLE_INFO:#}" };
-    let sw_user_response = http_client
-        .get("https://secure.splitwise.com/api/v3.0/get_current_user")
-        .header("Authorization", format!("Bearer {splitwise_api_key}"))
-        .send()
+    let current_user = sw_client
+        .fetch_current_user()
         .await
         .context("Failed to query Splitwise API")?;
 
-    if !sw_user_response.status().is_success() {
-        anyhow::bail!("Error querying Splitwise: {}", sw_user_response.status());
-    }
+    let selected_user =
+        inquire::Select::new("Select Splitwise User:", vec![SplitwiseUser(current_user)])
+            .prompt()
+            .context("Failed to select Splitwise User")?;
 
-    let user_res: CurrentUserResponse = sw_user_response
-        .json()
-        .await
-        .context("Failed to parse Splitwise current user response")?;
-
-    let current_user = user_res.user;
-    let selected_user = inquire::Select::new("Select Splitwise User:", vec![current_user])
-        .prompt()
-        .context("Failed to select Splitwise User")?;
-
-    let splitwise_user_id = selected_user.id;
+    let splitwise_user_id = selected_user.0.id;
     let splitwise_user_name = format!(
         "{} {}",
-        selected_user.first_name,
-        selected_user.last_name.as_deref().unwrap_or("")
+        selected_user.0.first_name,
+        selected_user.0.last_name.as_deref().unwrap_or("")
     )
     .trim()
     .to_string();
 
     println! {};
     println! { "  {STYLE_DIM}Fetching Splitwise categories for seeding config...{STYLE_DIM:#}" };
-    let sw_client =
-        crate::api::splitwise::Client::new(http_client.clone(), splitwise_api_key.clone());
     let sw_categories = sw_client.fetch_categories().await?;
 
     let lunch_money_api_key = inquire::Password::new("Lunch Money API Key:")
