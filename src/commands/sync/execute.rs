@@ -1,4 +1,3 @@
-use crate::api::LunchMoneyService;
 use crate::api::lunch_money::schema::AccountType;
 use crate::api::lunch_money::schema::ManualAccount;
 use crate::style::*;

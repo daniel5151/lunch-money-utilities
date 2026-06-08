@@ -1,6 +1,4 @@
 use crate::api::ExpensesQuery;
-use crate::api::LunchMoneyService;
-use crate::api::SplitwiseService;
 use crate::style::*;
 use anstream::println;
 use anyhow::Context;

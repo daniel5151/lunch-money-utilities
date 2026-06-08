@@ -3,8 +3,6 @@ mod execute;
 mod report;
 
 use crate::api::ExpensesQuery;
-use crate::api::LunchMoneyService;
-use crate::api::SplitwiseService;
 use crate::api::TransactionQuery;
 use crate::api::lunch_money::schema::InsertObject;
 use crate::api::lunch_money::schema::Transaction;

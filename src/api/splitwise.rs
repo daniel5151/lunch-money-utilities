@@ -30,6 +30,38 @@ impl Client {
         }
         res.json().await.context("Failed parsing Splitwise JSON")
     }
+
+    pub async fn fetch_current_user(&self) -> anyhow::Result<schema::User> {
+        let res: schema::CurrentUserResponse = self
+            .fetch("get_current_user", &[] as &[(&str, &str)])
+            .await?;
+        Ok(res.user)
+    }
+
+    pub async fn fetch_categories(&self) -> anyhow::Result<Vec<schema::ParentCategory>> {
+        let res: schema::CategoriesResponse =
+            self.fetch("get_categories", &[] as &[(&str, &str)]).await?;
+        Ok(res.categories)
+    }
+
+    pub async fn fetch_groups(&self) -> anyhow::Result<Vec<schema::Group>> {
+        let res: schema::GroupResponse = self.fetch("get_groups", &[] as &[(&str, &str)]).await?;
+        Ok(res.groups)
+    }
+
+    pub async fn fetch_expenses(
+        &self,
+        query: &ExpensesQuery,
+    ) -> anyhow::Result<Vec<schema::Expense>> {
+        let res: schema::ExpensesResponse = self.fetch("get_expenses", query).await?;
+        Ok(res.expenses)
+    }
+
+    pub async fn fetch_friends(&self) -> anyhow::Result<Vec<schema::Friend>> {
+        let res: schema::FriendsResponse =
+            self.fetch("get_friends", &[] as &[(&str, &str)]).await?;
+        Ok(res.friends)
+    }
 }
 
 #[derive(serde::Serialize, Debug, Clone, Default)]
@@ -42,45 +74,6 @@ pub struct ExpensesQuery {
     pub group_id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
-}
-
-pub trait SplitwiseService: Send + Sync {
-    async fn fetch_current_user(&self) -> anyhow::Result<schema::User>;
-    async fn fetch_categories(&self) -> anyhow::Result<Vec<schema::ParentCategory>>;
-    async fn fetch_groups(&self) -> anyhow::Result<Vec<schema::Group>>;
-    async fn fetch_expenses(&self, query: &ExpensesQuery) -> anyhow::Result<Vec<schema::Expense>>;
-    async fn fetch_friends(&self) -> anyhow::Result<Vec<schema::Friend>>;
-}
-
-impl SplitwiseService for Client {
-    async fn fetch_current_user(&self) -> anyhow::Result<schema::User> {
-        let res: schema::CurrentUserResponse = self
-            .fetch("get_current_user", &[] as &[(&str, &str)])
-            .await?;
-        Ok(res.user)
-    }
-
-    async fn fetch_categories(&self) -> anyhow::Result<Vec<schema::ParentCategory>> {
-        let res: schema::CategoriesResponse =
-            self.fetch("get_categories", &[] as &[(&str, &str)]).await?;
-        Ok(res.categories)
-    }
-
-    async fn fetch_groups(&self) -> anyhow::Result<Vec<schema::Group>> {
-        let res: schema::GroupResponse = self.fetch("get_groups", &[] as &[(&str, &str)]).await?;
-        Ok(res.groups)
-    }
-
-    async fn fetch_expenses(&self, query: &ExpensesQuery) -> anyhow::Result<Vec<schema::Expense>> {
-        let res: schema::ExpensesResponse = self.fetch("get_expenses", query).await?;
-        Ok(res.expenses)
-    }
-
-    async fn fetch_friends(&self) -> anyhow::Result<Vec<schema::Friend>> {
-        let res: schema::FriendsResponse =
-            self.fetch("get_friends", &[] as &[(&str, &str)]).await?;
-        Ok(res.friends)
-    }
 }
 
 pub mod schema {

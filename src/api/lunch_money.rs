@@ -80,47 +80,15 @@ impl Client {
         }
         res.json().await.context("Failed parsing Lunch Money JSON")
     }
-}
 
-#[derive(serde::Serialize, Debug, Clone)]
-pub struct TransactionQuery {
-    pub start_date: String,
-    pub end_date: String,
-    pub manual_account_id: u64,
-    pub limit: Option<u32>,
-    pub include_group_children: Option<bool>,
-    pub include_split_parents: Option<bool>,
-}
-
-pub trait LunchMoneyService: Send + Sync {
-    async fn fetch_manual_accounts(&self) -> anyhow::Result<Vec<schema::ManualAccount>>;
-    async fn fetch_transactions(
-        &self,
-        query: &TransactionQuery,
-    ) -> anyhow::Result<Vec<schema::Transaction>>;
-    async fn fetch_categories(&self, format: Option<&str>)
-    -> anyhow::Result<Vec<schema::Category>>;
-    async fn fetch_tags(&self) -> anyhow::Result<Vec<schema::Tag>>;
-    async fn create_tag(&self, name: &str) -> anyhow::Result<schema::Tag>;
-    async fn insert_transactions(&self, txs: &[schema::InsertObject]) -> anyhow::Result<()>;
-    async fn update_transactions(&self, txs: &[schema::UpdateObject]) -> anyhow::Result<()>;
-    async fn delete_transactions(&self, ids: &[u64]) -> anyhow::Result<()>;
-    async fn update_manual_account(
-        &self,
-        id: u64,
-        balance: rust_decimal::Decimal,
-    ) -> anyhow::Result<()>;
-}
-
-impl LunchMoneyService for Client {
-    async fn fetch_manual_accounts(&self) -> anyhow::Result<Vec<schema::ManualAccount>> {
+    pub async fn fetch_manual_accounts(&self) -> anyhow::Result<Vec<schema::ManualAccount>> {
         let res: schema::ManualAccountsResponse = self
             .fetch("manual_accounts", &[] as &[(&str, &str)])
             .await?;
         Ok(res.manual_accounts)
     }
 
-    async fn fetch_transactions(
+    pub async fn fetch_transactions(
         &self,
         query: &TransactionQuery,
     ) -> anyhow::Result<Vec<schema::Transaction>> {
@@ -128,7 +96,7 @@ impl LunchMoneyService for Client {
         Ok(res.transactions)
     }
 
-    async fn fetch_categories(
+    pub async fn fetch_categories(
         &self,
         format: Option<&str>,
     ) -> anyhow::Result<Vec<schema::Category>> {
@@ -137,12 +105,12 @@ impl LunchMoneyService for Client {
         Ok(res.categories)
     }
 
-    async fn fetch_tags(&self) -> anyhow::Result<Vec<schema::Tag>> {
+    pub async fn fetch_tags(&self) -> anyhow::Result<Vec<schema::Tag>> {
         let res: schema::TagsResponse = self.fetch("tags", &[] as &[(&str, &str)]).await?;
         Ok(res.tags)
     }
 
-    async fn create_tag(&self, name: &str) -> anyhow::Result<schema::Tag> {
+    pub async fn create_tag(&self, name: &str) -> anyhow::Result<schema::Tag> {
         self.exec_with_response(
             reqwest::Method::POST,
             "tags",
@@ -153,7 +121,7 @@ impl LunchMoneyService for Client {
         .await
     }
 
-    async fn insert_transactions(&self, txs: &[schema::InsertObject]) -> anyhow::Result<()> {
+    pub async fn insert_transactions(&self, txs: &[schema::InsertObject]) -> anyhow::Result<()> {
         self.exec(
             reqwest::Method::POST,
             "transactions",
@@ -164,7 +132,7 @@ impl LunchMoneyService for Client {
         .await
     }
 
-    async fn update_transactions(&self, txs: &[schema::UpdateObject]) -> anyhow::Result<()> {
+    pub async fn update_transactions(&self, txs: &[schema::UpdateObject]) -> anyhow::Result<()> {
         self.exec(
             reqwest::Method::PUT,
             "transactions",
@@ -175,7 +143,7 @@ impl LunchMoneyService for Client {
         .await
     }
 
-    async fn delete_transactions(&self, ids: &[u64]) -> anyhow::Result<()> {
+    pub async fn delete_transactions(&self, ids: &[u64]) -> anyhow::Result<()> {
         self.exec(
             reqwest::Method::DELETE,
             "transactions",
@@ -184,7 +152,7 @@ impl LunchMoneyService for Client {
         .await
     }
 
-    async fn update_manual_account(
+    pub async fn update_manual_account(
         &self,
         id: u64,
         balance: rust_decimal::Decimal,
@@ -196,6 +164,16 @@ impl LunchMoneyService for Client {
         )
         .await
     }
+}
+
+#[derive(serde::Serialize, Debug, Clone)]
+pub struct TransactionQuery {
+    pub start_date: String,
+    pub end_date: String,
+    pub manual_account_id: u64,
+    pub limit: Option<u32>,
+    pub include_group_children: Option<bool>,
+    pub include_split_parents: Option<bool>,
 }
 
 pub mod schema {
