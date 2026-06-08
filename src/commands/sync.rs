@@ -1,17 +1,13 @@
-use crate::api::lunch_money::schema::DeletePayload;
+use crate::api::ExpensesQuery;
+use crate::api::LunchMoneyService;
+use crate::api::SplitwiseService;
+use crate::api::TransactionQuery;
 use crate::api::lunch_money::schema::InsertObject;
-use crate::api::lunch_money::schema::InsertPayload;
-use crate::api::lunch_money::schema::ManualAccountsResponse;
 use crate::api::lunch_money::schema::Transaction;
-use crate::api::lunch_money::schema::TransactionsResponse;
 use crate::api::lunch_money::schema::UpdateObject;
-use crate::api::lunch_money::schema::UpdatePayload;
-use crate::api::splitwise::schema::ExpensesResponse;
-use crate::api::splitwise::schema::GroupResponse;
 use crate::style::*;
 use anstream::println;
 use anyhow::Context;
-use reqwest::Method;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use tabled::Table;
@@ -127,25 +123,15 @@ async fn resolve_categories(
     }
 
     println! { "  {STYLE_DIM}Fetching Lunch Money categories...{STYLE_DIM:#}" };
-    let categories_res: crate::api::lunch_money::schema::CategoriesResponse = lm_client
-        .fetch("categories", &[("format", "flattened")] as &[(&str, &str)])
-        .await?;
+    let categories = lm_client.fetch_categories(Some("flattened")).await?;
 
-    let names: HashMap<u64, String> = categories_res
-        .categories
-        .iter()
-        .map(|c| (c.id, c.name.clone()))
-        .collect();
+    let names: HashMap<u64, String> = categories.iter().map(|c| (c.id, c.name.clone())).collect();
 
     let mut resolved = HashMap::new();
     for (sw_key, lm_val) in &config.categories {
         let resolved_id = match lm_val {
             crate::config::CategoryValue::Id(id) => {
-                if categories_res
-                    .categories
-                    .iter()
-                    .any(|c| c.id == *id && !c.archived)
-                {
+                if categories.iter().any(|c| c.id == *id && !c.archived) {
                     *id
                 } else {
                     println! { "  ⚠️  {STYLE_WARNING}Warning:{STYLE_WARNING:#} Configured Lunch Money category ID {} (for Splitwise category '{}') does not exist or is archived.", id, sw_key };
@@ -153,8 +139,7 @@ async fn resolve_categories(
                 }
             }
             crate::config::CategoryValue::Name(name) => {
-                let matches: Vec<_> = categories_res
-                    .categories
+                let matches: Vec<_> = categories
                     .iter()
                     .filter(|c| c.name.eq_ignore_ascii_case(name) && !c.archived)
                     .collect();
@@ -191,16 +176,10 @@ async fn resolve_force_category(
     lm_category_names: &mut HashMap<u64, String>,
 ) -> anyhow::Result<u64> {
     println! { "  {STYLE_DIM}Fetching Lunch Money categories to resolve forced category...{STYLE_DIM:#}" };
-    let categories_res: crate::api::lunch_money::schema::CategoriesResponse = lm_client
-        .fetch("categories", &[("format", "flattened")] as &[(&str, &str)])
-        .await?;
+    let categories = lm_client.fetch_categories(Some("flattened")).await?;
 
     if let Ok(id) = force_category_str.parse::<u64>() {
-        if let Some(c) = categories_res
-            .categories
-            .iter()
-            .find(|c| c.id == id && !c.archived)
-        {
+        if let Some(c) = categories.iter().find(|c| c.id == id && !c.archived) {
             lm_category_names.insert(id, c.name.clone());
             return Ok(id);
         } else {
@@ -211,8 +190,7 @@ async fn resolve_force_category(
         }
     }
 
-    let matches: Vec<_> = categories_res
-        .categories
+    let matches: Vec<_> = categories
         .iter()
         .filter(|c| c.name == force_category_str && !c.archived)
         .collect();
@@ -263,15 +241,10 @@ async fn plan_tags(
     }
 
     println! { "  {STYLE_DIM}Fetching Lunch Money tags...{STYLE_DIM:#}" };
-    let tags_res: crate::api::lunch_money::schema::TagsResponse =
-        lm_client.fetch("tags", &[] as &[(&str, &str)]).await?;
+    let tags = lm_client.fetch_tags().await?;
 
     if let Some(name) = tag_name {
-        if let Some(existing_tag) = tags_res
-            .tags
-            .iter()
-            .find(|t| t.name.eq_ignore_ascii_case(name))
-        {
+        if let Some(existing_tag) = tags.iter().find(|t| t.name.eq_ignore_ascii_case(name)) {
             tag_id = Some(existing_tag.id);
         } else {
             tags_to_create.push(name.to_string());
@@ -281,11 +254,7 @@ async fn plan_tags(
     if let Some(name) = loan_tag_name {
         if Some(name) == tag_name {
             loan_tag_id = tag_id;
-        } else if let Some(existing_tag) = tags_res
-            .tags
-            .iter()
-            .find(|t| t.name.eq_ignore_ascii_case(name))
-        {
+        } else if let Some(existing_tag) = tags.iter().find(|t| t.name.eq_ignore_ascii_case(name)) {
             loan_tag_id = Some(existing_tag.id);
         } else {
             tags_to_create.push(name.to_string());
@@ -361,14 +330,9 @@ impl SyncOrchestrator {
         );
 
         // Fetch groups
-        let groups_res: GroupResponse = sw_client
-            .fetch("get_groups", &[] as &[(&str, &str)])
-            .await?;
-        let group_map: HashMap<u64, String> = groups_res
-            .groups
-            .iter()
-            .map(|g| (g.id, g.name.clone()))
-            .collect();
+        let groups = sw_client.fetch_groups().await?;
+        let group_map: HashMap<u64, String> =
+            groups.iter().map(|g| (g.id, g.name.clone())).collect();
 
         // Mode specific print headers & fetch expenses
         let dry_run_suffix = if opts.dry_run {
@@ -397,20 +361,25 @@ impl SyncOrchestrator {
                 println! {};
 
                 println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
-                let mut sw_query = vec![("dated_after", start.as_str()), ("limit", "0")];
-                let dated_before_str;
-                if from.is_some() {
-                    dated_before_str = format!("{}T23:59:59Z", end);
-                    sw_query.push(("dated_before", dated_before_str.as_str()));
-                }
-                let mut res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await?;
+                let mut expenses = sw_client
+                    .fetch_expenses(&ExpensesQuery {
+                        dated_after: Some(start.clone()),
+                        dated_before: if from.is_some() {
+                            Some(format!("{}T23:59:59Z", end))
+                        } else {
+                            None
+                        },
+                        limit: Some(0),
+                        ..Default::default()
+                    })
+                    .await?;
                 if *no_groups {
-                    res.expenses.retain(|e| e.group_id.is_none());
+                    expenses.retain(|e| e.group_id.is_none());
                 }
-                res.expenses
+                expenses
             }
             SyncMode::Group { group_query, .. } => {
-                let target_group = super::resolve_group(&groups_res.groups, group_query)?;
+                let target_group = super::resolve_group(&groups, group_query)?;
                 if self
                     .config
                     .splitwise
@@ -434,10 +403,13 @@ impl SyncOrchestrator {
                 println! {};
 
                 println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
-                let group_id_str = target_group.id.to_string();
-                let sw_query = [("group_id", group_id_str.as_str()), ("limit", "0")];
-                let res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await?;
-                res.expenses
+                sw_client
+                    .fetch_expenses(&ExpensesQuery {
+                        group_id: Some(target_group.id),
+                        limit: Some(0),
+                        ..Default::default()
+                    })
+                    .await?
             }
         };
 
@@ -454,14 +426,12 @@ impl SyncOrchestrator {
         }
 
         // Verify configured manual accounts exist in Lunch Money
-        let accounts_res: ManualAccountsResponse = lm_client
-            .fetch("manual_accounts", &[] as &[(&str, &str)])
-            .await?;
+        let manual_accounts = lm_client.fetch_manual_accounts().await?;
         let target_accounts = crate::commands::resolve_target_accounts(
-            &accounts_res,
+            &manual_accounts,
             &self.config.lunch_money.custom_accounts,
         );
-        verify_target_accounts(&target_accounts, &accounts_res)?;
+        verify_target_accounts(&target_accounts, &manual_accounts)?;
 
         let ResolvedCategories {
             resolved_categories,
@@ -516,7 +486,7 @@ impl SyncOrchestrator {
         let lm_transactions = fetch_lunch_money_transactions(FetchLunchMoneyTransactionsArgs {
             lm_client: &lm_client,
             target_accounts: &target_accounts,
-            accounts_res: &accounts_res,
+            manual_accounts: &manual_accounts,
             start_date_str: &start_date_str,
             end_date_str: &end_date_str,
         })
@@ -537,7 +507,7 @@ impl SyncOrchestrator {
 
         let ignored_groups_exclude = match &opts.mode {
             SyncMode::Group { group_query, .. } => {
-                let target_group = super::resolve_group(&groups_res.groups, group_query)?;
+                let target_group = super::resolve_group(&groups, group_query)?;
                 Some(target_group.id)
             }
             _ => None,
@@ -562,7 +532,7 @@ impl SyncOrchestrator {
 
         // Mode specific post-diff deletes filtering
         if let SyncMode::Group { group_query, .. } = &opts.mode {
-            let target_group = super::resolve_group(&groups_res.groups, group_query)?;
+            let target_group = super::resolve_group(&groups, group_query)?;
             let is_non_group = target_group.id == 0;
             let group_payee = format!("Splitwise - {}", target_group.name);
 
@@ -595,12 +565,11 @@ impl SyncOrchestrator {
             csv_path: opts.csv_path.as_deref(),
         })?;
 
-        // Execution Stage (conditional on dry_run)
         if !opts.dry_run {
             apply_sync_plan(ApplySyncPlanArgs {
                 plan: &mut plan,
                 lm_client: &lm_client,
-                accounts_res: &accounts_res,
+                manual_accounts: &manual_accounts,
                 target_accounts: &target_accounts,
                 tag_name: opts.tag.as_deref(),
                 loan_tag_name,
@@ -637,10 +606,8 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) -> anyh
     // Resolve group name for default CSV filename if needed
     let http_pool = reqwest::Client::new();
     let sw_client = crate::api::splitwise::Client::new(http_pool, config.splitwise.api_key.clone());
-    let groups_res: GroupResponse = sw_client
-        .fetch("get_groups", &[] as &[(&str, &str)])
-        .await?;
-    let target_group = super::resolve_group(&groups_res.groups, &sync_args.group)?;
+    let groups = sw_client.fetch_groups().await?;
+    let target_group = super::resolve_group(&groups, &sync_args.group)?;
 
     let csv_path = match sync_args.csv {
         Some(Some(path)) => Some(path),
@@ -669,7 +636,7 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) -> anyh
 
 fn verify_target_accounts(
     target_accounts: &HashMap<crate::api::Currency, u64>,
-    accounts_res: &ManualAccountsResponse,
+    manual_accounts: &[crate::api::lunch_money::schema::ManualAccount],
 ) -> anyhow::Result<()> {
     if target_accounts.is_empty() {
         anyhow::bail!(
@@ -678,11 +645,7 @@ fn verify_target_accounts(
     }
 
     for (currency, &account_id) in target_accounts {
-        if !accounts_res
-            .manual_accounts
-            .iter()
-            .any(|acc| acc.id == account_id)
-        {
+        if !manual_accounts.iter().any(|acc| acc.id == account_id) {
             anyhow::bail!(
                 "Configured manual account ID {} for currency '{}' has been deleted or does not exist in Lunch Money.",
                 account_id,
@@ -700,10 +663,8 @@ async fn fetch_splitwise_categories(
     let mut sw_category_id_to_path = HashMap::new();
     if !config.categories.is_empty() {
         println! { "  {STYLE_DIM}Fetching Splitwise categories...{STYLE_DIM:#}" };
-        let sw_categories_res: crate::api::splitwise::schema::CategoriesResponse = sw_client
-            .fetch("get_categories", &[] as &[(&str, &str)])
-            .await?;
-        for parent in sw_categories_res.categories {
+        let sw_categories = sw_client.fetch_categories().await?;
+        for parent in sw_categories {
             sw_category_id_to_path.insert(parent.id, parent.name.clone());
             for sub in parent.subcategories {
                 let path = format!("{}:{}", parent.name, sub.name);
@@ -717,7 +678,7 @@ async fn fetch_splitwise_categories(
 struct FetchLunchMoneyTransactionsArgs<'a> {
     lm_client: &'a crate::api::lunch_money::Client,
     target_accounts: &'a HashMap<crate::api::Currency, u64>,
-    accounts_res: &'a ManualAccountsResponse,
+    manual_accounts: &'a [crate::api::lunch_money::schema::ManualAccount],
     start_date_str: &'a str,
     end_date_str: &'a str,
 }
@@ -728,31 +689,29 @@ async fn fetch_lunch_money_transactions(
     let FetchLunchMoneyTransactionsArgs {
         lm_client,
         target_accounts,
-        accounts_res,
+        manual_accounts,
         start_date_str,
         end_date_str,
     } = args;
     println! { "  {STYLE_DIM}Fetching Lunch Money transactions...{STYLE_DIM:#}" };
     let mut lm_transactions = Vec::new();
     for &account_id in target_accounts.values() {
-        let account_id_str = account_id.to_string();
-        let lm_query = [
-            ("start_date", start_date_str),
-            ("end_date", end_date_str),
-            ("manual_account_id", account_id_str.as_str()),
-            ("limit", "1000"),
-            ("include_group_children", "true"),
-            ("include_split_parents", "true"),
-        ];
-        let lm_res: TransactionsResponse = lm_client.fetch("transactions", &lm_query).await?;
-        let is_loan = accounts_res
-            .manual_accounts
+        let mut txs = lm_client
+            .fetch_transactions(&TransactionQuery {
+                start_date: start_date_str.to_string(),
+                end_date: end_date_str.to_string(),
+                manual_account_id: account_id,
+                limit: Some(1000),
+                include_group_children: Some(true),
+                include_split_parents: Some(true),
+            })
+            .await?;
+        let is_loan = manual_accounts
             .iter()
             .find(|acc| acc.id == account_id)
             .map(|acc| acc.account_type == crate::api::lunch_money::schema::AccountType::Loan)
             .unwrap_or(false);
 
-        let mut txs = lm_res.transactions;
         if is_loan {
             for t in &mut txs {
                 t.amount = -t.amount;
@@ -1162,7 +1121,7 @@ fn print_and_log_sync_plan(args: PrintAndLogSyncPlanArgs<'_>) -> anyhow::Result<
 struct ApplySyncPlanArgs<'a> {
     plan: &'a mut SyncPlan,
     lm_client: &'a crate::api::lunch_money::Client,
-    accounts_res: &'a ManualAccountsResponse,
+    manual_accounts: &'a [crate::api::lunch_money::schema::ManualAccount],
     target_accounts: &'a HashMap<crate::api::Currency, u64>,
     tag_name: Option<&'a str>,
     loan_tag_name: Option<&'a str>,
@@ -1172,7 +1131,7 @@ async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> {
     let ApplySyncPlanArgs {
         plan,
         lm_client,
-        accounts_res,
+        manual_accounts,
         target_accounts,
         tag_name,
         loan_tag_name,
@@ -1181,13 +1140,7 @@ async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> {
     let mut tag_id_map = HashMap::new();
     for name in &plan.tags_to_create {
         println! { "  {STYLE_DIM}Creating new tag '{}'...{STYLE_DIM:#}", name };
-        let new_tag: crate::api::lunch_money::schema::Tag = lm_client
-            .exec_with_response(
-                Method::POST,
-                "tags",
-                &crate::api::lunch_money::schema::CreateTagPayload { name: name.clone() },
-            )
-            .await?;
+        let new_tag = lm_client.create_tag(name).await?;
         tag_id_map.insert(name.clone(), new_tag.id);
     }
 
@@ -1217,21 +1170,14 @@ async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> {
 
     if !plan.deletes.is_empty() {
         let delete_ids: Vec<u64> = plan.deletes.iter().map(|t| t.id).collect();
-        lm_client
-            .exec(
-                Method::DELETE,
-                "transactions",
-                &DeletePayload { ids: delete_ids },
-            )
-            .await?;
+        lm_client.delete_transactions(&delete_ids).await?;
     }
 
     if !plan.updates.is_empty() {
         for chunk in plan.updates.chunks(500) {
             let mut chunk_txs = chunk.to_vec();
             for u in &mut chunk_txs {
-                let is_loan = accounts_res
-                    .manual_accounts
+                let is_loan = manual_accounts
                     .iter()
                     .find(|acc| target_accounts.get(&u.currency).copied() == Some(acc.id))
                     .map(|acc| {
@@ -1242,15 +1188,7 @@ async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> {
                     u.amount = -u.amount;
                 }
             }
-            lm_client
-                .exec(
-                    Method::PUT,
-                    "transactions",
-                    &UpdatePayload {
-                        transactions: chunk_txs,
-                    },
-                )
-                .await?;
+            lm_client.update_transactions(&chunk_txs).await?;
         }
     }
 
@@ -1258,8 +1196,7 @@ async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> {
         for chunk in plan.inserts.chunks(500) {
             let mut chunk_txs = chunk.to_vec();
             for ins in &mut chunk_txs {
-                let is_loan = accounts_res
-                    .manual_accounts
+                let is_loan = manual_accounts
                     .iter()
                     .find(|acc| acc.id == ins.manual_account_id)
                     .map(|acc| {
@@ -1270,15 +1207,7 @@ async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> {
                     ins.amount = -ins.amount;
                 }
             }
-            lm_client
-                .exec(
-                    Method::POST,
-                    "transactions",
-                    &InsertPayload {
-                        transactions: chunk_txs,
-                    },
-                )
-                .await?;
+            lm_client.insert_transactions(&chunk_txs).await?;
         }
     }
 

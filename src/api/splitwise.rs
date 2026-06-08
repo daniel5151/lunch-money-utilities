@@ -10,7 +10,7 @@ impl Client {
         Self { http, api_key }
     }
 
-    pub async fn fetch<T: serde::de::DeserializeOwned, Q: serde::Serialize + ?Sized>(
+    async fn fetch<T: serde::de::DeserializeOwned, Q: serde::Serialize + ?Sized>(
         &self,
         endpoint: &str,
         query: &Q,
@@ -29,6 +29,49 @@ impl Client {
             anyhow::bail!("Splitwise request failed: {}", res.status());
         }
         res.json().await.context("Failed parsing Splitwise JSON")
+    }
+}
+
+#[derive(serde::Serialize, Debug, Clone, Default)]
+pub struct ExpensesQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dated_after: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dated_before: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+pub trait SplitwiseService: Send + Sync {
+    async fn fetch_categories(&self) -> anyhow::Result<Vec<schema::ParentCategory>>;
+    async fn fetch_groups(&self) -> anyhow::Result<Vec<schema::Group>>;
+    async fn fetch_expenses(&self, query: &ExpensesQuery) -> anyhow::Result<Vec<schema::Expense>>;
+    async fn fetch_friends(&self) -> anyhow::Result<Vec<schema::Friend>>;
+}
+
+impl SplitwiseService for Client {
+    async fn fetch_categories(&self) -> anyhow::Result<Vec<schema::ParentCategory>> {
+        let res: schema::CategoriesResponse =
+            self.fetch("get_categories", &[] as &[(&str, &str)]).await?;
+        Ok(res.categories)
+    }
+
+    async fn fetch_groups(&self) -> anyhow::Result<Vec<schema::Group>> {
+        let res: schema::GroupResponse = self.fetch("get_groups", &[] as &[(&str, &str)]).await?;
+        Ok(res.groups)
+    }
+
+    async fn fetch_expenses(&self, query: &ExpensesQuery) -> anyhow::Result<Vec<schema::Expense>> {
+        let res: schema::ExpensesResponse = self.fetch("get_expenses", query).await?;
+        Ok(res.expenses)
+    }
+
+    async fn fetch_friends(&self) -> anyhow::Result<Vec<schema::Friend>> {
+        let res: schema::FriendsResponse =
+            self.fetch("get_friends", &[] as &[(&str, &str)]).await?;
+        Ok(res.friends)
     }
 }
 

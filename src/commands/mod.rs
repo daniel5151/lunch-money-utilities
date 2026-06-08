@@ -7,13 +7,13 @@ use crate::style::*;
 use std::collections::HashMap;
 
 fn resolve_target_accounts(
-    accounts_res: &crate::api::lunch_money::schema::ManualAccountsResponse,
+    manual_accounts: &[crate::api::lunch_money::schema::ManualAccount],
     custom_accounts: &HashMap<crate::api::Currency, u64>,
 ) -> HashMap<crate::api::Currency, u64> {
     let mut resolved = HashMap::new();
 
     // 1. Start with inferred accounts from the actual manual accounts in Lunch Money
-    for acc in &accounts_res.manual_accounts {
+    for acc in manual_accounts {
         if acc.status == crate::api::lunch_money::schema::AccountStatus::Active {
             for name in [&acc.name, acc.display_name.as_deref().unwrap_or("")] {
                 if name.is_empty() {

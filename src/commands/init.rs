@@ -1,4 +1,6 @@
-use crate::api::lunch_money::schema::ManualAccountsResponse;
+use crate::api::LunchMoneyService;
+use crate::api::SplitwiseService;
+
 use crate::style::*;
 use anstream::println;
 use anyhow::Context;
@@ -80,9 +82,7 @@ pub(crate) async fn run_init() -> anyhow::Result<()> {
     println! { "  {STYLE_DIM}Fetching Splitwise categories for seeding config...{STYLE_DIM:#}" };
     let sw_client =
         crate::api::splitwise::Client::new(http_client.clone(), splitwise_api_key.clone());
-    let sw_categories: crate::api::splitwise::schema::CategoriesResponse = sw_client
-        .fetch("get_categories", &[] as &[(&str, &str)])
-        .await?;
+    let sw_categories = sw_client.fetch_categories().await?;
 
     let lunch_money_api_key = inquire::Password::new("Lunch Money API Key:")
         .with_help_message("Your Lunch Money developer API key")
@@ -95,11 +95,9 @@ pub(crate) async fn run_init() -> anyhow::Result<()> {
     println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API...{STYLE_INFO:#}" };
     let lm_client =
         crate::api::lunch_money::Client::new(http_client.clone(), lunch_money_api_key.clone());
-    let accounts_res: ManualAccountsResponse = lm_client
-        .fetch("manual_accounts", &[] as &[(&str, &str)])
-        .await?;
+    let manual_accounts = lm_client.fetch_manual_accounts().await?;
 
-    let inferred = crate::commands::resolve_target_accounts(&accounts_res, &HashMap::new());
+    let inferred = crate::commands::resolve_target_accounts(&manual_accounts, &HashMap::new());
     if !inferred.is_empty() {
         println! {};
         println! { "🔍 Discovered the following Splitwise accounts in Lunch Money:" };
@@ -114,7 +112,7 @@ pub(crate) async fn run_init() -> anyhow::Result<()> {
 
     let mut categories_toml = String::new();
     categories_toml.push_str("# \"Payment\" = \"...\"\n");
-    for parent in sw_categories.categories {
+    for parent in sw_categories {
         for sub in parent.subcategories {
             categories_toml.push_str(&format!("# \"{}:{}\" = \"...\"\n", parent.name, sub.name));
         }

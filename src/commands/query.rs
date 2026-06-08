@@ -1,5 +1,6 @@
-use crate::api::splitwise::schema::ExpensesResponse;
-use crate::api::splitwise::schema::GroupResponse;
+use crate::api::ExpensesQuery;
+use crate::api::LunchMoneyService;
+use crate::api::SplitwiseService;
 use crate::style::*;
 use anstream::println;
 use anyhow::Context;
@@ -161,24 +162,21 @@ pub(crate) async fn run_query_splitwise_window(
     println! {};
 
     println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
-    let groups_res: GroupResponse = sw_client
-        .fetch("get_groups", &[] as &[(&str, &str)])
+    let groups = sw_client.fetch_groups().await?;
+    let group_map: HashMap<u64, String> = groups.into_iter().map(|g| (g.id, g.name)).collect();
+
+    let mut expenses = sw_client
+        .fetch_expenses(&ExpensesQuery {
+            dated_after: Some(start_window_str.clone()),
+            dated_before: if args.from.is_some() {
+                Some(format!("{}T23:59:59Z", end_window_str))
+            } else {
+                None
+            },
+            limit: Some(0),
+            ..Default::default()
+        })
         .await?;
-    let group_map: HashMap<u64, String> = groups_res
-        .groups
-        .into_iter()
-        .map(|g| (g.id, g.name))
-        .collect();
-
-    let mut sw_query = vec![("dated_after", start_window_str.as_str()), ("limit", "0")];
-    let dated_before_str;
-    if args.from.is_some() {
-        dated_before_str = format!("{}T23:59:59Z", end_window_str);
-        sw_query.push(("dated_before", dated_before_str.as_str()));
-    }
-    let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await?;
-
-    let mut expenses = expenses_res.expenses;
     if args.no_groups {
         expenses.retain(|e| e.group_id.is_none());
     }
@@ -209,16 +207,10 @@ pub(crate) async fn run_query_splitwise_group(
     println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
     println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
-    let groups_res: GroupResponse = sw_client
-        .fetch("get_groups", &[] as &[(&str, &str)])
-        .await?;
-    let group_map: HashMap<u64, String> = groups_res
-        .groups
-        .iter()
-        .map(|g| (g.id, g.name.clone()))
-        .collect();
+    let groups = sw_client.fetch_groups().await?;
+    let group_map: HashMap<u64, String> = groups.iter().map(|g| (g.id, g.name.clone())).collect();
 
-    let target_group = super::resolve_group(&groups_res.groups, &args.group)?;
+    let target_group = super::resolve_group(&groups, &args.group)?;
 
     println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", target_group.name, target_group.id };
     if target_group.id != 0 {
@@ -227,17 +219,21 @@ pub(crate) async fn run_query_splitwise_group(
     }
     println! {};
 
-    let group_id_str = target_group.id.to_string();
-    let sw_query = [("group_id", group_id_str.as_str()), ("limit", "0")];
-    let expenses_res: ExpensesResponse = sw_client.fetch("get_expenses", &sw_query).await?;
+    let expenses = sw_client
+        .fetch_expenses(&ExpensesQuery {
+            group_id: Some(target_group.id),
+            limit: Some(0),
+            ..Default::default()
+        })
+        .await?;
 
-    if expenses_res.expenses.is_empty() {
+    if expenses.is_empty() {
         println! { "{STYLE_SUCCESS}✨ No expenses found for this group.{STYLE_SUCCESS:#}" };
         println! {};
         return Ok(());
     }
 
-    print_expenses_table(expenses_res.expenses, &config, &group_map);
+    print_expenses_table(expenses, &config, &group_map);
     Ok(())
 }
 
@@ -264,17 +260,13 @@ pub(crate) async fn run_query_splitwise_groups() -> anyhow::Result<()> {
     println! { "{STYLE_HEADER}🔍 Querying Splitwise Groups{STYLE_HEADER:#}" };
     println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
 
-    let groups_res: GroupResponse = sw_client
-        .fetch("get_groups", &[] as &[(&str, &str)])
-        .await?;
+    let mut groups = sw_client.fetch_groups().await?;
 
-    if groups_res.groups.is_empty() {
+    if groups.is_empty() {
         println! { "{STYLE_WARNING}No groups found.{STYLE_WARNING:#}" };
         println! {};
         return Ok(());
     }
-
-    let mut groups = groups_res.groups;
     groups.sort_by_key(|b| std::cmp::Reverse(b.updated_at));
 
     let mut records = Vec::new();
@@ -319,11 +311,7 @@ pub(crate) async fn run_query_lunchmoney_categories() -> anyhow::Result<()> {
     println! { "{STYLE_HEADER}🔍 Querying Lunch Money Categories{STYLE_HEADER:#}" };
     println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
-    let categories_res: crate::api::lunch_money::schema::CategoriesResponse = lm_client
-        .fetch("categories", &[("format", "nested")] as &[(&str, &str)])
-        .await?;
-
-    let categories: Vec<_> = categories_res.categories;
+    let categories = lm_client.fetch_categories(Some("nested")).await?;
 
     if categories.is_empty() {
         println! { "{STYLE_WARNING}No categories found.{STYLE_WARNING:#}" };
@@ -397,10 +385,7 @@ pub(crate) async fn run_query_lunchmoney_tags() -> anyhow::Result<()> {
     println! { "{STYLE_HEADER}🔍 Querying Lunch Money Tags{STYLE_HEADER:#}" };
     println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
 
-    let tags_res: crate::api::lunch_money::schema::TagsResponse =
-        lm_client.fetch("tags", &[] as &[(&str, &str)]).await?;
-
-    let tags = tags_res.tags;
+    let tags = lm_client.fetch_tags().await?;
 
     if tags.is_empty() {
         println! { "{STYLE_WARNING}No tags found.{STYLE_WARNING:#}" };
@@ -453,11 +438,7 @@ pub(crate) async fn run_query_splitwise_categories() -> anyhow::Result<()> {
     println! { "{STYLE_HEADER}🔍 Querying Splitwise Categories{STYLE_HEADER:#}" };
     println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
 
-    let categories_res: crate::api::splitwise::schema::CategoriesResponse = sw_client
-        .fetch("get_categories", &[] as &[(&str, &str)])
-        .await?;
-
-    let categories = categories_res.categories;
+    let categories = sw_client.fetch_categories().await?;
 
     if categories.is_empty() {
         println! { "{STYLE_WARNING}No categories found.{STYLE_WARNING:#}" };
@@ -514,20 +495,13 @@ pub(crate) async fn run_query_lunchmoney_accounts() -> anyhow::Result<()> {
     println! { "{STYLE_HEADER}🔍 Querying Lunch Money Manual Accounts{STYLE_HEADER:#}" };
     println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
 
-    let accounts_res: crate::api::lunch_money::schema::ManualAccountsResponse = lm_client
-        .fetch("manual_accounts", &[] as &[(&str, &str)])
-        .await?;
+    let mut accounts = lm_client.fetch_manual_accounts().await?;
 
     let target_accounts: HashMap<u64, crate::api::Currency> =
-        crate::commands::resolve_target_accounts(
-            &accounts_res,
-            &config.lunch_money.custom_accounts,
-        )
-        .into_iter()
-        .map(|(currency, id)| (id, currency))
-        .collect();
-
-    let mut accounts = accounts_res.manual_accounts;
+        crate::commands::resolve_target_accounts(&accounts, &config.lunch_money.custom_accounts)
+            .into_iter()
+            .map(|(currency, id)| (id, currency))
+            .collect();
 
     if accounts.is_empty() {
         println! { "{STYLE_WARNING}No manual accounts found.{STYLE_WARNING:#}" };

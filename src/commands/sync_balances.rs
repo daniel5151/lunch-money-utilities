@@ -1,8 +1,9 @@
-use crate::api::lunch_money::schema::ManualAccountsResponse;
+use crate::api::LunchMoneyService;
+use crate::api::SplitwiseService;
+
 use crate::style::*;
 use anstream::println;
 use anyhow::Context;
-use reqwest::Method;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
@@ -23,12 +24,10 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) -> any
     println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
 
     println! { "  {STYLE_DIM}Fetching Splitwise friends...{STYLE_DIM:#}" };
-    let friends_res: crate::api::splitwise::schema::FriendsResponse = sw_client
-        .fetch("get_friends", &[] as &[(&str, &str)])
-        .await?;
+    let friends = sw_client.fetch_friends().await?;
 
     let mut global_balances: HashMap<crate::api::Currency, Decimal> = HashMap::new();
-    for friend in friends_res.friends {
+    for friend in friends {
         for bal in friend.balance {
             let currency = bal.currency_code.clone();
             *global_balances.entry(currency).or_insert(Decimal::ZERO) += bal.amount;
@@ -37,11 +36,9 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) -> any
 
     if !config.splitwise.ignored_groups.is_empty() {
         println! { "  {STYLE_DIM}Fetching Splitwise groups...{STYLE_DIM:#}" };
-        let groups_res: crate::api::splitwise::schema::GroupResponse = sw_client
-            .fetch("get_groups", &[] as &[(&str, &str)])
-            .await?;
+        let groups = sw_client.fetch_groups().await?;
 
-        for group in groups_res.groups {
+        for group in groups {
             if config
                 .splitwise
                 .is_group_ignored(group.id, Some(&group.name))
@@ -60,12 +57,10 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) -> any
     }
 
     println! { "  {STYLE_DIM}Fetching Lunch Money manual accounts...{STYLE_DIM:#}" };
-    let accounts_res: ManualAccountsResponse = lm_client
-        .fetch("manual_accounts", &[] as &[(&str, &str)])
-        .await?;
+    let manual_accounts = lm_client.fetch_manual_accounts().await?;
 
     let target_accounts = crate::commands::resolve_target_accounts(
-        &accounts_res,
+        &manual_accounts,
         &config.lunch_money.custom_accounts,
     );
 
@@ -73,11 +68,7 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) -> any
     let mut csv_rows = Vec::new();
 
     for (currency, &account_id) in &target_accounts {
-        let acc = match accounts_res
-            .manual_accounts
-            .iter()
-            .find(|a| a.id == account_id)
-        {
+        let acc = match manual_accounts.iter().find(|a| a.id == account_id) {
             Some(a) => a,
             None => {
                 anyhow::bail!(
@@ -130,13 +121,7 @@ pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) -> any
             } else {
                 println! { "  {} ({})  ~ Updating balance: {} -> {}...", acc_name, currency, acc.balance, target_balance };
                 lm_client
-                    .exec(
-                        Method::PUT,
-                        &format!("manual_accounts/{}", account_id),
-                        &crate::api::lunch_money::schema::UpdateManualAccountObject {
-                            balance: target_balance,
-                        },
-                    )
+                    .update_manual_account(account_id, target_balance)
                     .await?;
             }
         } else {
