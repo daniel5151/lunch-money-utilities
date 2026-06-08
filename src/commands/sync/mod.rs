@@ -59,25 +59,18 @@ pub struct SyncOptions {
     pub mode: SyncMode,
 }
 
-pub struct SyncOrchestrator {
-    pub config: crate::config::Config,
+pub struct SyncOrchestrator<'a> {
+    pub ctx: &'a crate::AppContext,
 }
 
-impl SyncOrchestrator {
-    pub fn new(config: crate::config::Config) -> Self {
-        Self { config }
+impl<'a> SyncOrchestrator<'a> {
+    pub fn new(ctx: &'a crate::AppContext) -> Self {
+        Self { ctx }
     }
 
     pub async fn execute(&self, opts: SyncOptions) -> anyhow::Result<()> {
-        let http_pool = reqwest::Client::new();
-        let sw_client = crate::api::splitwise::Client::new(
-            http_pool.clone(),
-            self.config.splitwise.api_key.clone(),
-        );
-        let lm_client = crate::api::lunch_money::Client::new(
-            http_pool,
-            self.config.lunch_money.api_key.clone(),
-        );
+        let sw_client = &self.ctx.splitwise;
+        let lm_client = &self.ctx.lunch_money;
 
         // Fetch groups
         let groups = sw_client.fetch_groups().await?;
@@ -98,39 +91,45 @@ impl SyncOrchestrator {
                 from,
                 no_groups,
             } => {
-                println! { "{STYLE_HEADER}⚡ Splitwise to Lunch Money Sync{}{STYLE_HEADER:#}", dry_run_suffix };
-                println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
                 let window_duration = jiff::SignedDuration::try_from(*window)
                     .context("window duration is too large")?;
-                let super::WindowBounds { start, end } =
-                    super::calculate_window_bounds(*from, window_duration);
-                println! { "{STYLE_INFO}📅 Sync window boundary:{STYLE_INFO:#} {} to {}", start, end };
+
+                let super::WindowBounds {
+                    start: start_window_str,
+                    end: end_window_str,
+                } = super::calculate_window_bounds(*from, window_duration);
+
+                let bar = "─".repeat(92);
+
+                println! { "{STYLE_HEADER}⚡ Splitwise to Lunch Money Sync Window{}{STYLE_HEADER:#}", dry_run_suffix };
+                println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
+                println! { "{STYLE_INFO}📅 Window boundary:{STYLE_INFO:#} {} to {}", start_window_str, end_window_str };
                 if *no_groups {
-                    println! { "{STYLE_INFO}🚫 Filter:{STYLE_INFO:#} Non-group transactions only" };
+                    println! { "{STYLE_INFO}🚫 Filter:{STYLE_INFO:#} Non-group expenses only" };
                 }
                 println! {};
 
                 println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
-                let mut expenses = sw_client
+
+                let mut txs = sw_client
                     .fetch_expenses(&ExpensesQuery {
-                        dated_after: Some(start.clone()),
-                        dated_before: if from.is_some() {
-                            Some(format!("{}T23:59:59Z", end))
-                        } else {
-                            None
-                        },
+                        dated_after: Some(start_window_str),
+                        dated_before: from.map(|f| format!("{}T23:59:59Z", f)),
                         limit: Some(0),
                         ..Default::default()
                     })
                     .await?;
+
                 if *no_groups {
-                    expenses.retain(|e| e.group_id.is_none());
+                    txs.retain(|e| e.group_id.is_none());
                 }
-                expenses
+                txs
             }
             SyncMode::Group { group_query, .. } => {
                 let target_group = super::resolve_group(&groups, group_query)?;
+
                 if self
+                    .ctx
                     .config
                     .splitwise
                     .is_group_ignored(target_group.id, Some(&target_group.name))
@@ -146,8 +145,10 @@ impl SyncOrchestrator {
                 println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
                 println! { "{STYLE_INFO}👥 Group:{STYLE_INFO:#} {} (ID: {})", target_group.name, target_group.id };
                 if target_group.id != 0 {
-                    let balance_str =
-                        super::format_group_balances(&target_group, self.config.splitwise.user_id);
+                    let balance_str = super::format_group_balances(
+                        &target_group,
+                        self.ctx.config.splitwise.user_id,
+                    );
                     println! { "{STYLE_INFO}💰 Balance:{STYLE_INFO:#} {}", balance_str };
                 }
                 println! {};
@@ -179,29 +180,30 @@ impl SyncOrchestrator {
         let manual_accounts = lm_client.fetch_manual_accounts().await?;
         let target_accounts = crate::commands::resolve_target_accounts(
             &manual_accounts,
-            &self.config.lunch_money.custom_accounts,
+            &self.ctx.config.lunch_money.custom_accounts,
         );
         verify_target_accounts(&target_accounts, &manual_accounts)?;
 
         let ResolvedCategories {
             resolved_categories,
             mut lm_category_names,
-        } = resolve_categories(&lm_client, &self.config).await?;
+        } = resolve_categories(lm_client, &self.ctx.config).await?;
 
         let force_category_id = match &opts.mode {
             SyncMode::Group {
                 force_category: Some(fc),
                 ..
-            } => Some(resolve_force_category(&lm_client, fc, &mut lm_category_names).await?),
+            } => Some(resolve_force_category(lm_client, fc, &mut lm_category_names).await?),
             _ => None,
         };
 
-        let sw_category_id_to_path = fetch_splitwise_categories(&sw_client, &self.config).await?;
+        let sw_category_id_to_path =
+            fetch_splitwise_categories(sw_client, &self.ctx.config).await?;
 
         let loan_tag_name = if opts.no_loan_tag {
             None
         } else {
-            self.config.sync.loan_tag.as_deref()
+            self.ctx.config.sync.loan_tag.as_deref()
         };
 
         // Planning step for tags (dry-run safe)
@@ -209,7 +211,7 @@ impl SyncOrchestrator {
             tag_id,
             loan_tag_id,
             tags_to_create,
-        } = plan_tags(&lm_client, opts.tag.as_deref(), loan_tag_name).await?;
+        } = plan_tags(lm_client, opts.tag.as_deref(), loan_tag_name).await?;
 
         // Mode specific Lunch Money transactions fetching date ranges
         let super::WindowBounds {
@@ -234,7 +236,7 @@ impl SyncOrchestrator {
         };
 
         let lm_transactions = fetch_lunch_money_transactions(FetchLunchMoneyTransactionsArgs {
-            lm_client: &lm_client,
+            lm_client,
             target_accounts: &target_accounts,
             manual_accounts: &manual_accounts,
             start_date_str: &start_date_str,
@@ -266,7 +268,7 @@ impl SyncOrchestrator {
         // Compute pure diff plan (excludes mutating actions like tag creations)
         let mut plan = diff_transactions(DiffTransactionsArgs {
             expenses,
-            config: &self.config,
+            config: &self.ctx.config,
             target_accounts: &target_accounts,
             group_map: &group_map,
             lm_map: &mut lm_map,
@@ -318,7 +320,7 @@ impl SyncOrchestrator {
         if !opts.dry_run {
             apply_sync_plan(ApplySyncPlanArgs {
                 plan: &mut plan,
-                lm_client: &lm_client,
+                lm_client,
                 manual_accounts: &manual_accounts,
                 target_accounts: &target_accounts,
                 tag_name: opts.tag.as_deref(),
@@ -331,9 +333,11 @@ impl SyncOrchestrator {
     }
 }
 
-pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) -> anyhow::Result<()> {
-    let config = crate::load_config()?;
-    let orchestrator = SyncOrchestrator::new(config);
+pub(crate) async fn run_sync_window(
+    ctx: &crate::AppContext,
+    sync_args: crate::cli::SyncWindowArgs,
+) -> anyhow::Result<()> {
+    let orchestrator = SyncOrchestrator::new(ctx);
     orchestrator
         .execute(SyncOptions {
             dry_run: sync_args.dry_run,
@@ -350,13 +354,11 @@ pub(crate) async fn run_sync_window(sync_args: crate::cli::SyncWindowArgs) -> an
         .await
 }
 
-pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) -> anyhow::Result<()> {
-    let config = crate::load_config()?;
-
-    // Resolve group name for default CSV filename if needed
-    let http_pool = reqwest::Client::new();
-    let sw_client = crate::api::splitwise::Client::new(http_pool, config.splitwise.api_key.clone());
-    let groups = sw_client.fetch_groups().await?;
+pub(crate) async fn run_sync_group(
+    ctx: &crate::AppContext,
+    sync_args: crate::cli::SyncGroupArgs,
+) -> anyhow::Result<()> {
+    let groups = ctx.splitwise.fetch_groups().await?;
     let target_group = super::resolve_group(&groups, &sync_args.group)?;
 
     let csv_path = match sync_args.csv {
@@ -368,7 +370,7 @@ pub(crate) async fn run_sync_group(sync_args: crate::cli::SyncGroupArgs) -> anyh
         None => None,
     };
 
-    let orchestrator = SyncOrchestrator::new(config);
+    let orchestrator = SyncOrchestrator::new(ctx);
     orchestrator
         .execute(SyncOptions {
             dry_run: sync_args.dry_run,

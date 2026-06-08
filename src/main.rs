@@ -27,6 +27,13 @@ async fn main() {
     }
 }
 
+pub struct AppContext {
+    pub config: config::Config,
+    pub http: reqwest::Client,
+    pub splitwise: api::splitwise::Client,
+    pub lunch_money: api::lunch_money::Client,
+}
+
 async fn run() -> anyhow::Result<()> {
     use clap::Parser;
 
@@ -36,44 +43,66 @@ async fn run() -> anyhow::Result<()> {
         cli::Commands::Init => {
             commands::init::run_init().await?;
         }
-        cli::Commands::Sync(sync_args) => match sync_args.command {
-            cli::SyncSubcommands::Window(args) => {
-                commands::sync::run_sync_window(args).await?;
+        cmd => {
+            let config = load_config()?;
+            let http = reqwest::Client::new();
+            let splitwise =
+                api::splitwise::Client::new(http.clone(), config.splitwise.api_key.clone());
+            let lunch_money =
+                api::lunch_money::Client::new(http.clone(), config.lunch_money.api_key.clone());
+            let ctx = AppContext {
+                config,
+                http,
+                splitwise,
+                lunch_money,
+            };
+
+            match cmd {
+                cli::Commands::Init => unreachable!(),
+                cli::Commands::Sync(sync_args) => match sync_args.command {
+                    cli::SyncSubcommands::Window(args) => {
+                        commands::sync::run_sync_window(&ctx, args).await?;
+                    }
+                    cli::SyncSubcommands::Group(args) => {
+                        commands::sync::run_sync_group(&ctx, args).await?;
+                    }
+                    cli::SyncSubcommands::Balances(args) => {
+                        commands::sync_balances::run_sync_balances(&ctx, args).await?;
+                    }
+                },
+                cli::Commands::Query(query_args) => match query_args.command {
+                    cli::QuerySubcommands::Splitwise(splitwise_args) => {
+                        match splitwise_args.command {
+                            cli::QuerySplitwiseSubcommands::Window(args) => {
+                                commands::query::run_query_splitwise_window(&ctx, args).await?;
+                            }
+                            cli::QuerySplitwiseSubcommands::Group(args) => {
+                                commands::query::run_query_splitwise_group(&ctx, args).await?;
+                            }
+                            cli::QuerySplitwiseSubcommands::Groups => {
+                                commands::query::run_query_splitwise_groups(&ctx).await?;
+                            }
+                            cli::QuerySplitwiseSubcommands::Categories => {
+                                commands::query::run_query_splitwise_categories(&ctx).await?;
+                            }
+                        }
+                    }
+                    cli::QuerySubcommands::LunchMoney(lunchmoney_args) => {
+                        match lunchmoney_args.command {
+                            cli::QueryLunchMoneySubcommands::Categories => {
+                                commands::query::run_query_lunchmoney_categories(&ctx).await?;
+                            }
+                            cli::QueryLunchMoneySubcommands::Tags => {
+                                commands::query::run_query_lunchmoney_tags(&ctx).await?;
+                            }
+                            cli::QueryLunchMoneySubcommands::Accounts => {
+                                commands::query::run_query_lunchmoney_accounts(&ctx).await?;
+                            }
+                        }
+                    }
+                },
             }
-            cli::SyncSubcommands::Group(args) => {
-                commands::sync::run_sync_group(args).await?;
-            }
-            cli::SyncSubcommands::Balances(args) => {
-                commands::sync_balances::run_sync_balances(args).await?;
-            }
-        },
-        cli::Commands::Query(query_args) => match query_args.command {
-            cli::QuerySubcommands::Splitwise(splitwise_args) => match splitwise_args.command {
-                cli::QuerySplitwiseSubcommands::Window(args) => {
-                    commands::query::run_query_splitwise_window(args).await?;
-                }
-                cli::QuerySplitwiseSubcommands::Group(args) => {
-                    commands::query::run_query_splitwise_group(args).await?;
-                }
-                cli::QuerySplitwiseSubcommands::Groups => {
-                    commands::query::run_query_splitwise_groups().await?;
-                }
-                cli::QuerySplitwiseSubcommands::Categories => {
-                    commands::query::run_query_splitwise_categories().await?;
-                }
-            },
-            cli::QuerySubcommands::LunchMoney(lunchmoney_args) => match lunchmoney_args.command {
-                cli::QueryLunchMoneySubcommands::Categories => {
-                    commands::query::run_query_lunchmoney_categories().await?;
-                }
-                cli::QueryLunchMoneySubcommands::Tags => {
-                    commands::query::run_query_lunchmoney_tags().await?;
-                }
-                cli::QueryLunchMoneySubcommands::Accounts => {
-                    commands::query::run_query_lunchmoney_accounts().await?;
-                }
-            },
-        },
+        }
     }
     Ok(())
 }

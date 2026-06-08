@@ -7,14 +7,14 @@ use anyhow::Context;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
-pub(crate) async fn run_sync_balances(args: crate::cli::SyncBalancesArgs) -> anyhow::Result<()> {
-    let config = crate::load_config()?;
+pub(crate) async fn run_sync_balances(
+    ctx: &crate::AppContext,
+    args: crate::cli::SyncBalancesArgs,
+) -> anyhow::Result<()> {
+    let config = &ctx.config;
 
-    let http_pool = reqwest::Client::new();
-    let sw_client =
-        crate::api::splitwise::Client::new(http_pool.clone(), config.splitwise.api_key.clone());
-    let lm_client =
-        crate::api::lunch_money::Client::new(http_pool.clone(), config.lunch_money.api_key.clone());
+    let sw_client = &ctx.splitwise;
+    let lm_client = &ctx.lunch_money;
 
     println! {};
     println! { "{STYLE_HEADER}🔄 Syncing Splitwise Balances to Lunch Money{STYLE_HEADER:#}" };

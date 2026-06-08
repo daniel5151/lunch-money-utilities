@@ -134,16 +134,14 @@ fn print_expenses_table(
 }
 
 pub(crate) async fn run_query_splitwise_window(
+    ctx: &crate::AppContext,
     args: crate::cli::QuerySplitwiseWindowArgs,
 ) -> anyhow::Result<()> {
     let window_duration =
         jiff::SignedDuration::try_from(args.window).context("window duration is too large")?;
 
-    let config = crate::load_config()?;
-
-    let http_pool = reqwest::Client::new();
-    let sw_client =
-        crate::api::splitwise::Client::new(http_pool.clone(), config.splitwise.api_key.clone());
+    let config = &ctx.config;
+    let sw_client = &ctx.splitwise;
 
     let super::WindowBounds {
         start: start_window_str,
@@ -192,13 +190,11 @@ pub(crate) async fn run_query_splitwise_window(
 }
 
 pub(crate) async fn run_query_splitwise_group(
+    ctx: &crate::AppContext,
     args: crate::cli::QuerySplitwiseGroupArgs,
 ) -> anyhow::Result<()> {
-    let config = crate::load_config()?;
-
-    let http_pool = reqwest::Client::new();
-    let sw_client =
-        crate::api::splitwise::Client::new(http_pool.clone(), config.splitwise.api_key.clone());
+    let config = &ctx.config;
+    let sw_client = &ctx.splitwise;
 
     let bar = "─".repeat(92);
 
@@ -249,12 +245,9 @@ struct GroupRecord {
     balance: String,
 }
 
-pub(crate) async fn run_query_splitwise_groups() -> anyhow::Result<()> {
-    let config = crate::load_config()?;
-
-    let http_pool = reqwest::Client::new();
-    let sw_client =
-        crate::api::splitwise::Client::new(http_pool.clone(), config.splitwise.api_key.clone());
+pub(crate) async fn run_query_splitwise_groups(ctx: &crate::AppContext) -> anyhow::Result<()> {
+    let config = &ctx.config;
+    let sw_client = &ctx.splitwise;
 
     println! {};
     println! { "{STYLE_HEADER}🔍 Querying Splitwise Groups{STYLE_HEADER:#}" };
@@ -298,12 +291,8 @@ pub(crate) async fn run_query_splitwise_groups() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(crate) async fn run_query_lunchmoney_categories() -> anyhow::Result<()> {
-    let config = crate::load_config()?;
-
-    let http_pool = reqwest::Client::new();
-    let lm_client =
-        crate::api::lunch_money::Client::new(http_pool, config.lunch_money.api_key.clone());
+pub(crate) async fn run_query_lunchmoney_categories(ctx: &crate::AppContext) -> anyhow::Result<()> {
+    let lm_client = &ctx.lunch_money;
 
     let bar = "─".repeat(80);
 
@@ -374,12 +363,8 @@ struct TagRecord {
     tag_name: String,
 }
 
-pub(crate) async fn run_query_lunchmoney_tags() -> anyhow::Result<()> {
-    let config = crate::load_config()?;
-
-    let http_pool = reqwest::Client::new();
-    let lm_client =
-        crate::api::lunch_money::Client::new(http_pool, config.lunch_money.api_key.clone());
+pub(crate) async fn run_query_lunchmoney_tags(ctx: &crate::AppContext) -> anyhow::Result<()> {
+    let lm_client = &ctx.lunch_money;
 
     println! {};
     println! { "{STYLE_HEADER}🔍 Querying Lunch Money Tags{STYLE_HEADER:#}" };
@@ -426,11 +411,8 @@ pub(crate) async fn run_query_lunchmoney_tags() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(crate) async fn run_query_splitwise_categories() -> anyhow::Result<()> {
-    let config = crate::load_config()?;
-
-    let http_pool = reqwest::Client::new();
-    let sw_client = crate::api::splitwise::Client::new(http_pool, config.splitwise.api_key.clone());
+pub(crate) async fn run_query_splitwise_categories(ctx: &crate::AppContext) -> anyhow::Result<()> {
+    let sw_client = &ctx.splitwise;
 
     let bar = "─".repeat(80);
 
@@ -484,12 +466,9 @@ struct AccountRecord {
     mapped: String,
 }
 
-pub(crate) async fn run_query_lunchmoney_accounts() -> anyhow::Result<()> {
-    let config = crate::load_config()?;
-
-    let http_pool = reqwest::Client::new();
-    let lm_client =
-        crate::api::lunch_money::Client::new(http_pool, config.lunch_money.api_key.clone());
+pub(crate) async fn run_query_lunchmoney_accounts(ctx: &crate::AppContext) -> anyhow::Result<()> {
+    let config = &ctx.config;
+    let lm_client = &ctx.lunch_money;
 
     println! {};
     println! { "{STYLE_HEADER}🔍 Querying Lunch Money Manual Accounts{STYLE_HEADER:#}" };
