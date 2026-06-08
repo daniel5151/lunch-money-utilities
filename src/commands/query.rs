@@ -183,7 +183,7 @@ pub(crate) async fn run_query_splitwise_window(
         return Ok(());
     }
 
-    print_expenses_table(expenses, &config, &group_map);
+    print_expenses_table(expenses, config, &group_map);
     Ok(())
 }
 
@@ -227,7 +227,7 @@ pub(crate) async fn run_query_splitwise_group(
         return Ok(());
     }
 
-    print_expenses_table(expenses, &config, &group_map);
+    print_expenses_table(expenses, config, &group_map);
     Ok(())
 }
 

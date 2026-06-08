@@ -239,12 +239,9 @@ pub mod schema {
         pub payee: String,
         pub notes: Option<String>,
         pub external_id: Option<crate::api::ExternalId>,
-        #[expect(dead_code)]
         pub manual_account_id: Option<u64>,
         pub is_split_parent: Option<bool>,
-        #[expect(dead_code)]
         pub group_parent_id: Option<u64>,
-        #[expect(dead_code)]
         pub status: TransactionStatus,
         pub category_id: Option<u64>,
     }
@@ -322,7 +319,6 @@ pub mod schema {
         pub id: u64,
         pub name: String,
         pub is_group: bool,
-        #[expect(dead_code)]
         pub group_id: Option<u64>,
         pub archived: bool,
         pub children: Option<Vec<ChildCategory>>,
@@ -332,7 +328,6 @@ pub mod schema {
     pub struct ChildCategory {
         pub id: u64,
         pub name: String,
-        #[expect(dead_code)]
         pub group_id: Option<u64>,
         pub archived: bool,
     }

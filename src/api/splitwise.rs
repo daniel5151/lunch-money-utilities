@@ -87,11 +87,8 @@ pub mod schema {
 
     #[derive(Deserialize, Debug)]
     pub struct Friend {
-        #[expect(dead_code)]
         pub id: u64,
-        #[expect(dead_code)]
         pub first_name: String,
-        #[expect(dead_code)]
         pub last_name: Option<String>,
         pub balance: Vec<Balance>,
     }
