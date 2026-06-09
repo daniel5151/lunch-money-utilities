@@ -101,7 +101,7 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
 
         let desired_metadata = crate::api::lunch_money::schema::LunchMoneyTxMetadata {
             kind: crate::api::lunch_money::schema::MetadataKind::Import,
-            original: expense.raw.clone(),
+            original: expense.parsed.clone().into(),
         };
 
         if let Some(existing_lm) = lm_map.remove(&external_id) {
@@ -619,7 +619,7 @@ mod tests {
         let expenses: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
         let desired_metadata = crate::api::lunch_money::schema::LunchMoneyTxMetadata {
             kind: crate::api::lunch_money::schema::MetadataKind::Import,
-            original: expenses[0].raw.clone(),
+            original: expenses[0].parsed.clone().into(),
         };
 
         let mut target_accounts = HashMap::new();

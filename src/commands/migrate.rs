@@ -127,7 +127,7 @@ pub async fn run_migrate_add_metadata(
         if let Some(exp) = expense {
             let desired_metadata = crate::api::lunch_money::schema::LunchMoneyTxMetadata {
                 kind: crate::api::lunch_money::schema::MetadataKind::Import,
-                original: exp.raw.clone(),
+                original: exp.parsed.clone().into(),
             };
 
             updates.push(UpdateObject {
@@ -157,7 +157,22 @@ pub async fn run_migrate_add_metadata(
         println! {};
         println! { "  {STYLE_DIM}--- Updates to be applied (dry run) ---{STYLE_DIM:#}" };
         for u in &updates {
-            println! { "  • Transaction ID: {}, Date: {}, Payee: '{}', Currency: {}, Amount: {}", u.id, u.date, u.payee, u.currency, u.amount };
+            let meta_size = u
+                .custom_metadata
+                .as_ref()
+                .and_then(|m| serde_json::to_string(m).ok())
+                .map(|s| s.len())
+                .unwrap_or(0);
+
+            let size_str = if meta_size > 4096 {
+                format! { "{STYLE_ERROR}[EXCEEDS LIMIT: {} bytes / 4096]{STYLE_ERROR:#}", meta_size }
+            } else if meta_size > 3000 {
+                format! { "{STYLE_WARNING}[WARNING: {} bytes / 4096]{STYLE_WARNING:#}", meta_size }
+            } else {
+                format! { "{STYLE_DIM}[{} bytes]{STYLE_DIM:#}", meta_size }
+            };
+
+            println! { "  • Transaction ID: {}, Date: {}, Payee: '{}', Currency: {}, Amount: {} {}", u.id, u.date, u.payee, u.currency, u.amount, size_str };
         }
         println! {};
         println! { "  {STYLE_WARNING}[Dry Run] No changes were written to Lunch Money.{STYLE_WARNING:#}" };
