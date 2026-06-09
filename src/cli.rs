@@ -39,6 +39,8 @@ pub enum Commands {
     Init,
     /// Query data from Splitwise or Lunch Money
     Query(QueryArgs),
+    /// Migrate previously imported transactions in Lunch Money
+    Migrate(MigrateArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -207,6 +209,34 @@ pub struct SyncGroupArgs {
     /// Skip the configured loan_tag in config toml
     #[arg(long)]
     pub no_loan_tag: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct MigrateArgs {
+    #[command(subcommand)]
+    pub command: MigrateSubcommands,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum MigrateSubcommands {
+    /// Retroactively adds missing Splitwise metadata to existing Lunch Money transactions
+    #[command(name = "add-metadata")]
+    AddMetadata(MigrateAddMetadataArgs),
+}
+
+#[derive(Parser, Debug)]
+pub struct MigrateAddMetadataArgs {
+    /// Optional start date (YYYY-MM-DD) to scan from (defaults to 2000-01-01)
+    #[arg(long)]
+    pub start_date: Option<jiff::civil::Date>,
+
+    /// Optional end date (YYYY-MM-DD) to scan to (defaults to today)
+    #[arg(long)]
+    pub end_date: Option<jiff::civil::Date>,
+
+    /// Print what would be migrated without modifying Lunch Money
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[cfg(test)]

@@ -32,11 +32,14 @@ Sync Splitwise transactions (and global outstanding balances) into Lunch Money m
 
 ## ⚙️ Core Domain & Sync Rules
 
-- **External ID Mapping**: Splitwise transaction IDs are recorded in Lunch Money as `external_id` (prefixed as `splitwise:{id}`).
+- **External ID Mapping**: Splitwise transaction IDs are recorded in Lunch Money as `external_id` (prefixed as `splitwise_{id}`).
 - **Transaction Diffs & Updates**:
   - Transactions are fetched with `include_group_children=true` and `include_split_parents=true`.
   - Split parent transactions are ignored in diffing and skipped for deletion to preserve manual splits in Lunch Money.
   - Transactions are only updated in Lunch Money if `amount` or `currency` changes. Edits to `payee`, `notes`, or `date` inside Lunch Money are preserved.
+- **Manual & CSV Transaction Isolation**:
+  - The sync tool completely ignores any transactions in your manual accounts that do not have a `splitwise_` prefix in their `external_id` field.
+  - This allows you to manually add transactions or import CSV files (e.g., for offline tracking or cash adjustments) directly in your Lunch Money manual accounts without the sync tool deleting, modifying, or failing validation on them.
 - **Double-Entry Liability Rules**:
   - For manual accounts of type `Loan` (liability), transaction amount signs are inverted during sync analysis and API inserts/updates to match Lunch Money's double-entry rules.
   - Manual accounts matching liability types (`Credit`, `Loan`, `OtherLiability`) store outstanding debt as positive numbers in Lunch Money. Negative Splitwise balances are inverted to positive when syncing (e.g. `-100.00 USD` -> `+100.00 USD`). Asset accounts are updated directly without inversion.

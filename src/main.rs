@@ -1,11 +1,11 @@
 use anstream::eprintln;
 
-pub mod style;
-
 mod api;
 mod cli;
 mod commands;
 mod config;
+mod metadata;
+mod style;
 
 #[tokio::main]
 async fn main() {
@@ -99,6 +99,11 @@ async fn run() -> anyhow::Result<()> {
                                 commands::query::run_query_lunchmoney_accounts(&ctx).await?;
                             }
                         }
+                    }
+                },
+                cli::Commands::Migrate(migrate_args) => match migrate_args.command {
+                    cli::MigrateSubcommands::AddMetadata(args) => {
+                        commands::migrate::run_migrate_add_metadata(&ctx, args).await?;
                     }
                 },
             }

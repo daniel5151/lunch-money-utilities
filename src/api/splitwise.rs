@@ -85,6 +85,21 @@ impl Client {
         Ok(expenses)
     }
 
+    pub async fn fetch_expense(&self, id: u64) -> anyhow::Result<Expense> {
+        let res: serde_json::Value = self
+            .fetch(&format!("get_expense/{}", id), &[] as &[(&str, &str)])
+            .await?;
+        let val = res
+            .get("expense")
+            .context("Expected 'expense' key in Splitwise response")?;
+        let parsed: schema::Expense =
+            serde_json::from_value(val.clone()).context("Failed to parse Splitwise expense")?;
+        Ok(Expense {
+            raw: val.clone(),
+            parsed,
+        })
+    }
+
     pub async fn fetch_friends(&self) -> anyhow::Result<Vec<schema::Friend>> {
         let res: schema::FriendsResponse =
             self.fetch("get_friends", &[] as &[(&str, &str)]).await?;

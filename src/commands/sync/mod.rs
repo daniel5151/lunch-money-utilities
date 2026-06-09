@@ -246,6 +246,24 @@ impl<'a> SyncOrchestrator<'a> {
         })
         .await?;
 
+        for t in &lm_transactions {
+            if let Some(crate::api::ExternalId::Splitwise(_)) = &t.external_id {
+                let is_valid = matches!(
+                    t.custom_metadata,
+                    Some(crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(_))
+                );
+                if !is_valid {
+                    anyhow::bail!(
+                        "Detected previously imported Splitwise transaction (ID: {}, payee: '{}', date: {}) with missing or malformed custom_metadata.\n\
+                        Please run one or more `splitwise-lunchmoney migrate` commands to repair custom_metadata for all existing transactions.",
+                        t.id,
+                        t.payee,
+                        t.date
+                    );
+                }
+            }
+        }
+
         println! { "  {STYLE_DIM}Comparing transactions...{STYLE_DIM:#}" };
         println! {};
 
@@ -458,6 +476,7 @@ async fn fetch_lunch_money_transactions(
                 limit: Some(1000),
                 include_group_children: Some(true),
                 include_split_parents: Some(true),
+                include_metadata: Some(true),
             })
             .await?;
         let is_loan = manual_accounts

@@ -99,13 +99,19 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
             )
         };
 
+        let desired_metadata = crate::api::lunch_money::schema::LunchMoneyTxMetadata {
+            kind: crate::api::lunch_money::schema::MetadataKind::Import,
+            original: expense.raw.clone(),
+        };
+
         if let Some(existing_lm) = lm_map.remove(&external_id) {
             if existing_lm.is_split_parent == Some(true) {
                 continue;
             }
             let amount_changed = existing_lm.amount != net_balance;
+            let currency_changed = existing_lm.currency != expense.parsed.currency_code;
 
-            if amount_changed || existing_lm.currency != expense.parsed.currency_code {
+            if amount_changed || currency_changed {
                 updates.push(UpdateObject {
                     id: existing_lm.id,
                     date: existing_lm.date,
@@ -113,6 +119,7 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
                     currency: expense.parsed.currency_code.clone(),
                     payee: existing_lm.payee.clone(),
                     notes: existing_lm.notes.clone().unwrap_or_default(),
+                    custom_metadata: Some(desired_metadata),
                 });
             }
         } else {
@@ -157,6 +164,7 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
                 status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
                 tag_ids: tag_ids_opt,
                 category_id,
+                custom_metadata: Some(desired_metadata),
             });
         }
     }
@@ -577,5 +585,178 @@ mod tests {
         .unwrap();
         let inserts2 = plan2.inserts;
         assert_eq!(inserts2.len(), 1);
+    }
+
+    #[test]
+    fn test_diff_transactions_custom_metadata() {
+        let config_str = r#"
+            [splitwise]
+            api_key = "dummy"
+            user_id = 123
+            ignored_groups = []
+
+            [lunch_money]
+            api_key = "dummy"
+            custom_accounts = { USD = 999 }
+        "#;
+        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+
+        let expenses_json = r#"[
+            {
+                "id": 1,
+                "description": "Positive Net Balance (folks owe me)",
+                "date": "2026-06-06T12:00:00Z",
+                "currency_code": "USD",
+                "users": [
+                    {
+                        "user_id": 123,
+                        "net_balance": "50.00"
+                    }
+                ],
+                "payment": false
+            }
+        ]"#;
+        let expenses: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
+        let desired_metadata = crate::api::lunch_money::schema::LunchMoneyTxMetadata {
+            kind: crate::api::lunch_money::schema::MetadataKind::Import,
+            original: expenses[0].raw.clone(),
+        };
+
+        let mut target_accounts = HashMap::new();
+        target_accounts.insert(Currency::new("USD"), 999);
+
+        // Case 1: Existing transaction has no custom_metadata, but amount and currency are unchanged.
+        // Should NOT trigger an update during diffing, because the sync command performs a fail-fast check earlier.
+        let mut lm_map = HashMap::new();
+        lm_map.insert(
+            ExternalId::Splitwise(1),
+            Transaction {
+                id: 10,
+                date: jiff::civil::date(2026, 6, 6),
+                amount: Decimal::new(5000, 2),
+                currency: Currency::new("USD"),
+                payee: "Positive Net Balance (folks owe me)".to_string(),
+                notes: None,
+                external_id: Some(ExternalId::Splitwise(1)),
+                manual_account_id: Some(999),
+                is_split_parent: None,
+                group_parent_id: None,
+                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
+                category_id: None,
+                custom_metadata: None,
+            },
+        );
+
+        let plan = diff_transactions(DiffTransactionsArgs {
+            expenses: expenses.clone(),
+            config: &config,
+            target_accounts: &target_accounts,
+            group_map: &HashMap::new(),
+            lm_map: &mut lm_map,
+            sw_category_id_to_path: &HashMap::new(),
+            resolved_categories: &HashMap::new(),
+            ignored_groups_exclude: None,
+            bypass_ignore_groups: false,
+            tag_id: None,
+            loan_tag_id: None,
+            force_category_id: None,
+            tags_to_create: vec![],
+        })
+        .unwrap();
+
+        assert!(plan.inserts.is_empty());
+        assert!(plan.updates.is_empty());
+
+        // Case 2: Existing transaction has identical custom_metadata. Should NOT trigger an update.
+        let mut lm_map = HashMap::new();
+        lm_map.insert(
+            ExternalId::Splitwise(1),
+            Transaction {
+                id: 10,
+                date: jiff::civil::date(2026, 6, 6),
+                amount: Decimal::new(5000, 2),
+                currency: Currency::new("USD"),
+                payee: "Positive Net Balance (folks owe me)".to_string(),
+                notes: None,
+                external_id: Some(ExternalId::Splitwise(1)),
+                manual_account_id: Some(999),
+                is_split_parent: None,
+                group_parent_id: None,
+                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
+                category_id: None,
+                custom_metadata: Some(
+                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
+                        desired_metadata.clone(),
+                    ),
+                ),
+            },
+        );
+
+        let plan = diff_transactions(DiffTransactionsArgs {
+            expenses: expenses.clone(),
+            config: &config,
+            target_accounts: &target_accounts,
+            group_map: &HashMap::new(),
+            lm_map: &mut lm_map,
+            sw_category_id_to_path: &HashMap::new(),
+            resolved_categories: &HashMap::new(),
+            ignored_groups_exclude: None,
+            bypass_ignore_groups: false,
+            tag_id: None,
+            loan_tag_id: None,
+            force_category_id: None,
+            tags_to_create: vec![],
+        })
+        .unwrap();
+
+        assert!(plan.inserts.is_empty());
+        assert!(plan.updates.is_empty());
+
+        // Case 3: Amount changed. Should trigger an update carrying custom_metadata.
+        let mut lm_map = HashMap::new();
+        lm_map.insert(
+            ExternalId::Splitwise(1),
+            Transaction {
+                id: 10,
+                date: jiff::civil::date(2026, 6, 6),
+                amount: Decimal::new(4000, 2), // 40.00 instead of 50.00
+                currency: Currency::new("USD"),
+                payee: "Positive Net Balance (folks owe me)".to_string(),
+                notes: None,
+                external_id: Some(ExternalId::Splitwise(1)),
+                manual_account_id: Some(999),
+                is_split_parent: None,
+                group_parent_id: None,
+                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
+                category_id: None,
+                custom_metadata: Some(
+                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
+                        desired_metadata.clone(),
+                    ),
+                ),
+            },
+        );
+
+        let plan = diff_transactions(DiffTransactionsArgs {
+            expenses: expenses.clone(),
+            config: &config,
+            target_accounts: &target_accounts,
+            group_map: &HashMap::new(),
+            lm_map: &mut lm_map,
+            sw_category_id_to_path: &HashMap::new(),
+            resolved_categories: &HashMap::new(),
+            ignored_groups_exclude: None,
+            bypass_ignore_groups: false,
+            tag_id: None,
+            loan_tag_id: None,
+            force_category_id: None,
+            tags_to_create: vec![],
+        })
+        .unwrap();
+
+        assert!(plan.inserts.is_empty());
+        assert_eq!(plan.updates.len(), 1);
+        assert_eq!(plan.updates[0].amount, Decimal::new(5000, 2));
+        assert_eq!(plan.updates[0].custom_metadata, Some(desired_metadata));
     }
 }

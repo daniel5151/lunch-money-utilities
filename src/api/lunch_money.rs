@@ -174,6 +174,8 @@ pub struct TransactionQuery {
     pub limit: Option<u32>,
     pub include_group_children: Option<bool>,
     pub include_split_parents: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_metadata: Option<bool>,
 }
 
 pub mod schema {
@@ -244,7 +246,12 @@ pub mod schema {
         pub group_parent_id: Option<u64>,
         pub status: TransactionStatus,
         pub category_id: Option<u64>,
+        pub custom_metadata: Option<MaybeLunchMoneyTxMetadata>,
     }
+
+    pub use crate::metadata::LunchMoneyTxMetadata;
+    pub use crate::metadata::MaybeLunchMoneyTxMetadata;
+    pub use crate::metadata::MetadataKind;
 
     #[derive(Serialize, Debug)]
     pub struct InsertPayload {
@@ -265,6 +272,8 @@ pub mod schema {
         pub tag_ids: Option<Vec<u64>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub category_id: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub custom_metadata: Option<LunchMoneyTxMetadata>,
     }
 
     #[derive(Deserialize, Debug)]
@@ -297,6 +306,8 @@ pub mod schema {
         pub currency: crate::api::Currency,
         pub payee: String,
         pub notes: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub custom_metadata: Option<LunchMoneyTxMetadata>,
     }
 
     #[derive(Serialize, Debug)]

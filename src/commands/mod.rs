@@ -1,4 +1,5 @@
 pub(crate) mod init;
+pub(crate) mod migrate;
 pub(crate) mod query;
 pub(crate) mod sync;
 pub(crate) mod sync_balances;

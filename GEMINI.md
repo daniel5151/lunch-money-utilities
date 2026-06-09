@@ -32,11 +32,12 @@
 ---
 
 ## Domain & Business Logic Rules
-- **External ID Mapping**: Splitwise transaction IDs are recorded in Lunch Money as `external_id` (prefixed like `splitwise:{id}`).
+- **External ID Mapping**: Splitwise transaction IDs are recorded in Lunch Money as `external_id` (prefixed like `splitwise_{id}`).
 - **Transaction Diffs & Updates**:
   - Transactions are fetched with `include_group_children=true` and `include_split_parents=true`.
   - Split parent transactions are ignored in diffing and skipped for deletion to preserve manual splits in Lunch Money.
   - Transactions are only updated in Lunch Money if `amount` or `currency` changes. Edits to `payee`, `notes`, or `date` in Lunch Money are preserved.
+- **Manual & CSV Transaction Isolation**: Transactions in manual accounts lacking a `splitwise_` external ID prefix (e.g. manually added, split child transactions without external ID, or CSV-imported transactions) MUST be completely ignored during validation, metadata migration, diff planning, and sync deletions. This ensures custom user modifications/additions inside these manual accounts do not cause regressions or sync errors.
 - **Group Matching & Resolution**: Splitwise groups can be resolved by ID or exact name (case-sensitive). A fallback synthetic non-group ID of `0` is resolved if querying `0` or `"non-group"` exactly. Configured ignored groups also match by ID or exact name (case-sensitive).
 - **Group Exclusion**: Transactions associated with a group can be excluded by specifying `--no-groups` on `query expenses` and `sync window` commands.
 - **CSV Reporting**: Synchronization commands (`sync window`, `sync group`, `sync balances`) support dumping their operations (inserts, updates, deletes) to a CSV file via the `--csv` option.

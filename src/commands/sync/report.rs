@@ -388,6 +388,7 @@ mod tests {
             group_parent_id: None,
             status: TransactionStatus::Reviewed,
             category_id: Some(5),
+            custom_metadata: None,
         }];
 
         let updates = vec![UpdateObject {
@@ -397,6 +398,7 @@ mod tests {
             currency: Currency::new("USD"),
             payee: "Update Payee".to_string(),
             notes: "Update Notes".to_string(),
+            custom_metadata: None,
         }];
 
         let inserts = vec![InsertObject {
@@ -410,6 +412,7 @@ mod tests {
             status: TransactionStatus::Unreviewed,
             tag_ids: None,
             category_id: Some(6),
+            custom_metadata: None,
         }];
 
         let mut lm_category_names = HashMap::new();

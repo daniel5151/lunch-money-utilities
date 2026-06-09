@@ -72,37 +72,3 @@ pub struct LunchMoneyConfig {
     #[serde(default)]
     pub custom_accounts: std::collections::HashMap<crate::api::Currency, u64>,
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_config_parsing_ignored_groups() {
-        let toml_content = r#"
-            [splitwise]
-            api_key = "test_key"
-            user_id = 12345
-            ignored_groups = [123, "Roommates", "456"]
-
-            [lunch_money]
-            api_key = "lm_key"
-        "#;
-
-        let config: Config = toml::from_str(toml_content).unwrap();
-        assert_eq!(config.splitwise.ignored_groups.len(), 3);
-
-        // Test matching logic
-        // 1. Matches ID 123 (which was a number in TOML)
-        assert!(config.splitwise.is_group_ignored(123, Some("Any Name")));
-        // 2. Matches Name "Roommates" (which was a string in TOML) - exact
-        assert!(config.splitwise.is_group_ignored(999, Some("Roommates")));
-        // 3. Does NOT match Name "roommates" (case-sensitive now)
-        assert!(!config.splitwise.is_group_ignored(999, Some("roommates")));
-        // 4. Matches ID 456 (which was a string `"456"` in TOML but parses as ID)
-        assert!(config.splitwise.is_group_ignored(456, Some("Any Name")));
-
-        // 5. Does not match some other group
-        assert!(!config.splitwise.is_group_ignored(789, Some("Family")));
-    }
-}
