@@ -5,6 +5,23 @@ use crate::api::splitwise::ExpensesQuery;
 use crate::style::*;
 use anstream::println;
 use std::collections::HashMap;
+use tabled::Table;
+use tabled::Tabled;
+use tabled::settings::Style;
+
+#[derive(Tabled)]
+struct MigrationRecord {
+    #[tabled(rename = "Transaction ID")]
+    id: String,
+    #[tabled(rename = "Date")]
+    date: String,
+    #[tabled(rename = "Payee")]
+    payee: String,
+    #[tabled(rename = "Amount")]
+    amount: String,
+    #[tabled(rename = "Metadata Size")]
+    meta_size: String,
+}
 
 pub async fn run_migrate_add_metadata(
     ctx: &AppContext,
@@ -153,27 +170,57 @@ pub async fn run_migrate_add_metadata(
         println! { "  ⚠️  {STYLE_WARNING}Skipped {} transactions due to Splitwise fetch errors.{STYLE_WARNING:#}", skipped };
     }
 
+    let super::MaxWidths {
+        max_num_len,
+        max_currency_len,
+    } = super::compute_max_widths(updates.iter().map(|u| (u.amount, &u.currency)));
+
+    let mut records = Vec::new();
+    for u in &updates {
+        let meta_size = u
+            .custom_metadata
+            .as_ref()
+            .and_then(|m| serde_json::to_string(m).ok())
+            .map(|s| s.len())
+            .unwrap_or(0);
+
+        let size_str = if meta_size > 4096 {
+            format! { "{STYLE_ERROR}{} bytes (EXCEEDS LIMIT){STYLE_ERROR:#}", meta_size }
+        } else if meta_size > 3000 {
+            format! { "{STYLE_WARNING}{} bytes (WARNING: close to limit){STYLE_WARNING:#}", meta_size }
+        } else {
+            format! { "{STYLE_DIM}{} bytes{STYLE_DIM:#}", meta_size }
+        };
+
+        let amount_style = if u.amount.is_sign_negative() {
+            STYLE_ERROR
+        } else {
+            STYLE_SUCCESS
+        };
+        let amount_plain = super::format_aligned_balance(
+            u.amount,
+            &u.currency,
+            max_num_len,
+            max_currency_len,
+            false,
+        );
+        let amount_colored = format! { "{}{}{:#}", amount_style, amount_plain, amount_style };
+
+        records.push(MigrationRecord {
+            id: u.id.to_string(),
+            date: u.date.to_string(),
+            payee: u.payee.clone(),
+            amount: amount_colored,
+            meta_size: size_str,
+        });
+    }
+
+    println! {};
+    let mut table = Table::new(records);
+    table.with(Style::rounded());
+    println! { "{}", table };
+
     if args.dry_run {
-        println! {};
-        println! { "  {STYLE_DIM}--- Updates to be applied (dry run) ---{STYLE_DIM:#}" };
-        for u in &updates {
-            let meta_size = u
-                .custom_metadata
-                .as_ref()
-                .and_then(|m| serde_json::to_string(m).ok())
-                .map(|s| s.len())
-                .unwrap_or(0);
-
-            let size_str = if meta_size > 4096 {
-                format! { "{STYLE_ERROR}[EXCEEDS LIMIT: {} bytes / 4096]{STYLE_ERROR:#}", meta_size }
-            } else if meta_size > 3000 {
-                format! { "{STYLE_WARNING}[WARNING: {} bytes / 4096]{STYLE_WARNING:#}", meta_size }
-            } else {
-                format! { "{STYLE_DIM}[{} bytes]{STYLE_DIM:#}", meta_size }
-            };
-
-            println! { "  • Transaction ID: {}, Date: {}, Payee: '{}', Currency: {}, Amount: {} {}", u.id, u.date, u.payee, u.currency, u.amount, size_str };
-        }
         println! {};
         println! { "  {STYLE_WARNING}[Dry Run] No changes were written to Lunch Money.{STYLE_WARNING:#}" };
     } else {
