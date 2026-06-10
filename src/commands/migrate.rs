@@ -157,6 +157,7 @@ pub async fn run_migrate_add_metadata(
                 notes: t.notes.unwrap_or_default(),
                 custom_metadata: Some(desired_metadata),
                 additional_tag_ids: None,
+                external_id: None,
             });
         }
     }

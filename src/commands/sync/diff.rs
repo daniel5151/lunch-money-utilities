@@ -49,7 +49,7 @@ fn resolve_category_for_expense(
     }
 }
 
-fn apply_lpp_delta_engine(
+pub(super) fn apply_lpp_delta_engine(
     existing_lm: &Transaction,
     target_amount: Decimal,
     expense: &Expense,
@@ -125,6 +125,7 @@ fn apply_lpp_delta_engine(
                     original_transaction_id: existing_lm.id,
                 }),
                 additional_tag_ids: None,
+                external_id: None,
             });
 
             // Also ensure the original transaction has the updated tag
@@ -144,6 +145,7 @@ fn apply_lpp_delta_engine(
                         original: expense.parsed.clone().into(),
                     }),
                     additional_tag_ids: Some(vec![ut_id]),
+                    external_id: None,
                 });
             }
         }
@@ -152,7 +154,9 @@ fn apply_lpp_delta_engine(
         let new_delta = target_amount - current_sum;
 
         if !new_delta.is_zero() {
-            let manual_account_id = target_accounts[&expense.parsed.currency_code];
+            let manual_account_id = existing_lm
+                .manual_account_id
+                .unwrap_or_else(|| target_accounts[&existing_lm.currency]);
             let mut tag_ids = Vec::new();
             if let Some(bt_id) = backdated_tag_id {
                 tag_ids.push(bt_id);
@@ -170,7 +174,7 @@ fn apply_lpp_delta_engine(
                     .to_zoned(jiff::tz::TimeZone::UTC)
                     .date(),
                 amount: new_delta,
-                currency: expense.parsed.currency_code.clone(),
+                currency: existing_lm.currency.clone(),
                 payee: payee_str.to_string(),
                 notes: format!(
                     "(Original Transaction: {}) {}",
@@ -310,6 +314,35 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
                     &payee_str,
                     sync_window_start,
                 )?;
+
+                let mut found = false;
+                for u in &mut updates {
+                    if u.id == old_lm.id {
+                        u.external_id = Some(None);
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    updates.push(UpdateObject {
+                        id: old_lm.id,
+                        date: old_lm.date,
+                        amount: old_lm.amount,
+                        currency: old_lm.currency.clone(),
+                        payee: old_lm.payee.clone(),
+                        notes: old_lm.notes.clone().unwrap_or_default(),
+                        custom_metadata: old_lm.custom_metadata.clone().and_then(|m| {
+                            match m {
+                            crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
+                                metadata,
+                            ) => Some(metadata),
+                            _ => None,
+                        }
+                        }),
+                        additional_tag_ids: None,
+                        external_id: Some(None),
+                    });
+                }
 
                 if !target_amount.is_zero() {
                     let manual_account_id = target_accounts[&expense.parsed.currency_code];
@@ -457,6 +490,7 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
                     notes: existing_lm.notes.clone().unwrap_or_default(),
                     custom_metadata: Some(desired_metadata),
                     additional_tag_ids: None,
+                    external_id: None,
                 });
             }
         } else {
@@ -1582,5 +1616,276 @@ mod tests {
 
         // Updates should be empty
         assert_eq!(plan.updates.len(), 0);
+    }
+
+    #[test]
+    fn test_diff_transactions_currency_changed_outside_window() {
+        let config_str = r#"
+            [splitwise]
+            api_key = "dummy"
+            user_id = 123
+            ignored_groups = []
+
+            [lunch_money]
+            api_key = "dummy"
+            custom_accounts = { USD = 999, CAD = 888 }
+
+            [sync]
+            backdated_tag = "backdated"
+            updated_tag = "updated"
+        "#;
+        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+
+        let expenses_json = r#"[
+            {
+                "id": 1,
+                "description": "Lunch outside window",
+                "date": "2026-06-01T12:00:00Z",
+                "currency_code": "CAD",
+                "users": [
+                    {
+                        "user_id": 123,
+                        "net_balance": "-15.00"
+                     }
+                ],
+                "payment": false
+            }
+        ]"#;
+        let expenses: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
+
+        let mut target_accounts = HashMap::new();
+        target_accounts.insert(Currency::new("USD"), 999);
+        target_accounts.insert(Currency::new("CAD"), 888);
+
+        let mut lm_map = HashMap::new();
+        let original_expense = expenses[0].parsed.clone();
+        // The original expense was in USD, but now Splitwise shows it as CAD.
+        let mut original_expense_usd = original_expense.clone();
+        original_expense_usd.currency_code = Currency::new("USD");
+        let orig_metadata = LunchMoneyTxMetadata::Import {
+            delta_transaction_ids: Vec::new(),
+            original: original_expense_usd.into(),
+        };
+
+        lm_map.insert(
+            ExternalId::Splitwise(1),
+            Transaction {
+                id: 10,
+                date: jiff::civil::date(2026, 6, 1),
+                amount: Decimal::new(-1500, 2),
+                currency: Currency::new("USD"),
+                payee: "Lunch outside window".to_string(),
+                notes: None,
+                external_id: Some(ExternalId::Splitwise(1)),
+                manual_account_id: Some(999),
+                is_split_parent: None,
+                group_parent_id: None,
+                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
+                category_id: None,
+                custom_metadata: Some(
+                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
+                        orig_metadata,
+                    ),
+                ),
+            },
+        );
+
+        let plan = diff_transactions(DiffTransactionsArgs {
+            expenses: expenses.clone(),
+            config: &config,
+            target_accounts: &target_accounts,
+            group_map: &HashMap::new(),
+            lm_map: &mut lm_map,
+            sw_category_id_to_path: &HashMap::new(),
+            resolved_categories: &HashMap::new(),
+            ignored_groups_exclude: None,
+            bypass_ignore_groups: false,
+            tag_id: None,
+            loan_tag_id: None,
+            force_category_id: None,
+            tags_to_create: vec![],
+            sync_window_start: Some(jiff::civil::date(2026, 6, 8)),
+            backdated_tag_id: Some(888),
+            updated_tag_id: Some(777),
+        })
+        .unwrap();
+
+        // Since original transaction was USD (outside window) and currency changed to CAD:
+        // 1. The old USD transaction balance should be zeroed out via a delta transaction in USD.
+        assert_eq!(plan.inserts.len(), 2);
+
+        // Find the delta insert (which zeroed out USD) and the new CAD insert
+        let delta_ins = plan
+            .inserts
+            .iter()
+            .find(|i| i.currency.as_str() == "USD")
+            .unwrap();
+        let new_ins = plan
+            .inserts
+            .iter()
+            .find(|i| i.currency.as_str() == "CAD")
+            .unwrap();
+
+        assert_eq!(delta_ins.manual_account_id, 999);
+        assert_eq!(delta_ins.amount, Decimal::new(1500, 2)); // +15.00 to cancel out -15.00 USD
+        assert_eq!(
+            delta_ins.notes,
+            "(Original Transaction: 10) Lunch outside window"
+        );
+
+        assert_eq!(new_ins.manual_account_id, 888);
+        assert_eq!(new_ins.amount, Decimal::new(-1500, 2)); // -15.00 CAD
+
+        // Verify that the original USD transaction (ID 10) is updated to clear its external_id
+        assert_eq!(plan.updates.len(), 1);
+        let upd = &plan.updates[0];
+        assert_eq!(upd.id, 10);
+        assert_eq!(upd.external_id, Some(None));
+    }
+
+    #[test]
+    fn test_diff_transactions_currency_changed_outside_window_latest_delta_in_lpp() {
+        let config_str = r#"
+            [splitwise]
+            api_key = "dummy"
+            user_id = 123
+            ignored_groups = []
+
+            [lunch_money]
+            api_key = "dummy"
+            custom_accounts = { USD = 999, CAD = 888 }
+
+            [sync]
+            backdated_tag = "backdated"
+            updated_tag = "updated"
+        "#;
+        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+
+        let expenses_json = r#"[
+            {
+                "id": 1,
+                "description": "Lunch outside window",
+                "date": "2026-06-01T12:00:00Z",
+                "currency_code": "CAD",
+                "users": [
+                    {
+                        "user_id": 123,
+                        "net_balance": "-15.00"
+                     }
+                 ],
+                 "payment": false
+            }
+        ]"#;
+        let expenses: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
+
+        let mut target_accounts = HashMap::new();
+        target_accounts.insert(Currency::new("USD"), 999);
+        target_accounts.insert(Currency::new("CAD"), 888);
+
+        let mut lm_map = HashMap::new();
+        let original_expense = expenses[0].parsed.clone();
+        let mut original_expense_usd = original_expense.clone();
+        original_expense_usd.currency_code = Currency::new("USD");
+        let orig_metadata = LunchMoneyTxMetadata::Import {
+            delta_transaction_ids: vec![20],
+            original: original_expense_usd.into(),
+        };
+
+        // Original transaction
+        lm_map.insert(
+            ExternalId::Splitwise(1),
+            Transaction {
+                id: 10,
+                date: jiff::civil::date(2026, 6, 1),
+                amount: Decimal::new(-1500, 2),
+                currency: Currency::new("USD"),
+                payee: "Lunch outside window".to_string(),
+                notes: Some("Lunch outside window".to_string()),
+                external_id: Some(ExternalId::Splitwise(1)),
+                manual_account_id: Some(999),
+                is_split_parent: None,
+                group_parent_id: None,
+                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
+                category_id: None,
+                custom_metadata: Some(
+                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
+                        orig_metadata,
+                    ),
+                ),
+            },
+        );
+
+        // Delta transaction (in LPP: date is 2026-06-09, sync window start is 2026-06-08)
+        lm_map.insert(
+            ExternalId::SplitwiseDelta(1, 0),
+            Transaction {
+                id: 20,
+                date: jiff::civil::date(2026, 6, 9),
+                amount: Decimal::new(500, 2), // delta was +5.00
+                currency: Currency::new("USD"),
+                payee: "Lunch outside window".to_string(),
+                notes: Some("(Original Transaction: 10) Lunch outside window".to_string()),
+                external_id: Some(ExternalId::SplitwiseDelta(1, 0)),
+                manual_account_id: Some(999),
+                is_split_parent: None,
+                group_parent_id: None,
+                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
+                category_id: None,
+                custom_metadata: Some(
+                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
+                        LunchMoneyTxMetadata::Delta {
+                            original_transaction_id: 10,
+                        },
+                    ),
+                ),
+            },
+        );
+
+        let plan = diff_transactions(DiffTransactionsArgs {
+            expenses: expenses.clone(),
+            config: &config,
+            target_accounts: &target_accounts,
+            group_map: &HashMap::new(),
+            lm_map: &mut lm_map,
+            sw_category_id_to_path: &HashMap::new(),
+            resolved_categories: &HashMap::new(),
+            ignored_groups_exclude: None,
+            bypass_ignore_groups: false,
+            tag_id: None,
+            loan_tag_id: None,
+            force_category_id: None,
+            tags_to_create: vec![],
+            sync_window_start: Some(jiff::civil::date(2026, 6, 8)),
+            backdated_tag_id: Some(888),
+            updated_tag_id: Some(777),
+        })
+        .unwrap();
+
+        // 1. We expect inserts to contain:
+        //    - One CAD insert for the new CAD expense (since target_amount is -15.00 CAD)
+        //    No delta insert is needed in USD because we can update the existing USD delta in-place to zero it out!
+        assert_eq!(plan.inserts.len(), 1);
+        let new_ins = &plan.inserts[0];
+        assert_eq!(new_ins.currency.as_str(), "CAD");
+        assert_eq!(new_ins.manual_account_id, 888);
+        assert_eq!(new_ins.amount, Decimal::new(-1500, 2));
+
+        // 2. We expect updates to contain exactly 2 updates (no duplicates!):
+        //    - One for the delta transaction (ID 20) to zero out USD:
+        //      Its current sum was -15.00 (original) + 5.00 (delta) = -10.00.
+        //      To reach target 0.00, the new delta amount should be +15.00.
+        //    - One for the original transaction (ID 10) to clear its external_id, add pointer notes, and updated tag.
+        assert_eq!(plan.updates.len(), 2);
+
+        let delta_upd = plan.updates.iter().find(|u| u.id == 20).unwrap();
+        assert_eq!(delta_upd.amount, Decimal::new(1500, 2));
+
+        let orig_upd = plan.updates.iter().find(|u| u.id == 10).unwrap();
+        // It must clear external_id
+        assert_eq!(orig_upd.external_id, Some(None));
+        // It must have the updated tag
+        assert_eq!(orig_upd.additional_tag_ids, Some(vec![777]));
+        // It must format notes with pointer to the latest delta (ID 20)
+        assert!(orig_upd.notes.contains("(See Transaction: 20)"));
     }
 }

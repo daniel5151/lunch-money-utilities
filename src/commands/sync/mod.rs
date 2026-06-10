@@ -393,6 +393,85 @@ impl<'a> SyncOrchestrator<'a> {
             lm_transactions = lm_tx_map_dedup.into_values().collect();
         }
 
+        // Pointer chasing: check if any fetched delta transaction has an original transaction
+        // that hasn't been fetched yet, or vice versa.
+        let mut missing_ids = std::collections::HashSet::new();
+        let mut checked_ids = std::collections::HashSet::new();
+
+        loop {
+            missing_ids.clear();
+            for t in &lm_transactions {
+                // If it is a delta transaction, check if we fetched the original
+                if let Some(crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
+                    crate::api::lunch_money::schema::LunchMoneyTxMetadata::Delta {
+                        original_transaction_id,
+                    },
+                )) = &t.custom_metadata
+                {
+                    if !checked_ids.contains(original_transaction_id)
+                        && !lm_transactions
+                            .iter()
+                            .any(|tx| tx.id == *original_transaction_id)
+                    {
+                        missing_ids.insert(*original_transaction_id);
+                    }
+                }
+
+                // If it is an import transaction, check if we fetched all its delta transactions
+                if let Some(crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
+                    crate::api::lunch_money::schema::LunchMoneyTxMetadata::Import {
+                        delta_transaction_ids,
+                        ..
+                    },
+                )) = &t.custom_metadata
+                {
+                    for &d_id in delta_transaction_ids {
+                        if !checked_ids.contains(&d_id)
+                            && !lm_transactions.iter().any(|tx| tx.id == d_id)
+                        {
+                            missing_ids.insert(d_id);
+                        }
+                    }
+                }
+            }
+
+            if missing_ids.is_empty() {
+                break;
+            }
+
+            let mut fetched_txs = Vec::new();
+            for &id in &missing_ids {
+                println! { "  {STYLE_DIM}Pointer chasing: Fetching missing transaction ID {}...{STYLE_DIM:#}", id };
+                let mut tx = lm_client.fetch_transaction_by_id(id).await?;
+
+                // Normalize sign if it's a Loan account
+                if let Some(acc_id) = tx.manual_account_id {
+                    let is_loan = manual_accounts
+                        .iter()
+                        .find(|acc| acc.id == acc_id)
+                        .map(|acc| {
+                            acc.account_type == crate::api::lunch_money::schema::AccountType::Loan
+                        })
+                        .unwrap_or(false);
+                    if is_loan {
+                        tx.amount = -tx.amount;
+                    }
+                }
+                fetched_txs.push(tx);
+                checked_ids.insert(id);
+            }
+
+            // Merge newly fetched transactions
+            let mut lm_tx_map_dedup = HashMap::new();
+            for t in lm_transactions {
+                lm_tx_map_dedup.insert(t.id, t);
+            }
+            for t in fetched_txs {
+                lm_tx_map_dedup.insert(t.id, t);
+            }
+            lm_transactions = lm_tx_map_dedup.into_values().collect();
+        }
+
         for t in &lm_transactions {
             if let Some(crate::api::ExternalId::Splitwise(_)) = &t.external_id {
                 let is_valid = matches!(
@@ -435,7 +514,7 @@ impl<'a> SyncOrchestrator<'a> {
 
         // Compute pure diff plan (excludes mutating actions like tag creations)
         let mut plan = diff_transactions(DiffTransactionsArgs {
-            expenses,
+            expenses: expenses.clone(),
             config: &self.ctx.config,
             target_accounts: &target_accounts,
             group_map: &group_map,
@@ -496,8 +575,17 @@ impl<'a> SyncOrchestrator<'a> {
                 target_accounts: &target_accounts,
                 tag_name: opts.tag.as_deref(),
                 loan_tag_name,
+                tag_id,
+                loan_tag_id,
                 updated_tag_id,
                 lm_transactions: &lm_transactions,
+                expenses: &expenses,
+                config: &self.ctx.config,
+                backdated_tag_id,
+                sync_window_start,
+                no_ignore: opts.no_ignore,
+                lm_category_names: &lm_category_names,
+                csv_path: opts.csv_path.as_deref(),
             })
             .await?;
         }

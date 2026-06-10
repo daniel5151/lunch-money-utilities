@@ -96,6 +96,11 @@ impl Client {
         Ok(res.transactions)
     }
 
+    pub async fn fetch_transaction_by_id(&self, id: u64) -> anyhow::Result<schema::Transaction> {
+        self.fetch(&format!("transactions/{}", id), &[] as &[(&str, &str)])
+            .await
+    }
+
     pub async fn fetch_categories(
         &self,
         format: Option<&str>,
@@ -313,6 +318,9 @@ pub mod schema {
         pub custom_metadata: Option<LunchMoneyTxMetadata>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub additional_tag_ids: Option<Vec<u64>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[expect(clippy::option_option)]
+        pub external_id: Option<Option<crate::api::ExternalId>>,
     }
 
     #[derive(Deserialize, Debug)]
