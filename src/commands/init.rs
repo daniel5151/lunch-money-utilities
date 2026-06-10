@@ -92,6 +92,19 @@ pub(crate) async fn run_init() -> anyhow::Result<()> {
         println! { "Please set up manually managed accounts with these names in your Lunch Money account before syncing." };
     }
 
+    println! {};
+    let backdated_tag = inquire::Text::new("Backdated Tag:")
+        .with_default("🕰️🧾 Splitwise Backdated")
+        .with_help_message("Tag applied to newly imported transactions whose original Splitwise date falls outside the sync window")
+        .prompt()
+        .context("Failed to get backdated_tag")?;
+
+    let updated_tag = inquire::Text::new("Updated Tag:")
+        .with_default("⏫🧾 Splitwise Updated")
+        .with_help_message("Tag applied to the original older Lunch Money transaction when its Splitwise expense is updated or deleted")
+        .prompt()
+        .context("Failed to get updated_tag")?;
+
     let mut categories_toml = String::new();
     categories_toml.push_str("# \"Payment\" = \"...\"\n");
     for parent in sw_categories {
@@ -129,6 +142,8 @@ api_key = "{lunch_money_api_key}"
 #  (manually) grouped with another account's transaction in lunch money.
 #  e.g: grouping a $100 dinner transaction from a credit-card with a $50 splitwise loan
 # loan_tag = "Splitwise Loan"
+backdated_tag = "{backdated_tag}"
+updated_tag = "{updated_tag}"
 
 [categories]
 # Map Splitwise category names/IDs to Lunch Money category names/IDs (optional)

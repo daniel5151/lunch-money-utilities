@@ -12,6 +12,8 @@ pub struct ApplySyncPlanArgs<'a> {
     pub target_accounts: &'a HashMap<crate::api::Currency, u64>,
     pub tag_name: Option<&'a str>,
     pub loan_tag_name: Option<&'a str>,
+    pub updated_tag_id: Option<u64>,
+    pub lm_transactions: &'a [crate::api::lunch_money::schema::Transaction],
 }
 
 pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> {
@@ -22,6 +24,8 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
         target_accounts,
         tag_name,
         loan_tag_name,
+        updated_tag_id,
+        lm_transactions,
     } = args;
 
     let mut tag_id_map = HashMap::new();
@@ -78,6 +82,8 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
     }
 
     if !plan.inserts.is_empty() {
+        let mut delta_inserts = Vec::new();
+
         for chunk in plan.inserts.chunks(500) {
             let mut chunk_txs = chunk.to_vec();
             for ins in &mut chunk_txs {
@@ -90,7 +96,110 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                     ins.amount = -ins.amount;
                 }
             }
-            lm_client.insert_transactions(&chunk_txs).await?;
+            let response = lm_client.insert_transactions(&chunk_txs).await?;
+            for inserted_tx in response.transactions {
+                if let Some(crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
+                    crate::api::lunch_money::schema::LunchMoneyTxMetadata::Delta {
+                        original_transaction_id,
+                    },
+                )) = inserted_tx.custom_metadata
+                {
+                    delta_inserts.push((original_transaction_id, inserted_tx.id));
+                }
+            }
+        }
+
+        if !delta_inserts.is_empty() {
+            let mut linkage_updates = Vec::new();
+            let mut deltas_by_orig: HashMap<u64, Vec<u64>> = HashMap::new();
+            for (orig_id, delta_id) in delta_inserts {
+                deltas_by_orig.entry(orig_id).or_default().push(delta_id);
+            }
+
+            for (orig_id, new_delta_ids) in deltas_by_orig {
+                if let Some(orig_tx) = lm_transactions.iter().find(|t| t.id == orig_id) {
+                    let mut updated_delta_ids = if let Some(
+                        crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
+                            crate::api::lunch_money::schema::LunchMoneyTxMetadata::Import {
+                                delta_transaction_ids,
+                                ..
+                            },
+                        ),
+                    ) = &orig_tx.custom_metadata
+                    {
+                        delta_transaction_ids.clone()
+                    } else {
+                        Vec::new()
+                    };
+
+                    let next_delta_id = new_delta_ids[0];
+                    updated_delta_ids.extend(new_delta_ids);
+
+                    let original_expense = if let Some(
+                        crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
+                            crate::api::lunch_money::schema::LunchMoneyTxMetadata::Import {
+                                original,
+                                ..
+                            },
+                        ),
+                    ) = &orig_tx.custom_metadata
+                    {
+                        original.clone()
+                    } else {
+                        continue;
+                    };
+
+                    let desired_metadata =
+                        crate::api::lunch_money::schema::LunchMoneyTxMetadata::Import {
+                            delta_transaction_ids: updated_delta_ids,
+                            original: original_expense,
+                        };
+
+                    let mut tag_ids = Vec::new();
+                    if let Some(ut_id) = updated_tag_id {
+                        tag_ids.push(ut_id);
+                    }
+
+                    linkage_updates.push(crate::api::lunch_money::schema::UpdateObject {
+                        id: orig_tx.id,
+                        date: orig_tx.date,
+                        amount: orig_tx.amount,
+                        currency: orig_tx.currency.clone(),
+                        payee: orig_tx.payee.clone(),
+                        notes: if updated_tag_id.is_some() {
+                            super::format_notes_with_pointer(
+                                &orig_tx.notes.clone().unwrap_or_default(),
+                                next_delta_id,
+                            )
+                        } else {
+                            orig_tx.notes.clone().unwrap_or_default()
+                        },
+                        custom_metadata: Some(desired_metadata),
+                        additional_tag_ids: if tag_ids.is_empty() {
+                            None
+                        } else {
+                            Some(tag_ids)
+                        },
+                    });
+                }
+            }
+
+            if !linkage_updates.is_empty() {
+                for chunk in linkage_updates.chunks(500) {
+                    let mut chunk_txs = chunk.to_vec();
+                    for u in &mut chunk_txs {
+                        let is_loan = manual_accounts
+                            .iter()
+                            .find(|acc| target_accounts.get(&u.currency).copied() == Some(acc.id))
+                            .map(|acc| acc.account_type == AccountType::Loan)
+                            .unwrap_or(false);
+                        if is_loan {
+                            u.amount = -u.amount;
+                        }
+                    }
+                    lm_client.update_transactions(&chunk_txs).await?;
+                }
+            }
         }
     }
 

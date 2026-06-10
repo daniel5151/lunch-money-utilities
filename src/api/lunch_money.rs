@@ -121,8 +121,11 @@ impl Client {
         .await
     }
 
-    pub async fn insert_transactions(&self, txs: &[schema::InsertObject]) -> anyhow::Result<()> {
-        self.exec(
+    pub async fn insert_transactions(
+        &self,
+        txs: &[schema::InsertObject],
+    ) -> anyhow::Result<schema::InsertTransactionsResponse> {
+        self.exec_with_response(
             reqwest::Method::POST,
             "transactions",
             &schema::InsertPayload {
@@ -176,9 +179,13 @@ pub struct TransactionQuery {
     pub include_split_parents: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_metadata: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag_id: Option<u64>,
 }
 
 pub mod schema {
+    pub use crate::metadata::LunchMoneyTxMetadata;
+    pub use crate::metadata::MaybeLunchMoneyTxMetadata;
     use rust_decimal::Decimal;
     use serde::Deserialize;
     use serde::Serialize;
@@ -232,7 +239,7 @@ pub mod schema {
         pub transactions: Vec<Transaction>,
     }
 
-    #[derive(Deserialize, Debug)]
+    #[derive(Deserialize, Clone, Debug)]
     pub struct Transaction {
         pub id: u64,
         pub date: jiff::civil::Date,
@@ -248,10 +255,6 @@ pub mod schema {
         pub category_id: Option<u64>,
         pub custom_metadata: Option<MaybeLunchMoneyTxMetadata>,
     }
-
-    pub use crate::metadata::LunchMoneyTxMetadata;
-    pub use crate::metadata::MaybeLunchMoneyTxMetadata;
-    pub use crate::metadata::MetadataKind;
 
     #[derive(Serialize, Debug)]
     pub struct InsertPayload {
@@ -308,6 +311,21 @@ pub mod schema {
         pub notes: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub custom_metadata: Option<LunchMoneyTxMetadata>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub additional_tag_ids: Option<Vec<u64>>,
+    }
+
+    #[derive(Deserialize, Debug)]
+    pub struct InsertTransactionsResponse {
+        pub transactions: Vec<Transaction>,
+        pub skipped_duplicates: Vec<SkippedExistingExternalIdObject>,
+    }
+
+    #[derive(Deserialize, Clone, Debug)]
+    pub struct SkippedExistingExternalIdObject {
+        pub reason: String,
+        pub request_transactions_index: usize,
+        pub existing_transaction_id: u64,
     }
 
     #[derive(Serialize, Debug)]

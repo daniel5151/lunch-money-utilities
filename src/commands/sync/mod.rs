@@ -109,19 +109,38 @@ impl<'a> SyncOrchestrator<'a> {
 
                 println! { "  {STYLE_DIM}Fetching Splitwise groups and expenses...{STYLE_DIM:#}" };
 
-                let mut txs = sw_client
+                let txs = sw_client
                     .fetch_expenses(&ExpensesQuery {
-                        dated_after: Some(start_window_str),
+                        dated_after: Some(start_window_str.clone()),
                         dated_before: from.map(|f| format!("{}T23:59:59Z", f)),
                         limit: Some(0),
                         ..Default::default()
                     })
                     .await?;
 
-                if *no_groups {
-                    txs.retain(|e| e.parsed.group_id.is_none());
+                let updated_after_str = format!("{}T00:00:00Z", start_window_str);
+                let query2_txs = sw_client
+                    .fetch_expenses(&ExpensesQuery {
+                        updated_after: Some(updated_after_str),
+                        dated_before: from.map(|f| format!("{}T23:59:59Z", f)),
+                        limit: Some(0),
+                        ..Default::default()
+                    })
+                    .await?;
+
+                let mut tx_map = HashMap::new();
+                for e in txs {
+                    tx_map.insert(e.parsed.id, e);
                 }
-                txs
+                for e in query2_txs {
+                    tx_map.insert(e.parsed.id, e);
+                }
+
+                let mut merged_txs: Vec<_> = tx_map.into_values().collect();
+                if *no_groups {
+                    merged_txs.retain(|e| e.parsed.group_id.is_none());
+                }
+                merged_txs
             }
             SyncMode::Group { group_query, .. } => {
                 let target_group = super::resolve_group(&groups, group_query)?;
@@ -208,12 +227,24 @@ impl<'a> SyncOrchestrator<'a> {
             self.ctx.config.sync.loan_tag.as_deref()
         };
 
+        let backdated_tag_name = Some(self.ctx.config.sync.backdated_tag.as_str());
+        let updated_tag_name = Some(self.ctx.config.sync.updated_tag.as_str());
+
         // Planning step for tags (dry-run safe)
         let PlannedTags {
             tag_id,
             loan_tag_id,
+            backdated_tag_id,
+            updated_tag_id,
             tags_to_create,
-        } = plan_tags(lm_client, opts.tag.as_deref(), loan_tag_name).await?;
+        } = plan_tags(
+            lm_client,
+            opts.tag.as_deref(),
+            loan_tag_name,
+            backdated_tag_name,
+            updated_tag_name,
+        )
+        .await?;
 
         // Mode specific Lunch Money transactions fetching date ranges
         let super::WindowBounds {
@@ -237,6 +268,11 @@ impl<'a> SyncOrchestrator<'a> {
             }
         };
 
+        let sync_window_start = match &opts.mode {
+            SyncMode::Window { .. } => Some(start_date_str.parse::<jiff::civil::Date>()?),
+            _ => None,
+        };
+
         let lm_transactions = fetch_lunch_money_transactions(FetchLunchMoneyTransactionsArgs {
             lm_client,
             target_accounts: &target_accounts,
@@ -245,6 +281,117 @@ impl<'a> SyncOrchestrator<'a> {
             end_date_str: &end_date_str,
         })
         .await?;
+
+        // Tag-Based Pre-fetching for backdated transactions
+        let mut pre_fetched_backdated = Vec::new();
+        if let Some(bt_id) = backdated_tag_id {
+            println! { "  {STYLE_DIM}Pre-fetching backdated transactions...{STYLE_DIM:#}" };
+            for &account_id in target_accounts.values() {
+                let mut txs = lm_client
+                    .fetch_transactions(&TransactionQuery {
+                        start_date: "2000-01-01".to_string(),
+                        end_date: end_date_str.clone(),
+                        manual_account_id: account_id,
+                        limit: Some(1000),
+                        include_group_children: Some(true),
+                        include_split_parents: Some(true),
+                        include_metadata: Some(true),
+                        tag_id: Some(bt_id),
+                    })
+                    .await?;
+
+                let is_loan = manual_accounts
+                    .iter()
+                    .find(|acc| acc.id == account_id)
+                    .map(|acc| {
+                        acc.account_type == crate::api::lunch_money::schema::AccountType::Loan
+                    })
+                    .unwrap_or(false);
+
+                if is_loan {
+                    for t in &mut txs {
+                        t.amount = -t.amount;
+                    }
+                }
+                pre_fetched_backdated.extend(txs);
+            }
+        }
+
+        // Merge backdated transactions, avoiding duplicates by ID
+        let mut lm_tx_map_dedup = HashMap::new();
+        for t in lm_transactions {
+            lm_tx_map_dedup.insert(t.id, t);
+        }
+        for t in pre_fetched_backdated {
+            lm_tx_map_dedup.insert(t.id, t);
+        }
+        let mut lm_transactions: Vec<Transaction> = lm_tx_map_dedup.into_values().collect();
+
+        // Identify dates of old expenses and fetch them (fallback targeted query)
+        let mut old_expense_dates = Vec::new();
+        if let Some(window_start) = sync_window_start {
+            for e in &expenses {
+                let date_civil = e.parsed.date.to_zoned(jiff::tz::TimeZone::UTC).date();
+                if date_civil < window_start {
+                    let ext_id = crate::api::ExternalId::Splitwise(e.parsed.id);
+                    if !lm_transactions
+                        .iter()
+                        .any(|t| t.external_id.as_ref() == Some(&ext_id))
+                    {
+                        old_expense_dates.push(date_civil);
+                    }
+                }
+            }
+        }
+
+        old_expense_dates.sort();
+        old_expense_dates.dedup();
+
+        let mut date_queried_txs = Vec::new();
+        for date in old_expense_dates {
+            println! { "  {STYLE_DIM}Querying Lunch Money for original date {}...{STYLE_DIM:#}", date };
+            let date_str = date.to_string();
+            for &account_id in target_accounts.values() {
+                let mut txs = lm_client
+                    .fetch_transactions(&TransactionQuery {
+                        start_date: date_str.clone(),
+                        end_date: date_str.clone(),
+                        manual_account_id: account_id,
+                        limit: Some(100),
+                        include_group_children: Some(true),
+                        include_split_parents: Some(true),
+                        include_metadata: Some(true),
+                        tag_id: None,
+                    })
+                    .await?;
+
+                let is_loan = manual_accounts
+                    .iter()
+                    .find(|acc| acc.id == account_id)
+                    .map(|acc| {
+                        acc.account_type == crate::api::lunch_money::schema::AccountType::Loan
+                    })
+                    .unwrap_or(false);
+
+                if is_loan {
+                    for t in &mut txs {
+                        t.amount = -t.amount;
+                    }
+                }
+                date_queried_txs.extend(txs);
+            }
+        }
+
+        if !date_queried_txs.is_empty() {
+            let mut lm_tx_map_dedup = HashMap::new();
+            for t in lm_transactions {
+                lm_tx_map_dedup.insert(t.id, t);
+            }
+            for t in date_queried_txs {
+                lm_tx_map_dedup.insert(t.id, t);
+            }
+            lm_transactions = lm_tx_map_dedup.into_values().collect();
+        }
 
         for t in &lm_transactions {
             if let Some(crate::api::ExternalId::Splitwise(_)) = &t.external_id {
@@ -273,7 +420,8 @@ impl<'a> SyncOrchestrator<'a> {
         }
 
         let mut lm_map: HashMap<crate::api::ExternalId, Transaction> = lm_transactions
-            .into_iter()
+            .iter()
+            .cloned()
             .filter_map(|t| t.external_id.clone().map(|ext_id| (ext_id, t)))
             .collect();
 
@@ -300,6 +448,9 @@ impl<'a> SyncOrchestrator<'a> {
             loan_tag_id,
             force_category_id,
             tags_to_create,
+            sync_window_start,
+            backdated_tag_id,
+            updated_tag_id,
         })?;
 
         // Mode specific post-diff deletes filtering
@@ -345,6 +496,8 @@ impl<'a> SyncOrchestrator<'a> {
                 target_accounts: &target_accounts,
                 tag_name: opts.tag.as_deref(),
                 loan_tag_name,
+                updated_tag_id,
+                lm_transactions: &lm_transactions,
             })
             .await?;
         }
@@ -477,6 +630,7 @@ async fn fetch_lunch_money_transactions(
                 include_group_children: Some(true),
                 include_split_parents: Some(true),
                 include_metadata: Some(true),
+                tag_id: None,
             })
             .await?;
         let is_loan = manual_accounts
@@ -609,6 +763,8 @@ async fn resolve_force_category(
 pub(crate) struct PlannedTags {
     pub tag_id: Option<u64>,
     pub loan_tag_id: Option<u64>,
+    pub backdated_tag_id: Option<u64>,
+    pub updated_tag_id: Option<u64>,
     pub tags_to_create: Vec<String>,
 }
 
@@ -616,15 +772,25 @@ async fn plan_tags(
     lm_client: &crate::api::lunch_money::Client,
     tag_name: Option<&str>,
     loan_tag_name: Option<&str>,
+    backdated_tag_name: Option<&str>,
+    updated_tag_name: Option<&str>,
 ) -> anyhow::Result<PlannedTags> {
     let mut tag_id = None;
     let mut loan_tag_id = None;
+    let mut backdated_tag_id = None;
+    let mut updated_tag_id = None;
     let mut tags_to_create = Vec::new();
 
-    if tag_name.is_none() && loan_tag_name.is_none() {
+    if tag_name.is_none()
+        && loan_tag_name.is_none()
+        && backdated_tag_name.is_none()
+        && updated_tag_name.is_none()
+    {
         return Ok(PlannedTags {
             tag_id: None,
             loan_tag_id: None,
+            backdated_tag_id: None,
+            updated_tag_id: None,
             tags_to_create,
         });
     }
@@ -650,12 +816,86 @@ async fn plan_tags(
         }
     }
 
+    if let Some(name) = backdated_tag_name {
+        if Some(name) == tag_name {
+            backdated_tag_id = tag_id;
+        } else if Some(name) == loan_tag_name {
+            backdated_tag_id = loan_tag_id;
+        } else if let Some(existing_tag) = tags.iter().find(|t| t.name.eq_ignore_ascii_case(name)) {
+            backdated_tag_id = Some(existing_tag.id);
+        } else {
+            tags_to_create.push(name.to_string());
+        }
+    }
+
+    if let Some(name) = updated_tag_name {
+        if Some(name) == tag_name {
+            updated_tag_id = tag_id;
+        } else if Some(name) == loan_tag_name {
+            updated_tag_id = loan_tag_id;
+        } else if Some(name) == backdated_tag_name {
+            updated_tag_id = backdated_tag_id;
+        } else if let Some(existing_tag) = tags.iter().find(|t| t.name.eq_ignore_ascii_case(name)) {
+            updated_tag_id = Some(existing_tag.id);
+        } else {
+            tags_to_create.push(name.to_string());
+        }
+    }
+
     tags_to_create.sort();
     tags_to_create.dedup();
 
     Ok(PlannedTags {
         tag_id,
         loan_tag_id,
+        backdated_tag_id,
+        updated_tag_id,
         tags_to_create,
     })
+}
+
+pub(crate) fn format_notes_with_pointer(orig_notes: &str, next_delta_id: u64) -> String {
+    let target_prefix = format!("(See Transaction: {})", next_delta_id);
+    let trimmed = orig_notes.trim();
+    if trimmed.starts_with(&target_prefix) {
+        trimmed.to_string()
+    } else if trimmed.is_empty() {
+        target_prefix
+    } else {
+        format!("{} {}", target_prefix, trimmed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_notes_with_pointer() {
+        assert_eq!(format_notes_with_pointer("", 123), "(See Transaction: 123)");
+        assert_eq!(
+            format_notes_with_pointer("   ", 123),
+            "(See Transaction: 123)"
+        );
+        assert_eq!(
+            format_notes_with_pointer("hello world", 123),
+            "(See Transaction: 123) hello world"
+        );
+        assert_eq!(
+            format_notes_with_pointer("  hello world  ", 123),
+            "(See Transaction: 123) hello world"
+        );
+        assert_eq!(
+            format_notes_with_pointer("(See Transaction: 999) hello world", 123),
+            "(See Transaction: 123) (See Transaction: 999) hello world"
+        );
+        assert_eq!(
+            format_notes_with_pointer("(See Transaction: 999)", 123),
+            "(See Transaction: 123) (See Transaction: 999)"
+        );
+        assert_eq!(
+            format_notes_with_pointer("(See Transaction: 999) asd", 999),
+            "(See Transaction: 999) asd"
+        );
+    }
 }

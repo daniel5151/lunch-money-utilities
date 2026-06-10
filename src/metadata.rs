@@ -4,16 +4,18 @@ use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum MetadataKind {
-    Import,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct LunchMoneyTxMetadata {
-    pub kind: MetadataKind,
-    pub original: LunchMoneyTxMetadataExpense,
+#[serde(tag = "kind", rename_all = "lowercase")]
+#[expect(clippy::large_enum_variant)]
+pub enum LunchMoneyTxMetadata {
+    Import {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        delta_transaction_ids: Vec<u64>,
+        original: LunchMoneyTxMetadataExpense,
+    },
+    Delta {
+        original_transaction_id: u64,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -314,8 +316,8 @@ mod tests {
             }],
         };
 
-        let metadata = LunchMoneyTxMetadata {
-            kind: MetadataKind::Import,
+        let metadata = LunchMoneyTxMetadata::Import {
+            delta_transaction_ids: Vec::new(),
             original: expense,
         };
 
@@ -391,10 +393,13 @@ mod tests {
         );
 
         let metadata = res.unwrap();
-        assert_eq!(metadata.original.id, 12345);
-        assert_eq!(metadata.original.category.unwrap().name, "Food");
+        let LunchMoneyTxMetadata::Import { original, .. } = metadata else {
+            panic!("Expected Import variant");
+        };
+        assert_eq!(original.id, 12345);
+        assert_eq!(original.category.unwrap().name, "Food");
         assert_eq!(
-            metadata.original.users[0]
+            original.users[0]
                 .user
                 .as_ref()
                 .unwrap()

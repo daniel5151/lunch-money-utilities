@@ -49,6 +49,17 @@
   - Manual account balances are updated via `PUT /manual_accounts/{id}`.
   - **Liability Account Balance Inversion**: Manual accounts matching liability types (`Credit`, `Loan`, `OtherLiability`) store their outstanding debt as positive numbers in Lunch Money. Therefore, the sign of negative Splitwise balances is inverted to positive when writing to these accounts (e.g. `-100.00 USD` -> `+100.00 USD`). Asset types are updated directly without inversion.
   - **Unmapped warning**: The tool flags and prints non-zero Splitwise balances in currencies not mapped to manual accounts in the configuration.
+- **Backdated & Out-of-Window Transaction Sync**:
+  - **Dual Query Fetching**: During `sync window`, the tool queries Splitwise both for expenses created/dated within the window, and expenses updated within the window (using `updated_after`), merging them to capture backdated updates.
+  - **Tag-Based Pre-fetching**: The tool pre-fetches all Lunch Money transactions tagged with the user-configured `backdated_tag` across the entire history (from `2000-01-01` to prevent N+1 API query limits or dry-run update discrepancies).
+  - **Fallback Targeted Date Queries**: If an old transaction is not found in standard or pre-fetched sets, the tool runs a targeted single-day query for that transaction's original date in Lunch Money.
+  - **Decision Table (Old Expenses)**:
+    - *New backdated inserts*: Posted to the current day, tagged with `backdated_tag`, with notes `(Original Date: YYYY-MM-DD) Description`.
+    - *Updates / Deletes (LPP Delta Engine)*:
+      - If the latest delta transaction date falls within the sync window (LPP), that latest delta transaction is updated in-place.
+      - If no delta exists or the latest delta is older than the sync window, a new delta transaction is inserted on the current day, tagged with `backdated_tag` and notes `(Original Transaction: <original_id>) Description`.
+      - When a delta is inserted/updated and the user-configured `updated_tag` is defined, the original transaction is tagged with `updated_tag` and its notes are updated with a pointer to the next delta (e.g. `(See Transaction: <delta_id>)`).
+    - *Currency Changes*: Treated as a deletion in the old currency/account (delta engine bringing balance to `0.00`) and a new backdated insertion on the current day in the new currency/account.
 
 ---
 

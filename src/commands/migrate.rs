@@ -79,6 +79,7 @@ pub async fn run_migrate_add_metadata(
                 include_group_children: Some(true),
                 include_split_parents: Some(true),
                 include_metadata: Some(true),
+                tag_id: None,
             })
             .await?;
         lm_transactions.extend(txs);
@@ -142,8 +143,8 @@ pub async fn run_migrate_add_metadata(
         };
 
         if let Some(exp) = expense {
-            let desired_metadata = crate::api::lunch_money::schema::LunchMoneyTxMetadata {
-                kind: crate::api::lunch_money::schema::MetadataKind::Import,
+            let desired_metadata = crate::api::lunch_money::schema::LunchMoneyTxMetadata::Import {
+                delta_transaction_ids: Vec::new(),
                 original: exp.parsed.clone().into(),
             };
 
@@ -155,6 +156,7 @@ pub async fn run_migrate_add_metadata(
                 payee: t.payee,
                 notes: t.notes.unwrap_or_default(),
                 custom_metadata: Some(desired_metadata),
+                additional_tag_ids: None,
             });
         }
     }

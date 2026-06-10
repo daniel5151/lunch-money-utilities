@@ -6,14 +6,15 @@ pub struct Config {
     pub lunch_money: LunchMoneyConfig,
     #[serde(default)]
     pub categories: std::collections::HashMap<String, CategoryValue>,
-    #[serde(default)]
     pub sync: SyncConfig,
 }
 
-#[derive(Deserialize, Clone, Default)]
+#[derive(Deserialize, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct SyncConfig {
     pub loan_tag: Option<String>,
+    pub backdated_tag: String,
+    pub updated_tag: String,
 }
 
 #[derive(Deserialize, Clone, Debug)]

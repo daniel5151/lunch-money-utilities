@@ -180,11 +180,21 @@ loan_tag = "💵 Splitwise"
 
 To keep Lunch Money up-to-date, you can schedule the `sync window` command to run periodically using `cron`.
 
-To avoid unexpected edits to older, posted transactions, only transactions within your selected window will be modified or deleted. Transactions outside that window are considered logically "posted" and will not be retroactively updated (unless explicitly synced via `sync group`).
+To handle Splitwise expenses that were updated, deleted, or newly added outside the active `sync window`, the tool implements a **non-destructive backdated synchronization workflow**. This ensures older, logically "posted" months in Lunch Money are not modified retroactively, while still correctly reflecting financial adjustments.
 
-> NOTE: In the future, it would be good to add extra logic to `sync window` that leverages the splitwise API's `updated_after` API in order to catch backdated transactions / updates to old transactions.
->
-> In that case, it could be prudent to add some kind of "soft delete" / "soft update" policy, that doesn't actually modify those old transactions destructively... but somehow signals to the user that they need to be manually looked at (e.g: non-destructively adding tags to those old transactions + importing a "dummy" transaction into lunch money that will alert the user of the backdated modification?)
+### How Backdated Sync Works:
+1. **Dual Query Fetching**: When syncing, the tool queries Splitwise both for expenses dated within the window and expenses *updated* within the timeframe (using the `updated_after` filter). This ensures backdated changes are captured.
+2. **Tag-Based Pre-fetching**: The tool pre-fetches all Lunch Money transactions carrying the `backdated_tag` across the entire history (from `2000-01-01` to today) to resolve existing delta adjustment chains without performing N+1 API calls.
+3. **Partitioning**: Expenses are split by transaction date:
+   - **In-Window Expenses**: Synced directly (modifications/deletions applied directly to original transactions).
+   - **Out-of-Window (Old) Expenses**: Synced non-destructively using the delta engine:
+     - **New Backdated Expenses**: Instead of placing them in the past, a new transaction is inserted on the **current day** (tagged with `backdated_tag`), with notes referencing the original date: `(Original Date: YYYY-MM-DD) Description`.
+     - **Updates and Deletions (LPP Delta Engine)**:
+       - The tool computes the difference between the target Splitwise balance and the current sum of the original Lunch Money transaction and its previously synced deltas.
+       - **Within the Logical Posted Period (LPP)**: If the latest delta transaction falls within the active sync window, that latest delta transaction is updated in-place to adjust the total balance.
+       - **Outside the LPP**: A **new** delta transaction is posted to the **current day** (tagged with `backdated_tag` and notes `(Original Transaction: <original_id>) Description`).
+       - The original transaction's metadata is updated to link to the new delta transaction, and if `updated_tag` is defined, the original transaction is tagged with `updated_tag` and its notes are updated with a pointer (e.g., `(See Transaction: <delta_id>)`).
+     - **Currency Changes**: Handled as a deletion (using the LPP delta engine to zero out the old currency manual account transaction) and a new backdated insertion in the new currency manual account on the current day.
 
 ### Example Crontab Setup
 

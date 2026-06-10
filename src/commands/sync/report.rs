@@ -399,6 +399,7 @@ mod tests {
             payee: "Update Payee".to_string(),
             notes: "Update Notes".to_string(),
             custom_metadata: None,
+            additional_tag_ids: None,
         }];
 
         let inserts = vec![InsertObject {
