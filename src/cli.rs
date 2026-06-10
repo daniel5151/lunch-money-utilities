@@ -84,12 +84,26 @@ pub struct QuerySplitwiseArgs {
 pub enum QuerySplitwiseSubcommands {
     /// Query Splitwise expenses in a given time window
     Window(QuerySplitwiseWindowArgs),
+    /// Query Splitwise expenses updated in a given time window, alongside their update events
+    #[command(name = "window-updates")]
+    WindowUpdates(QuerySplitwiseWindowUpdatesArgs),
     /// Query Splitwise expenses for a specific group
     Group(QuerySplitwiseGroupArgs),
     /// List all Splitwise groups you belong to, including their ID, name, last updated date, and outstanding balances
     Groups,
     /// List all Splitwise transaction categories (parent categories and their subcategories)
     Categories,
+}
+
+#[derive(Parser, Debug)]
+pub struct QuerySplitwiseWindowUpdatesArgs {
+    /// Window duration for querying (e.g., "3 days", "24h", "1 week")
+    #[arg(value_parser = humantime::parse_duration)]
+    pub window: std::time::Duration,
+
+    /// Optional date to offset the window from (YYYY-MM-DD, defaults to today's date)
+    #[arg(long)]
+    pub from: Option<jiff::civil::Date>,
 }
 
 #[derive(Parser, Debug)]

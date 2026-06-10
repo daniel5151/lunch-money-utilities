@@ -76,6 +76,10 @@ async fn run() -> anyhow::Result<()> {
                             cli::QuerySplitwiseSubcommands::Window(args) => {
                                 commands::query::run_query_splitwise_window(&ctx, args).await?;
                             }
+                            cli::QuerySplitwiseSubcommands::WindowUpdates(args) => {
+                                commands::query::run_query_splitwise_window_updates(&ctx, args)
+                                    .await?;
+                            }
                             cli::QuerySplitwiseSubcommands::Group(args) => {
                                 commands::query::run_query_splitwise_group(&ctx, args).await?;
                             }

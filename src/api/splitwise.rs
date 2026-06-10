@@ -105,6 +105,14 @@ impl Client {
             self.fetch("get_friends", &[] as &[(&str, &str)]).await?;
         Ok(res.friends)
     }
+
+    pub async fn fetch_notifications(
+        &self,
+        query: &NotificationsQuery,
+    ) -> anyhow::Result<Vec<schema::Notification>> {
+        let res: schema::NotificationsResponse = self.fetch("get_notifications", query).await?;
+        Ok(res.notifications)
+    }
 }
 
 #[derive(serde::Serialize, Debug, Clone, Default)]
@@ -115,6 +123,18 @@ pub struct ExpensesQuery {
     pub dated_before: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_after: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_before: Option<String>,
+}
+
+#[derive(serde::Serialize, Debug, Clone, Default)]
+pub struct NotificationsQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_after: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
 }
@@ -338,5 +358,29 @@ pub mod schema {
         pub registration_status: Option<RegistrationStatus>,
         pub picture: Option<UserPictureDetailed>,
         pub custom_picture: Option<bool>,
+    }
+
+    #[derive(Deserialize, Debug, Clone)]
+    pub struct NotificationSource {
+        pub r#type: String,
+        pub id: u64,
+        pub url: Option<String>,
+    }
+
+    #[derive(Deserialize, Debug, Clone)]
+    pub struct Notification {
+        pub id: u64,
+        pub r#type: u32,
+        pub created_at: jiff::Timestamp,
+        pub created_by: Option<u64>,
+        pub source: Option<NotificationSource>,
+        pub image_url: Option<String>,
+        pub image_shape: Option<String>,
+        pub content: String,
+    }
+
+    #[derive(Deserialize, Debug, Clone)]
+    pub struct NotificationsResponse {
+        pub notifications: Vec<Notification>,
     }
 }

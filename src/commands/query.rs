@@ -575,3 +575,301 @@ pub(crate) async fn run_query_lunchmoney_accounts(ctx: &crate::AppContext) -> an
     println! {};
     Ok(())
 }
+
+fn strip_html(html: &str) -> String {
+    let mut result = String::new();
+    let mut in_tag = false;
+
+    let cleaned = html
+        .replace("<br>", " — ")
+        .replace("<br/>", " — ")
+        .replace("<br />", " — ")
+        .replace("&ldquo;", "“")
+        .replace("&rdquo;", "”")
+        .replace("&lsquo;", "‘")
+        .replace("&rsquo;", "’")
+        .replace("&quot;", "\"")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&nbsp;", " ")
+        .replace("“", "\"")
+        .replace("”", "\"");
+
+    for c in cleaned.chars() {
+        if c == '<' {
+            in_tag = true;
+        } else if c == '>' {
+            in_tag = false;
+        } else if !in_tag {
+            result.push(c);
+        }
+    }
+    result.trim().to_string()
+}
+
+pub(crate) async fn run_query_splitwise_window_updates(
+    ctx: &crate::AppContext,
+    args: crate::cli::QuerySplitwiseWindowUpdatesArgs,
+) -> anyhow::Result<()> {
+    let window_duration =
+        jiff::SignedDuration::try_from(args.window).context("window duration is too large")?;
+
+    let config = &ctx.config;
+    let sw_client = &ctx.splitwise;
+
+    let super::WindowBounds {
+        start: start_window_str,
+        end: end_window_str,
+    } = super::calculate_window_bounds(args.from, window_duration);
+
+    let bar = "─".repeat(92);
+
+    println! {};
+    println! { "{STYLE_HEADER}🔍 Querying Splitwise Window Updates{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
+    println! { "{STYLE_INFO}📅 Window boundary:{STYLE_INFO:#} {} to {}", start_window_str, end_window_str };
+    println! {};
+
+    println! { "  {STYLE_DIM}Fetching Splitwise groups, expenses, and notifications...{STYLE_DIM:#}" };
+
+    let groups = sw_client.fetch_groups().await?;
+    let group_map: HashMap<u64, String> = groups.into_iter().map(|g| (g.id, g.name)).collect();
+
+    // Fetch expenses updated after start of the window
+    let expenses_res = sw_client
+        .fetch_expenses(&ExpensesQuery {
+            updated_after: Some(format!("{}T00:00:00Z", start_window_str)),
+            updated_before: if args.from.is_some() {
+                Some(format!("{}T23:59:59Z", end_window_str))
+            } else {
+                None
+            },
+            limit: Some(0),
+            ..Default::default()
+        })
+        .await;
+
+    let expenses = match expenses_res {
+        Ok(e) => e,
+        Err(err) => {
+            println! { "{STYLE_WARNING}⚠️ Warning: Failed to fetch updated expenses: {err}{STYLE_WARNING:#}" };
+            Vec::new()
+        }
+    };
+
+    // Fetch notifications
+    let notifications_res = sw_client
+        .fetch_notifications(&crate::api::splitwise::NotificationsQuery {
+            updated_after: Some(format!("{}T00:00:00Z", start_window_str)),
+            limit: Some(0),
+        })
+        .await;
+
+    let notifications = match notifications_res {
+        Ok(n) => n,
+        Err(err) => {
+            println! { "{STYLE_WARNING}⚠️ Warning: Failed to fetch notifications: {err}{STYLE_WARNING:#}" };
+            Vec::new()
+        }
+    };
+
+    let start_date = start_window_str.parse::<jiff::civil::Date>()?;
+    let end_date = end_window_str.parse::<jiff::civil::Date>()?;
+
+    let start_timestamp = start_date
+        .at(0, 0, 0, 0)
+        .to_zoned(jiff::tz::TimeZone::UTC)?
+        .timestamp();
+    let end_timestamp = end_date
+        .at(23, 59, 59, 999_999_999)
+        .to_zoned(jiff::tz::TimeZone::UTC)?
+        .timestamp();
+
+    // Filter notifications to window and only Expense type source
+    let filtered_notifications: Vec<_> = notifications
+        .into_iter()
+        .filter(|n| {
+            n.created_at >= start_timestamp
+                && n.created_at <= end_timestamp
+                && n.source.as_ref().is_some_and(|s| s.r#type == "Expense")
+        })
+        .collect();
+
+    // Expenses mapped by ID
+    let expense_map: HashMap<u64, crate::api::splitwise::Expense> =
+        expenses.into_iter().map(|e| (e.parsed.id, e)).collect();
+
+    // Group notifications by expense ID
+    let mut notifications_by_expense: HashMap<
+        u64,
+        Vec<crate::api::splitwise::schema::Notification>,
+    > = HashMap::new();
+    for n in filtered_notifications {
+        if let Some(ref source) = n.source {
+            notifications_by_expense
+                .entry(source.id)
+                .or_default()
+                .push(n);
+        }
+    }
+
+    // Identify all updated expense IDs
+    let mut all_expense_ids: Vec<u64> = notifications_by_expense.keys().copied().collect();
+    for &id in expense_map.keys() {
+        if !all_expense_ids.contains(&id) {
+            if let Some(expense) = expense_map.get(&id) {
+                let last_update = expense
+                    .parsed
+                    .deleted_at
+                    .or(expense.parsed.updated_at)
+                    .or(expense.parsed.created_at)
+                    .unwrap_or(expense.parsed.date);
+                if last_update >= start_timestamp && last_update <= end_timestamp {
+                    all_expense_ids.push(id);
+                }
+            }
+        }
+    }
+
+    if all_expense_ids.is_empty() {
+        println! { "{STYLE_SUCCESS}✨ No updated transactions found in this window.{STYLE_SUCCESS:#}" };
+        println! {};
+        return Ok(());
+    }
+
+    // Sort expense IDs by the latest update event or last_update timestamp (descending)
+    all_expense_ids.sort_by(|a, b| {
+        let get_latest_time = |id: u64| {
+            let mut latest = jiff::Timestamp::from_second(0).unwrap();
+            if let Some(notifs) = notifications_by_expense.get(&id) {
+                for n in notifs {
+                    if n.created_at > latest {
+                        latest = n.created_at;
+                    }
+                }
+            }
+            if let Some(expense) = expense_map.get(&id) {
+                let last_update = expense
+                    .parsed
+                    .deleted_at
+                    .or(expense.parsed.updated_at)
+                    .or(expense.parsed.created_at)
+                    .unwrap_or(expense.parsed.date);
+                if last_update > latest {
+                    latest = last_update;
+                }
+            }
+            latest
+        };
+
+        get_latest_time(*b).cmp(&get_latest_time(*a))
+    });
+
+    for id in all_expense_ids {
+        if let Some(expense) = expense_map.get(&id) {
+            let date_str = expense
+                .parsed
+                .date
+                .to_zoned(jiff::tz::TimeZone::UTC)
+                .date()
+                .strftime("%Y-%m-%d")
+                .to_string();
+
+            let payee_str = super::resolve_splitwise_payee(
+                &expense.parsed,
+                config.splitwise.user_id,
+                &group_map,
+            );
+
+            let cost_str = expense
+                .parsed
+                .cost
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "0.00".to_string());
+            let currency = &expense.parsed.currency_code;
+
+            let is_deleted = expense.parsed.deleted_at.is_some();
+            let status_tag = if is_deleted {
+                format!(" {STYLE_ERROR}[DELETED]{STYLE_ERROR:#}")
+            } else {
+                String::new()
+            };
+
+            println! { "• {STYLE_HEADER}{}{STYLE_HEADER:#} (ID: {}){}", expense.parsed.description, id, status_tag };
+            println! { "  {STYLE_DIM}Date: {} | Cost: {} {} | Group/Person: {}{STYLE_DIM:#}", date_str, cost_str, currency, payee_str };
+        } else {
+            let mut name_fallback = format!("Expense ID: {}", id);
+            if let Some(notifs) = notifications_by_expense.get(&id) {
+                if !notifs.is_empty() {
+                    let cleaned = strip_html(&notifs[0].content);
+                    if let Some(start_quote) = cleaned.find('“') {
+                        if let Some(end_quote) = cleaned[start_quote + 1..].find('”') {
+                            name_fallback =
+                                cleaned[start_quote + 1..start_quote + 1 + end_quote].to_string();
+                        }
+                    } else if let Some(start_quote) = cleaned.find('"') {
+                        if let Some(end_quote) = cleaned[start_quote + 1..].find('"') {
+                            name_fallback =
+                                cleaned[start_quote + 1..start_quote + 1 + end_quote].to_string();
+                        }
+                    }
+                }
+            }
+
+            println! { "• {STYLE_HEADER}{}{STYLE_HEADER:#} (ID: {}) {STYLE_ERROR}[DELETED/UNAVAILABLE]{STYLE_ERROR:#}", name_fallback, id };
+        }
+
+        if let Some(notifs) = notifications_by_expense.get(&id) {
+            println! { "  {STYLE_INFO}Update Events:{STYLE_INFO:#}" };
+            let mut sorted_notifs = notifs.clone();
+            sorted_notifs.sort_by_key(|b| std::cmp::Reverse(b.created_at));
+
+            for n in sorted_notifs {
+                let time_str = n
+                    .created_at
+                    .to_zoned(jiff::tz::TimeZone::UTC)
+                    .strftime("%Y-%m-%d %H:%M:%S UTC")
+                    .to_string();
+                let event_desc = strip_html(&n.content);
+                println! { "    - {STYLE_DIM}[{}]{STYLE_DIM:#} {} {STYLE_DIM}(Notification ID: {}){STYLE_DIM:#}", time_str, event_desc, n.id };
+            }
+        } else {
+            println! { "  {STYLE_INFO}Update Events:{STYLE_INFO:#}" };
+            if let Some(expense) = expense_map.get(&id) {
+                let last_update = expense
+                    .parsed
+                    .deleted_at
+                    .or(expense.parsed.updated_at)
+                    .or(expense.parsed.created_at)
+                    .unwrap_or(expense.parsed.date);
+                let time_str = last_update
+                    .to_zoned(jiff::tz::TimeZone::UTC)
+                    .strftime("%Y-%m-%d %H:%M:%S UTC")
+                    .to_string();
+                let user_str = expense
+                    .parsed
+                    .updated_by
+                    .as_ref()
+                    .or(expense.parsed.created_by.as_ref())
+                    .map(|u| {
+                        format!("{} {}", u.first_name, u.last_name.as_deref().unwrap_or(""))
+                            .trim()
+                            .to_string()
+                    })
+                    .unwrap_or_else(|| "Unknown user".to_string());
+                let action = if expense.parsed.deleted_at.is_some() {
+                    "deleted"
+                } else if expense.parsed.updated_at.is_some() {
+                    "updated"
+                } else {
+                    "created"
+                };
+                println! { "    - {STYLE_DIM}[{}]{STYLE_DIM:#} Transaction was {} by {}.", time_str, action, user_str };
+            }
+        }
+        println! {};
+    }
+
+    Ok(())
+}
