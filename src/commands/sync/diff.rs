@@ -433,14 +433,21 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
             original: expense.parsed.clone().into(),
         };
 
-        if let Some(existing_lm) = existing_opt {
+        let mut existing_lm_opt = existing_opt;
+        if let Some(ref existing_lm) = existing_lm_opt {
             if existing_lm.is_split_parent == Some(true) {
                 continue;
             }
-            let amount_changed = existing_lm.amount != net_balance;
             let currency_changed = existing_lm.currency != expense.parsed.currency_code;
+            if currency_changed {
+                deletes.push(existing_lm_opt.take().unwrap());
+            }
+        }
 
-            if amount_changed || currency_changed {
+        if let Some(existing_lm) = existing_lm_opt {
+            let amount_changed = existing_lm.amount != net_balance;
+
+            if amount_changed {
                 updates.push(UpdateObject {
                     id: existing_lm.id,
                     date: existing_lm.date,
@@ -1470,5 +1477,110 @@ mod tests {
         assert_eq!(plan.updates.len(), 1);
         assert_eq!(plan.updates[0].id, 10);
         assert_eq!(plan.updates[0].amount, Decimal::new(-1500, 2)); // -15.00
+    }
+
+    #[test]
+    fn test_diff_transactions_currency_changed_in_window() {
+        let config_str = r#"
+            [splitwise]
+            api_key = "dummy"
+            user_id = 123
+            ignored_groups = []
+
+            [lunch_money]
+            api_key = "dummy"
+            custom_accounts = { USD = 999, CAD = 888 }
+
+            [sync]
+            backdated_tag = "backdated"
+            updated_tag = "updated"
+        "#;
+        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+
+        let expenses_json = r#"[
+            {
+                "id": 1,
+                "description": "Lunch outside window",
+                "date": "2026-06-06T12:00:00Z",
+                "currency_code": "CAD",
+                "users": [
+                    {
+                        "user_id": 123,
+                        "net_balance": "-15.00"
+                     }
+                ],
+                "payment": false
+            }
+        ]"#;
+        let expenses: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
+
+        let mut target_accounts = HashMap::new();
+        target_accounts.insert(Currency::new("USD"), 999);
+        target_accounts.insert(Currency::new("CAD"), 888);
+
+        let mut lm_map = HashMap::new();
+        let original_expense = expenses[0].parsed.clone();
+        let orig_metadata = LunchMoneyTxMetadata::Import {
+            delta_transaction_ids: Vec::new(),
+            original: original_expense.into(),
+        };
+
+        // Existing transaction is USD in Lunch Money, but changed to CAD in Splitwise.
+        lm_map.insert(
+            ExternalId::Splitwise(1),
+            Transaction {
+                id: 10,
+                date: jiff::civil::date(2026, 6, 6),
+                amount: Decimal::new(-1500, 2),
+                currency: Currency::new("USD"),
+                payee: "Lunch outside window".to_string(),
+                notes: None,
+                external_id: Some(ExternalId::Splitwise(1)),
+                manual_account_id: Some(999),
+                is_split_parent: None,
+                group_parent_id: None,
+                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
+                category_id: None,
+                custom_metadata: Some(
+                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
+                        orig_metadata,
+                    ),
+                ),
+            },
+        );
+
+        let plan = diff_transactions(DiffTransactionsArgs {
+            expenses: expenses.clone(),
+            config: &config,
+            target_accounts: &target_accounts,
+            group_map: &HashMap::new(),
+            lm_map: &mut lm_map,
+            sw_category_id_to_path: &HashMap::new(),
+            resolved_categories: &HashMap::new(),
+            ignored_groups_exclude: None,
+            bypass_ignore_groups: false,
+            tag_id: None,
+            loan_tag_id: None,
+            force_category_id: None,
+            tags_to_create: vec![],
+            sync_window_start: Some(jiff::civil::date(2026, 6, 1)),
+            backdated_tag_id: Some(888),
+            updated_tag_id: Some(777),
+        })
+        .unwrap();
+
+        // Check that the old transaction is deleted
+        assert_eq!(plan.deletes.len(), 1);
+        assert_eq!(plan.deletes[0].id, 10);
+        assert_eq!(plan.deletes[0].currency.as_str(), "USD");
+
+        // Check that a new transaction is inserted in the CAD account
+        assert_eq!(plan.inserts.len(), 1);
+        assert_eq!(plan.inserts[0].currency.as_str(), "CAD");
+        assert_eq!(plan.inserts[0].manual_account_id, 888);
+        assert_eq!(plan.inserts[0].amount, Decimal::new(-1500, 2));
+
+        // Updates should be empty
+        assert_eq!(plan.updates.len(), 0);
     }
 }
