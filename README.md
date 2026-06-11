@@ -162,6 +162,15 @@ CAD = 789012
 # This makes it easy to spot splitwise transactions to manually group with your credit card transaction in Lunch Money.
 loan_tag = "💵 Splitwise"
 
+# Tag applied to newly inserted backdated transactions or delta adjustments posted on the current day
+backdated_tag = "🧾🕰️ Splitwise Backdated"
+
+# Tag applied to original/older transactions to flag that they have a newer delta adjustment
+updated_tag = "🧾⏫ Splitwise Updated"
+
+# Tag applied to orphaned delta transactions when their corresponding original transaction has been deleted
+orphaned_tag = "🧾⚠️ Splitwise Orphaned"
+
 [categories]
 # Map Splitwise category names/IDs to Lunch Money category names/IDs (optional)
 "Payment" = "Payment, Transfer"
@@ -184,7 +193,7 @@ To handle Splitwise expenses that were updated, deleted, or newly added outside 
 
 ### How Backdated Sync Works:
 1. **Dual Query Fetching**: When syncing, the tool queries Splitwise both for expenses dated within the window and expenses *updated* within the timeframe (using the `updated_after` filter). This ensures backdated changes are captured.
-2. **Tag-Based Pre-fetching**: The tool pre-fetches all Lunch Money transactions carrying the `backdated_tag` across the entire history (from `2000-01-01` to today) to resolve existing delta adjustment chains without performing N+1 API calls.
+2. **Tag-Based Pre-fetching**: The tool pre-fetches all Lunch Money transactions carrying the `backdated_tag` (and `orphaned_tag`) across the entire history (from `2000-01-01` to today) to resolve existing delta adjustment chains and orphaned states without performing N+1 API calls.
 3. **Partitioning**: Expenses are split by transaction date:
    - **In-Window Expenses**: Synced directly (modifications/deletions applied directly to original transactions).
    - **Out-of-Window (Old) Expenses**: Synced non-destructively using the delta engine:
@@ -195,6 +204,10 @@ To handle Splitwise expenses that were updated, deleted, or newly added outside 
        - **Outside the LPP**: A **new** delta transaction is posted to the **current day** (tagged with `backdated_tag` and notes `(Original Transaction: <original_id>) Description`).
        - The original transaction's metadata is updated to link to the new delta transaction, and if `updated_tag` is defined, the original transaction is tagged with `updated_tag` and its notes are updated with a pointer (e.g., `(See Transaction: <delta_id>)`).
      - **Currency Changes**: Handled as a deletion (using the LPP delta engine to zero out the old currency manual account transaction) and a new backdated insertion in the new currency manual account on the current day.
+4. **Delta Chain Resilience & Self-Healing**:
+   - **Resilient API Error Mapping**: If a transaction in the delta chain was deleted on Lunch Money by the user, querying it via `fetch_transaction_by_id` returns a `404 Not Found` response. The HTTP client intercepts this expected error and returns `None` rather than failing the execution.
+   - **Self-Healing References**: When a deleted delta transaction is detected, its ID is pruned from the in-memory delta list. The delta engine automatically recalculates the sync delta to restore the correct target balance and propagates metadata updates (the `delta_transaction_ids` list) to all active transactions in the chain (both the `Import` transaction and all active `Delta` transactions) so that every transaction in the chain contains the exact same list of `delta_transaction_ids`.
+   - **Orphaned Delta Tagging & Balancing**: If the original `Import` transaction itself is deleted, the remaining `Delta` transactions are considered "orphaned". The sync tool tags these orphaned deltas with `orphaned_tag` and posts a new current-dated balancing transaction (`kind: "orphan"`) that offsets the total sum of the orphaned deltas. The balancing transaction notes are set to: `"Offsetting orphaned deltas for deleted transaction:<original_id>, splitwise_id:<splitwise_id>"`.
 
 ### Example Crontab Setup
 

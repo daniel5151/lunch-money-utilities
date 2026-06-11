@@ -96,9 +96,42 @@ impl Client {
         Ok(res.transactions)
     }
 
-    pub async fn fetch_transaction_by_id(&self, id: u64) -> anyhow::Result<schema::Transaction> {
-        self.fetch(&format!("transactions/{}", id), &[] as &[(&str, &str)])
+    pub async fn fetch_transaction_by_id(
+        &self,
+        id: u64,
+    ) -> anyhow::Result<Option<schema::Transaction>> {
+        let url = format!("https://api.lunchmoney.dev/v2/transactions/{}", id);
+        let res = self
+            .http
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
             .await
+            .context("Lunch Money HTTP call failed")?;
+
+        if res.status() == reqwest::StatusCode::NOT_FOUND {
+            let body = res.text().await.unwrap_or_default();
+            if body.contains("There is no transaction with the id") {
+                return Ok(None);
+            } else {
+                anyhow::bail!(
+                    "Lunch Money request failed (404 Not Found): {}",
+                    body.trim()
+                );
+            }
+        }
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            anyhow::bail!("Lunch Money request failed ({}): {}", status, body.trim());
+        }
+
+        let parsed = res
+            .json()
+            .await
+            .context("Failed parsing Lunch Money JSON")?;
+        Ok(Some(parsed))
     }
 
     pub async fn fetch_categories(

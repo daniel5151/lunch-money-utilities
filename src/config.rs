@@ -15,6 +15,7 @@ pub struct SyncConfig {
     pub loan_tag: Option<String>,
     pub backdated_tag: String,
     pub updated_tag: String,
+    pub orphaned_tag: String,
 }
 
 #[derive(Deserialize, Clone, Debug)]

@@ -3,13 +3,20 @@ mod execute;
 mod report;
 
 use crate::api::ExpensesQuery;
+use crate::api::ExternalId;
 use crate::api::TransactionQuery;
+use crate::api::lunch_money::schema::AccountType;
 use crate::api::lunch_money::schema::InsertObject;
+use crate::api::lunch_money::schema::ManualAccount;
 use crate::api::lunch_money::schema::Transaction;
+use crate::api::lunch_money::schema::TransactionStatus;
 use crate::api::lunch_money::schema::UpdateObject;
+use crate::metadata::LunchMoneyTxMetadata;
+use crate::metadata::MaybeLunchMoneyTxMetadata;
 use crate::style::*;
 use anstream::println;
 use anyhow::Context;
+use rust_decimal::Decimal;
 use std::collections::HashMap;
 
 pub use diff::DiffTransactionsArgs;
@@ -184,7 +191,7 @@ impl<'a> SyncOrchestrator<'a> {
         // Prepare helper map for printing and CSV writing
         let mut sw_expense_categories = HashMap::new();
         for expense in &expenses {
-            let ext_id = crate::api::ExternalId::Splitwise(expense.parsed.id);
+            let ext_id = ExternalId::Splitwise(expense.parsed.id);
             let cat_info = if expense.parsed.payment {
                 Some((0, "Payment".to_string()))
             } else {
@@ -229,6 +236,7 @@ impl<'a> SyncOrchestrator<'a> {
 
         let backdated_tag_name = Some(self.ctx.config.sync.backdated_tag.as_str());
         let updated_tag_name = Some(self.ctx.config.sync.updated_tag.as_str());
+        let orphaned_tag_name = Some(self.ctx.config.sync.orphaned_tag.as_str());
 
         // Planning step for tags (dry-run safe)
         let PlannedTags {
@@ -236,13 +244,16 @@ impl<'a> SyncOrchestrator<'a> {
             loan_tag_id,
             backdated_tag_id,
             updated_tag_id,
+            orphaned_tag_id,
             tags_to_create,
         } = plan_tags(
             lm_client,
+            opts.dry_run,
             opts.tag.as_deref(),
             loan_tag_name,
             backdated_tag_name,
             updated_tag_name,
+            orphaned_tag_name,
         )
         .await?;
 
@@ -303,9 +314,7 @@ impl<'a> SyncOrchestrator<'a> {
                 let is_loan = manual_accounts
                     .iter()
                     .find(|acc| acc.id == account_id)
-                    .map(|acc| {
-                        acc.account_type == crate::api::lunch_money::schema::AccountType::Loan
-                    })
+                    .map(|acc| acc.account_type == AccountType::Loan)
                     .unwrap_or(false);
 
                 if is_loan {
@@ -317,12 +326,48 @@ impl<'a> SyncOrchestrator<'a> {
             }
         }
 
-        // Merge backdated transactions, avoiding duplicates by ID
+        // Tag-Based Pre-fetching for orphaned transactions
+        let mut pre_fetched_orphaned = Vec::new();
+        if let Some(ot_id) = orphaned_tag_id {
+            println! { "  {STYLE_DIM}Pre-fetching orphaned transactions...{STYLE_DIM:#}" };
+            for &account_id in target_accounts.values() {
+                let mut txs = lm_client
+                    .fetch_transactions(&TransactionQuery {
+                        start_date: "2000-01-01".to_string(),
+                        end_date: end_date_str.clone(),
+                        manual_account_id: account_id,
+                        limit: Some(1000),
+                        include_group_children: Some(true),
+                        include_split_parents: Some(true),
+                        include_metadata: Some(true),
+                        tag_id: Some(ot_id),
+                    })
+                    .await?;
+
+                let is_loan = manual_accounts
+                    .iter()
+                    .find(|acc| acc.id == account_id)
+                    .map(|acc| acc.account_type == AccountType::Loan)
+                    .unwrap_or(false);
+
+                if is_loan {
+                    for t in &mut txs {
+                        t.amount = -t.amount;
+                    }
+                }
+                pre_fetched_orphaned.extend(txs);
+            }
+        }
+
+        // Merge backdated and orphaned transactions, avoiding duplicates by ID
         let mut lm_tx_map_dedup = HashMap::new();
         for t in lm_transactions {
             lm_tx_map_dedup.insert(t.id, t);
         }
         for t in pre_fetched_backdated {
+            lm_tx_map_dedup.insert(t.id, t);
+        }
+        for t in pre_fetched_orphaned {
             lm_tx_map_dedup.insert(t.id, t);
         }
         let mut lm_transactions: Vec<Transaction> = lm_tx_map_dedup.into_values().collect();
@@ -333,7 +378,7 @@ impl<'a> SyncOrchestrator<'a> {
             for e in &expenses {
                 let date_civil = e.parsed.date.to_zoned(jiff::tz::TimeZone::UTC).date();
                 if date_civil < window_start {
-                    let ext_id = crate::api::ExternalId::Splitwise(e.parsed.id);
+                    let ext_id = ExternalId::Splitwise(e.parsed.id);
                     if !lm_transactions
                         .iter()
                         .any(|t| t.external_id.as_ref() == Some(&ext_id))
@@ -368,9 +413,7 @@ impl<'a> SyncOrchestrator<'a> {
                 let is_loan = manual_accounts
                     .iter()
                     .find(|acc| acc.id == account_id)
-                    .map(|acc| {
-                        acc.account_type == crate::api::lunch_money::schema::AccountType::Loan
-                    })
+                    .map(|acc| acc.account_type == AccountType::Loan)
                     .unwrap_or(false);
 
                 if is_loan {
@@ -397,16 +440,17 @@ impl<'a> SyncOrchestrator<'a> {
         // that hasn't been fetched yet, or vice versa.
         let mut missing_ids = std::collections::HashSet::new();
         let mut checked_ids = std::collections::HashSet::new();
+        let mut deleted_ids = std::collections::HashSet::new();
 
         loop {
             missing_ids.clear();
             for t in &lm_transactions {
-                // If it is a delta transaction, check if we fetched the original
-                if let Some(crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
-                    crate::api::lunch_money::schema::LunchMoneyTxMetadata::Delta {
-                        original_transaction_id,
-                    },
-                )) = &t.custom_metadata
+                // If it is a delta transaction, check if we fetched the original and its peer deltas
+                if let Some(MaybeLunchMoneyTxMetadata::Expected(LunchMoneyTxMetadata::Delta {
+                    original_transaction_id,
+                    delta_transaction_ids,
+                    ..
+                })) = &t.custom_metadata
                 {
                     if !checked_ids.contains(original_transaction_id)
                         && !lm_transactions
@@ -415,15 +459,21 @@ impl<'a> SyncOrchestrator<'a> {
                     {
                         missing_ids.insert(*original_transaction_id);
                     }
+
+                    for &d_id in delta_transaction_ids {
+                        if !checked_ids.contains(&d_id)
+                            && !lm_transactions.iter().any(|tx| tx.id == d_id)
+                        {
+                            missing_ids.insert(d_id);
+                        }
+                    }
                 }
 
                 // If it is an import transaction, check if we fetched all its delta transactions
-                if let Some(crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
-                    crate::api::lunch_money::schema::LunchMoneyTxMetadata::Import {
-                        delta_transaction_ids,
-                        ..
-                    },
-                )) = &t.custom_metadata
+                if let Some(MaybeLunchMoneyTxMetadata::Expected(LunchMoneyTxMetadata::Import {
+                    delta_transaction_ids,
+                    ..
+                })) = &t.custom_metadata
                 {
                     for &d_id in delta_transaction_ids {
                         if !checked_ids.contains(&d_id)
@@ -442,22 +492,26 @@ impl<'a> SyncOrchestrator<'a> {
             let mut fetched_txs = Vec::new();
             for &id in &missing_ids {
                 println! { "  {STYLE_DIM}Pointer chasing: Fetching missing transaction ID {}...{STYLE_DIM:#}", id };
-                let mut tx = lm_client.fetch_transaction_by_id(id).await?;
-
-                // Normalize sign if it's a Loan account
-                if let Some(acc_id) = tx.manual_account_id {
-                    let is_loan = manual_accounts
-                        .iter()
-                        .find(|acc| acc.id == acc_id)
-                        .map(|acc| {
-                            acc.account_type == crate::api::lunch_money::schema::AccountType::Loan
-                        })
-                        .unwrap_or(false);
-                    if is_loan {
-                        tx.amount = -tx.amount;
+                match lm_client.fetch_transaction_by_id(id).await? {
+                    Some(mut tx) => {
+                        // Normalize sign if it's a Loan account
+                        if let Some(acc_id) = tx.manual_account_id {
+                            let is_loan = manual_accounts
+                                .iter()
+                                .find(|acc| acc.id == acc_id)
+                                .map(|acc| acc.account_type == AccountType::Loan)
+                                .unwrap_or(false);
+                            if is_loan {
+                                tx.amount = -tx.amount;
+                            }
+                        }
+                        fetched_txs.push(tx);
+                    }
+                    None => {
+                        println! { "  {STYLE_WARNING}Warning: Transaction ID {} was deleted on Lunch Money.{STYLE_WARNING:#}", id };
+                        deleted_ids.insert(id);
                     }
                 }
-                fetched_txs.push(tx);
                 checked_ids.insert(id);
             }
 
@@ -472,11 +526,181 @@ impl<'a> SyncOrchestrator<'a> {
             lm_transactions = lm_tx_map_dedup.into_values().collect();
         }
 
+        // --- SCENARIO A & B PROCESSING ---
+
+        // Scenario A: A Delta transaction in an Import chain is deleted
+        // Remove it from the parent transaction's delta_transaction_ids list in-memory
+        for tx in &mut lm_transactions {
+            if let Some(MaybeLunchMoneyTxMetadata::Expected(LunchMoneyTxMetadata::Import {
+                delta_transaction_ids,
+                ..
+            })) = &mut tx.custom_metadata
+            {
+                let original_len = delta_transaction_ids.len();
+                delta_transaction_ids.retain(|id| !deleted_ids.contains(id));
+                if delta_transaction_ids.len() < original_len {
+                    println! {
+                        "  {STYLE_WARNING}Warning: Cleaned up {} deleted delta transaction reference(s) from parent transaction ID {}.{STYLE_WARNING:#}",
+                        original_len - delta_transaction_ids.len(),
+                        tx.id
+                    };
+                }
+            }
+        }
+
+        // Scenario B: The Import transaction is deleted, but active Delta transactions exist
+        // Group orphaned delta transactions by their original_transaction_id
+        let mut orphaned_groups: HashMap<u64, Vec<Transaction>> = HashMap::new();
+        for tx in &lm_transactions {
+            if let Some(MaybeLunchMoneyTxMetadata::Expected(LunchMoneyTxMetadata::Delta {
+                original_transaction_id,
+                ..
+            })) = &tx.custom_metadata
+            {
+                if deleted_ids.contains(original_transaction_id) {
+                    orphaned_groups
+                        .entry(*original_transaction_id)
+                        .or_default()
+                        .push(tx.clone());
+                }
+            }
+        }
+
+        let mut orphaned_updates = Vec::new();
+        let mut orphaned_inserts = Vec::new();
+
+        for (original_transaction_id, orphaned_deltas) in orphaned_groups {
+            // Find if an Orphan transaction already exists for this original_transaction_id
+            let mut existing_orphan = None;
+            for tx in &lm_transactions {
+                if let Some(MaybeLunchMoneyTxMetadata::Expected(LunchMoneyTxMetadata::Orphan {
+                    original_transaction_id: o_id,
+                    ..
+                })) = &tx.custom_metadata
+                {
+                    if *o_id == original_transaction_id {
+                        existing_orphan = Some(tx.clone());
+                        break;
+                    }
+                }
+            }
+
+            let sum_orphaned: Decimal = orphaned_deltas.iter().map(|t| t.amount).sum();
+            let target_balancing_amount = -sum_orphaned;
+
+            // Get splitwise_id from any of the orphaned deltas
+            let splitwise_id =
+                if let Some(MaybeLunchMoneyTxMetadata::Expected(LunchMoneyTxMetadata::Delta {
+                    splitwise_id,
+                    ..
+                })) = &orphaned_deltas[0].custom_metadata
+                {
+                    *splitwise_id
+                } else {
+                    0
+                };
+
+            let orphaned_transaction_ids: Vec<u64> = orphaned_deltas.iter().map(|t| t.id).collect();
+
+            // Tag orphaned deltas if they don't have the tag (or just queue additional tags)
+            if let Some(ot_id) = orphaned_tag_id {
+                for tx in &orphaned_deltas {
+                    orphaned_updates.push(UpdateObject {
+                        id: tx.id,
+                        date: tx.date,
+                        amount: tx.amount,
+                        currency: tx.currency.clone(),
+                        payee: tx.payee.clone(),
+                        notes: tx.notes.clone().unwrap_or_default(),
+                        custom_metadata: tx.custom_metadata.clone().and_then(|m| match m {
+                            MaybeLunchMoneyTxMetadata::Expected(meta) => Some(meta),
+                            _ => None,
+                        }),
+                        additional_tag_ids: Some(vec![ot_id]),
+                        external_id: None,
+                    });
+                }
+            }
+
+            let notes_str = format!(
+                "Offsetting orphaned deltas for deleted transaction:{}, splitwise_id:{}",
+                original_transaction_id, splitwise_id
+            );
+
+            if let Some(orphan_tx) = existing_orphan {
+                // If the existing orphan amount doesn't balance out the deltas, update it
+                if orphan_tx.amount != target_balancing_amount {
+                    orphaned_updates.push(UpdateObject {
+                        id: orphan_tx.id,
+                        date: orphan_tx.date,
+                        amount: target_balancing_amount,
+                        currency: orphan_tx.currency.clone(),
+                        payee: orphan_tx.payee.clone(),
+                        notes: notes_str,
+                        custom_metadata: Some(LunchMoneyTxMetadata::Orphan {
+                            original_transaction_id,
+                            orphaned_transaction_ids,
+                            splitwise_id,
+                        }),
+                        additional_tag_ids: orphaned_tag_id.map(|ot_id| vec![ot_id]),
+                        external_id: None,
+                    });
+                }
+            } else {
+                // Insert a new balancing transaction
+                let manual_account_id = orphaned_deltas[0]
+                    .manual_account_id
+                    .unwrap_or_else(|| target_accounts[&orphaned_deltas[0].currency]);
+
+                orphaned_inserts.push(InsertObject {
+                    date: jiff::Timestamp::now()
+                        .to_zoned(jiff::tz::TimeZone::UTC)
+                        .date(),
+                    amount: target_balancing_amount,
+                    currency: orphaned_deltas[0].currency.clone(),
+                    payee: "Splitwise - Orphaned Balance Adjustment".to_string(),
+                    notes: notes_str,
+                    external_id: ExternalId::Other(format!(
+                        "splitwise_{}_orphan",
+                        original_transaction_id
+                    )),
+                    manual_account_id,
+                    status: TransactionStatus::Unreviewed,
+                    tag_ids: orphaned_tag_id.map(|ot_id| vec![ot_id]),
+                    category_id: None,
+                    custom_metadata: Some(LunchMoneyTxMetadata::Orphan {
+                        original_transaction_id,
+                        orphaned_transaction_ids,
+                        splitwise_id,
+                    }),
+                });
+            }
+        }
+
+        // Remove orphaned deltas and existing orphan transactions from lm_transactions so they aren't compared
+        lm_transactions.retain(|t| {
+            if let Some(MaybeLunchMoneyTxMetadata::Expected(meta)) = &t.custom_metadata {
+                match meta {
+                    LunchMoneyTxMetadata::Delta {
+                        original_transaction_id,
+                        ..
+                    } => !deleted_ids.contains(original_transaction_id),
+                    LunchMoneyTxMetadata::Orphan {
+                        original_transaction_id,
+                        ..
+                    } => !deleted_ids.contains(original_transaction_id),
+                    _ => true,
+                }
+            } else {
+                true
+            }
+        });
+
         for t in &lm_transactions {
-            if let Some(crate::api::ExternalId::Splitwise(_)) = &t.external_id {
+            if let Some(ExternalId::Splitwise(_)) = &t.external_id {
                 let is_valid = matches!(
                     t.custom_metadata,
-                    Some(crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(_))
+                    Some(MaybeLunchMoneyTxMetadata::Expected(_))
                 );
                 if !is_valid {
                     anyhow::bail!(
@@ -498,7 +722,7 @@ impl<'a> SyncOrchestrator<'a> {
             lm_tx_categories.insert(t.id, (t.external_id.clone(), t.category_id));
         }
 
-        let mut lm_map: HashMap<crate::api::ExternalId, Transaction> = lm_transactions
+        let mut lm_map: HashMap<ExternalId, Transaction> = lm_transactions
             .iter()
             .cloned()
             .filter_map(|t| t.external_id.clone().map(|ext_id| (ext_id, t)))
@@ -531,6 +755,9 @@ impl<'a> SyncOrchestrator<'a> {
             backdated_tag_id,
             updated_tag_id,
         })?;
+
+        plan.updates.extend(orphaned_updates);
+        plan.inserts.extend(orphaned_inserts);
 
         // Mode specific post-diff deletes filtering
         if let SyncMode::Group { group_query, .. } = &opts.mode {
@@ -573,8 +800,6 @@ impl<'a> SyncOrchestrator<'a> {
                 lm_client,
                 manual_accounts: &manual_accounts,
                 target_accounts: &target_accounts,
-                tag_name: opts.tag.as_deref(),
-                loan_tag_name,
                 tag_id,
                 loan_tag_id,
                 updated_tag_id,
@@ -649,7 +874,7 @@ pub(crate) async fn run_sync_group(
 
 fn verify_target_accounts(
     target_accounts: &HashMap<crate::api::Currency, u64>,
-    manual_accounts: &[crate::api::lunch_money::schema::ManualAccount],
+    manual_accounts: &[ManualAccount],
 ) -> anyhow::Result<()> {
     if target_accounts.is_empty() {
         anyhow::bail!(
@@ -691,7 +916,7 @@ async fn fetch_splitwise_categories(
 struct FetchLunchMoneyTransactionsArgs<'a> {
     lm_client: &'a crate::api::lunch_money::Client,
     target_accounts: &'a HashMap<crate::api::Currency, u64>,
-    manual_accounts: &'a [crate::api::lunch_money::schema::ManualAccount],
+    manual_accounts: &'a [ManualAccount],
     start_date_str: &'a str,
     end_date_str: &'a str,
 }
@@ -724,7 +949,7 @@ async fn fetch_lunch_money_transactions(
         let is_loan = manual_accounts
             .iter()
             .find(|acc| acc.id == account_id)
-            .map(|acc| acc.account_type == crate::api::lunch_money::schema::AccountType::Loan)
+            .map(|acc| acc.account_type == AccountType::Loan)
             .unwrap_or(false);
 
         if is_loan {
@@ -772,7 +997,7 @@ async fn resolve_categories(
             crate::config::CategoryValue::Name(name) => {
                 let matches: Vec<_> = categories
                     .iter()
-                    .filter(|c| c.name.eq_ignore_ascii_case(name) && !c.archived)
+                    .filter(|c| &c.name == name && !c.archived)
                     .collect();
                 if matches.is_empty() {
                     println! { "  ⚠️  {STYLE_WARNING}Warning:{STYLE_WARNING:#} Configured Lunch Money category '{}' (for Splitwise category '{}') does not exist or is archived.", name, sw_key };
@@ -853,91 +1078,84 @@ pub(crate) struct PlannedTags {
     pub loan_tag_id: Option<u64>,
     pub backdated_tag_id: Option<u64>,
     pub updated_tag_id: Option<u64>,
+    pub orphaned_tag_id: Option<u64>,
     pub tags_to_create: Vec<String>,
 }
 
 async fn plan_tags(
     lm_client: &crate::api::lunch_money::Client,
+    dry_run: bool,
     tag_name: Option<&str>,
     loan_tag_name: Option<&str>,
     backdated_tag_name: Option<&str>,
     updated_tag_name: Option<&str>,
+    orphaned_tag_name: Option<&str>,
 ) -> anyhow::Result<PlannedTags> {
-    let mut tag_id = None;
-    let mut loan_tag_id = None;
-    let mut backdated_tag_id = None;
-    let mut updated_tag_id = None;
     let mut tags_to_create = Vec::new();
 
     if tag_name.is_none()
         && loan_tag_name.is_none()
         && backdated_tag_name.is_none()
         && updated_tag_name.is_none()
+        && orphaned_tag_name.is_none()
     {
         return Ok(PlannedTags {
             tag_id: None,
             loan_tag_id: None,
             backdated_tag_id: None,
             updated_tag_id: None,
+            orphaned_tag_id: None,
             tags_to_create,
         });
     }
 
     println! { "  {STYLE_DIM}Fetching Lunch Money tags...{STYLE_DIM:#}" };
-    let tags = lm_client.fetch_tags().await?;
+    let mut tags = lm_client.fetch_tags().await?;
 
-    if let Some(name) = tag_name {
-        if let Some(existing_tag) = tags.iter().find(|t| t.name.eq_ignore_ascii_case(name)) {
-            tag_id = Some(existing_tag.id);
-        } else {
-            tags_to_create.push(name.to_string());
+    let tag_names = [
+        tag_name,
+        loan_tag_name,
+        backdated_tag_name,
+        updated_tag_name,
+        orphaned_tag_name,
+    ];
+    let mut resolved_ids = [None; 5];
+
+    for (idx, name_opt) in tag_names.iter().enumerate() {
+        let name = match name_opt {
+            Some(n) => n,
+            None => continue,
+        };
+
+        // 1. Check if the tag already exists in Lunch Money (case-sensitive)
+        if let Some(existing) = tags.iter().find(|t| &t.name == name) {
+            resolved_ids[idx] = Some(existing.id);
+            continue;
         }
-    }
 
-    if let Some(name) = loan_tag_name {
-        if Some(name) == tag_name {
-            loan_tag_id = tag_id;
-        } else if let Some(existing_tag) = tags.iter().find(|t| t.name.eq_ignore_ascii_case(name)) {
-            loan_tag_id = Some(existing_tag.id);
+        if dry_run {
+            // 2a. In dry-run, queue the tag for creation if not already queued (case-sensitive)
+            if !tags_to_create.contains(&name.to_string()) {
+                tags_to_create.push(name.to_string());
+            }
         } else {
-            tags_to_create.push(name.to_string());
-        }
-    }
-
-    if let Some(name) = backdated_tag_name {
-        if Some(name) == tag_name {
-            backdated_tag_id = tag_id;
-        } else if Some(name) == loan_tag_name {
-            backdated_tag_id = loan_tag_id;
-        } else if let Some(existing_tag) = tags.iter().find(|t| t.name.eq_ignore_ascii_case(name)) {
-            backdated_tag_id = Some(existing_tag.id);
-        } else {
-            tags_to_create.push(name.to_string());
-        }
-    }
-
-    if let Some(name) = updated_tag_name {
-        if Some(name) == tag_name {
-            updated_tag_id = tag_id;
-        } else if Some(name) == loan_tag_name {
-            updated_tag_id = loan_tag_id;
-        } else if Some(name) == backdated_tag_name {
-            updated_tag_id = backdated_tag_id;
-        } else if let Some(existing_tag) = tags.iter().find(|t| t.name.eq_ignore_ascii_case(name)) {
-            updated_tag_id = Some(existing_tag.id);
-        } else {
-            tags_to_create.push(name.to_string());
+            // 2b. If not dry-run, create the tag immediately
+            println! { "  {STYLE_DIM}Creating new tag '{}'...{STYLE_DIM:#}", name };
+            let new_tag = lm_client.create_tag(name).await?;
+            resolved_ids[idx] = Some(new_tag.id);
+            // Add to local tags list so subsequent tag lookups can find/reuse it
+            tags.push(new_tag);
         }
     }
 
     tags_to_create.sort();
-    tags_to_create.dedup();
 
     Ok(PlannedTags {
-        tag_id,
-        loan_tag_id,
-        backdated_tag_id,
-        updated_tag_id,
+        tag_id: resolved_ids[0],
+        loan_tag_id: resolved_ids[1],
+        backdated_tag_id: resolved_ids[2],
+        updated_tag_id: resolved_ids[3],
+        orphaned_tag_id: resolved_ids[4],
         tags_to_create,
     })
 }

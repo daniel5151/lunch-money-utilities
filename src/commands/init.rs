@@ -94,16 +94,24 @@ pub(crate) async fn run_init() -> anyhow::Result<()> {
 
     println! {};
     let backdated_tag = inquire::Text::new("Backdated Tag:")
-        .with_default("🕰️🧾 Splitwise Backdated")
+        .with_default("🧾🕰️ Splitwise Backdated")
         .with_help_message("Tag applied to newly imported transactions whose original Splitwise date falls outside the sync window")
         .prompt()
         .context("Failed to get backdated_tag")?;
 
     let updated_tag = inquire::Text::new("Updated Tag:")
-        .with_default("⏫🧾 Splitwise Updated")
+        .with_default("🧾⏫ Splitwise Updated")
         .with_help_message("Tag applied to the original older Lunch Money transaction when its Splitwise expense is updated or deleted")
         .prompt()
         .context("Failed to get updated_tag")?;
+
+    let orphaned_tag = inquire::Text::new("Orphaned Tag:")
+        .with_default("🧾⚠️ Splitwise Orphaned")
+        .with_help_message(
+            "Tag applied to orphaned delta transactions when the original transaction is deleted",
+        )
+        .prompt()
+        .context("Failed to get orphaned_tag")?;
 
     let mut categories_toml = String::new();
     categories_toml.push_str("# \"Payment\" = \"...\"\n");
@@ -144,6 +152,7 @@ api_key = "{lunch_money_api_key}"
 # loan_tag = "Splitwise Loan"
 backdated_tag = "{backdated_tag}"
 updated_tag = "{updated_tag}"
+orphaned_tag = "{orphaned_tag}"
 
 [categories]
 # Map Splitwise category names/IDs to Lunch Money category names/IDs (optional)

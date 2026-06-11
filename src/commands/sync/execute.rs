@@ -27,8 +27,6 @@ pub struct ApplySyncPlanArgs<'a> {
     pub lm_client: &'a crate::api::lunch_money::Client,
     pub manual_accounts: &'a [ManualAccount],
     pub target_accounts: &'a HashMap<crate::api::Currency, u64>,
-    pub tag_name: Option<&'a str>,
-    pub loan_tag_name: Option<&'a str>,
     pub tag_id: Option<u64>,
     pub loan_tag_id: Option<u64>,
     pub updated_tag_id: Option<u64>,
@@ -48,8 +46,6 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
         lm_client,
         manual_accounts,
         target_accounts,
-        tag_name,
-        loan_tag_name,
         tag_id,
         loan_tag_id,
         updated_tag_id,
@@ -63,37 +59,7 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
         csv_path,
     } = args;
 
-    let mut tag_id_map = HashMap::new();
     let mut recovered_transactions = HashMap::new();
-    for name in &plan.tags_to_create {
-        println! { "  {STYLE_DIM}Creating new tag '{}'...{STYLE_DIM:#}", name };
-        let new_tag = lm_client.create_tag(name).await?;
-        tag_id_map.insert(name.clone(), new_tag.id);
-    }
-
-    let created_tag_id = tag_name.and_then(|name| tag_id_map.get(name).copied());
-    let created_loan_tag_id = loan_tag_name.and_then(|name| tag_id_map.get(name).copied());
-
-    if created_tag_id.is_some() || created_loan_tag_id.is_some() {
-        for ins in &mut plan.inserts {
-            let mut ids = ins.tag_ids.take().unwrap_or_default();
-            if let Some(id) = created_tag_id {
-                if !ids.contains(&id) {
-                    ids.push(id);
-                }
-            }
-            if ins.amount > Decimal::ZERO {
-                if let Some(id) = created_loan_tag_id {
-                    if !ids.contains(&id) {
-                        ids.push(id);
-                    }
-                }
-            }
-            if !ids.is_empty() {
-                ins.tag_ids = Some(ids);
-            }
-        }
-    }
 
     if !plan.deletes.is_empty() {
         let delete_ids: Vec<u64> = plan.deletes.iter().map(|t| t.id).collect();
@@ -117,6 +83,8 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
         }
     }
 
+    let mut inserted_deltas = HashMap::new();
+
     if !plan.inserts.is_empty() {
         let mut delta_inserts = Vec::new();
 
@@ -137,10 +105,12 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                 if let Some(crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
                     crate::api::lunch_money::schema::LunchMoneyTxMetadata::Delta {
                         original_transaction_id,
+                        ..
                     },
-                )) = inserted_tx.custom_metadata
+                )) = &inserted_tx.custom_metadata
                 {
-                    delta_inserts.push((original_transaction_id, inserted_tx.id));
+                    delta_inserts.push((*original_transaction_id, inserted_tx.id));
+                    inserted_deltas.insert(inserted_tx.id, inserted_tx.clone());
                 }
             }
 
@@ -165,9 +135,19 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                                 dup.existing_transaction_id
                             };
 
-                            let mut existing_lm = lm_client
+                            let existing_lm_opt = lm_client
                                 .fetch_transaction_by_id(dup.existing_transaction_id)
                                 .await?;
+                            let mut existing_lm = match existing_lm_opt {
+                                Some(tx) => tx,
+                                None => {
+                                    println!(
+                                        "  {STYLE_WARNING}Warning: Matched duplicate transaction ID {} was deleted on Lunch Money. Skipping recovery.{STYLE_WARNING:#}",
+                                        dup.existing_transaction_id
+                                    );
+                                    continue;
+                                }
+                            };
                             let is_loan = existing_lm
                                 .manual_account_id
                                 .and_then(|acc_id| {
@@ -182,6 +162,8 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                             recovered_transactions.insert(existing_lm.id, existing_lm.clone());
 
                             let mut delta_txs = Vec::new();
+                            let mut active_delta_ids = Vec::new();
+                            let mut delta_ids_modified = false;
                             if let Some(crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
                                 crate::api::lunch_money::schema::LunchMoneyTxMetadata::Import {
                                     delta_transaction_ids,
@@ -190,11 +172,30 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                             )) = &existing_lm.custom_metadata
                             {
                                 for &d_id in delta_transaction_ids {
-                                    let mut d_tx = lm_client.fetch_transaction_by_id(d_id).await?;
-                                    if is_loan {
-                                        d_tx.amount = -d_tx.amount;
+                                    match lm_client.fetch_transaction_by_id(d_id).await? {
+                                        Some(mut d_tx) => {
+                                            if is_loan {
+                                                d_tx.amount = -d_tx.amount;
+                                            }
+                                            delta_txs.push(d_tx);
+                                            active_delta_ids.push(d_id);
+                                        }
+                                        None => {
+                                            println!("  {STYLE_WARNING}Warning: Referenced delta transaction ID {} was deleted on Lunch Money. Removing reference.{STYLE_WARNING:#}", d_id);
+                                            delta_ids_modified = true;
+                                        }
                                     }
-                                    delta_txs.push(d_tx);
+                                }
+                            }
+
+                            if delta_ids_modified {
+                                if let Some(crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
+                                    crate::api::lunch_money::schema::LunchMoneyTxMetadata::Import {
+                                        delta_transaction_ids,
+                                        ..
+                                    },
+                                )) = &mut existing_lm.custom_metadata {
+                                    *delta_transaction_ids = active_delta_ids;
                                 }
                             }
 
@@ -381,10 +382,12 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                             if let Some(crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
                                 crate::api::lunch_money::schema::LunchMoneyTxMetadata::Delta {
                                     original_transaction_id,
+                                    ..
                                 },
-                            )) = inserted_tx.custom_metadata
+                            )) = &inserted_tx.custom_metadata
                             {
-                                delta_inserts.push((original_transaction_id, inserted_tx.id));
+                                delta_inserts.push((*original_transaction_id, inserted_tx.id));
+                                inserted_deltas.insert(inserted_tx.id, inserted_tx.clone());
                             }
                         }
                     }
@@ -580,9 +583,38 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
 
                     let desired_metadata =
                         crate::api::lunch_money::schema::LunchMoneyTxMetadata::Import {
-                            delta_transaction_ids: updated_delta_ids,
-                            original: original_expense,
+                            delta_transaction_ids: updated_delta_ids.clone(),
+                            original: original_expense.clone(),
                         };
+
+                    let splitwise_id = original_expense.id;
+
+                    for &d_id in &updated_delta_ids {
+                        if let Some(d_tx) = lm_transactions
+                            .iter()
+                            .find(|t| t.id == d_id)
+                            .or_else(|| recovered_transactions.get(&d_id))
+                            .or_else(|| inserted_deltas.get(&d_id))
+                        {
+                            linkage_updates.push(crate::api::lunch_money::schema::UpdateObject {
+                                id: d_tx.id,
+                                date: d_tx.date,
+                                amount: d_tx.amount,
+                                currency: d_tx.currency.clone(),
+                                payee: d_tx.payee.clone(),
+                                notes: d_tx.notes.clone().unwrap_or_default(),
+                                custom_metadata: Some(
+                                    crate::api::lunch_money::schema::LunchMoneyTxMetadata::Delta {
+                                        original_transaction_id: orig_tx.id,
+                                        delta_transaction_ids: updated_delta_ids.clone(),
+                                        splitwise_id,
+                                    },
+                                ),
+                                additional_tag_ids: None,
+                                external_id: None,
+                            });
+                        }
+                    }
 
                     let mut tag_ids = Vec::new();
                     if let Some(ut_id) = updated_tag_id {

@@ -51,7 +51,7 @@
   - **Unmapped warning**: The tool flags and prints non-zero Splitwise balances in currencies not mapped to manual accounts in the configuration.
 - **Backdated & Out-of-Window Transaction Sync**:
   - **Dual Query Fetching**: During `sync window`, the tool queries Splitwise both for expenses created/dated within the window, and expenses updated within the window (using `updated_after`), merging them to capture backdated updates.
-  - **Tag-Based Pre-fetching**: The tool pre-fetches all Lunch Money transactions tagged with the user-configured `backdated_tag` across the entire history (from `2000-01-01` to prevent N+1 API query limits or dry-run update discrepancies).
+  - **Tag-Based Pre-fetching**: The tool pre-fetches all Lunch Money transactions tagged with the user-configured `backdated_tag` across the entire history (from `2000-01-01` to prevent N+1 API query limits or dry-run update discrepancies). Also pre-fetches orphaned transactions tagged with `orphaned_tag`.
   - **Fallback Targeted Date Queries**: If an old transaction is not found in standard or pre-fetched sets, the tool runs a targeted single-day query for that transaction's original date in Lunch Money.
   - **Decision Table (Old Expenses)**:
     - *New backdated inserts*: Posted to the current day, tagged with `backdated_tag`, with notes `(Original Date: YYYY-MM-DD) Description`.
@@ -60,6 +60,10 @@
       - If no delta exists or the latest delta is older than the sync window, a new delta transaction is inserted on the current day, tagged with `backdated_tag` and notes `(Original Transaction: <original_id>) Description`.
       - When a delta is inserted/updated and the user-configured `updated_tag` is defined, the original transaction is tagged with `updated_tag` and its notes are updated with a pointer to the next delta (e.g. `(See Transaction: <delta_id>)`).
     - *Currency Changes*: Treated as a deletion in the old currency/account (delta engine bringing balance to `0.00`) and a new backdated insertion on the current day in the new currency/account.
+  - **Delta Chain Self-Healing & Deletion Recovery**:
+    - *Resilient 404 Handling*: If a transaction in the delta chain was deleted on Lunch Money by the user, querying it via `fetch_transaction_by_id` returns a 404. This is mapped to `None` and handled gracefully instead of failing execution.
+    - *Self-Healing Chain References*: Deleted delta IDs are pruned from the parent transaction's metadata in-memory, triggering a delta recalculation to restore correct balance. Metadata updates (the `delta_transaction_ids` list) are propagated to **all** active transactions in the chain (both the `Import` transaction and all active `Delta` transactions).
+    - *Orphaned Delta Tagging & Balancing*: If the original `Import` transaction itself is deleted, the remaining `Delta` transactions become "orphaned". The sync tool tags these orphaned deltas with `orphaned_tag` and posts a new current-dated balancing transaction (`kind: "orphan"`) that offsets the total sum of the orphaned deltas. The balancing transaction notes are set to: `"Offsetting orphaned deltas for deleted transaction:<original_id>, splitwise_id:<splitwise_id>"`.
 
 ---
 

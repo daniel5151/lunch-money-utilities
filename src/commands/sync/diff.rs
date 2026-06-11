@@ -123,6 +123,8 @@ pub(super) fn apply_lpp_delta_engine(
                 notes: latest.notes.clone().unwrap_or_default(),
                 custom_metadata: Some(LunchMoneyTxMetadata::Delta {
                     original_transaction_id: existing_lm.id,
+                    delta_transaction_ids: delta_transaction_ids.clone(),
+                    splitwise_id: expense.parsed.id,
                 }),
                 additional_tag_ids: None,
                 external_id: None,
@@ -187,6 +189,8 @@ pub(super) fn apply_lpp_delta_engine(
                 category_id: None,
                 custom_metadata: Some(LunchMoneyTxMetadata::Delta {
                     original_transaction_id: existing_lm.id,
+                    delta_transaction_ids: delta_transaction_ids.clone(),
+                    splitwise_id: expense.parsed.id,
                 }),
             });
         }
@@ -545,23 +549,25 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
 mod tests {
     use super::*;
 
+    const CONFIG_STR: &str = r#"
+        [splitwise]
+        api_key = "dummy"
+        user_id = 123
+        ignored_groups = []
+
+        [lunch_money]
+        api_key = "dummy"
+        custom_accounts = { USD = 999 }
+
+        [sync]
+        backdated_tag = "backdated"
+        updated_tag = "updated"
+        orphaned_tag = "orphaned"
+    "#;
+
     #[test]
     fn test_diff_transactions_loan_tag() {
-        let config_str = r#"
-            [splitwise]
-            api_key = "dummy"
-            user_id = 123
-            ignored_groups = []
-
-            [lunch_money]
-            api_key = "dummy"
-            custom_accounts = { USD = 999 }
-
-            [sync]
-            backdated_tag = "backdated"
-            updated_tag = "updated"
-        "#;
-        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+        let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
 
         let expenses_json = r#"[
             {
@@ -645,21 +651,7 @@ mod tests {
 
     #[test]
     fn test_diff_transactions_no_loan_tag() {
-        let config_str = r#"
-            [splitwise]
-            api_key = "dummy"
-            user_id = 123
-            ignored_groups = []
-
-            [lunch_money]
-            api_key = "dummy"
-            custom_accounts = { USD = 999 }
-
-            [sync]
-            backdated_tag = "backdated"
-            updated_tag = "updated"
-        "#;
-        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+        let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
 
         let expenses_json = r#"[
             {
@@ -724,21 +716,7 @@ mod tests {
 
     #[test]
     fn test_diff_transactions_force_category() {
-        let config_str = r#"
-            [splitwise]
-            api_key = "dummy"
-            user_id = 123
-            ignored_groups = []
-
-            [lunch_money]
-            api_key = "dummy"
-            custom_accounts = { USD = 999 }
-
-            [sync]
-            backdated_tag = "backdated"
-            updated_tag = "updated"
-        "#;
-        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+        let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
 
         let expenses_json = r#"[
             {
@@ -791,21 +769,7 @@ mod tests {
 
     #[test]
     fn test_individual_payee_formatting() {
-        let config_str = r#"
-            [splitwise]
-            api_key = "dummy"
-            user_id = 123
-            ignored_groups = []
-
-            [lunch_money]
-            api_key = "dummy"
-            custom_accounts = { USD = 999 }
-
-            [sync]
-            backdated_tag = "backdated"
-            updated_tag = "updated"
-        "#;
-        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+        let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
 
         let expenses_json = r#"[
             {
@@ -910,6 +874,7 @@ mod tests {
             [sync]
             backdated_tag = "backdated"
             updated_tag = "updated"
+            orphaned_tag = "orphaned"
         "#;
         let config: crate::config::Config = toml::from_str(config_str).unwrap();
 
@@ -991,21 +956,7 @@ mod tests {
 
     #[test]
     fn test_diff_transactions_custom_metadata() {
-        let config_str = r#"
-            [splitwise]
-            api_key = "dummy"
-            user_id = 123
-            ignored_groups = []
-
-            [lunch_money]
-            api_key = "dummy"
-            custom_accounts = { USD = 999 }
-
-            [sync]
-            backdated_tag = "backdated"
-            updated_tag = "updated"
-        "#;
-        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+        let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
 
         let expenses_json = r#"[
             {
@@ -1177,21 +1128,7 @@ mod tests {
 
     #[test]
     fn test_backdated_sync_lpp_delta_engine() {
-        let config_str = r#"
-            [splitwise]
-            api_key = "dummy"
-            user_id = 123
-            ignored_groups = []
-
-            [lunch_money]
-            api_key = "dummy"
-            custom_accounts = { USD = 999 }
-
-            [sync]
-            backdated_tag = "backdated"
-            updated_tag = "updated"
-        "#;
-        let config: crate::config::Config = toml::from_str(config_str).unwrap();
+        let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
 
         // 1. Splitwise expense is dated 2026-05-01 (before sync window start: 2026-06-01)
         let expenses_json = r#"[
@@ -1330,6 +1267,8 @@ mod tests {
                     crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
                         LunchMoneyTxMetadata::Delta {
                             original_transaction_id: 10,
+                            delta_transaction_ids: vec![20],
+                            splitwise_id: 1,
                         },
                     ),
                 ),
@@ -1418,6 +1357,8 @@ mod tests {
                     crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
                         LunchMoneyTxMetadata::Delta {
                             original_transaction_id: 10,
+                            delta_transaction_ids: vec![20],
+                            splitwise_id: 1,
                         },
                     ),
                 ),
@@ -1528,6 +1469,7 @@ mod tests {
             [sync]
             backdated_tag = "backdated"
             updated_tag = "updated"
+            orphaned_tag = "orphaned"
         "#;
         let config: crate::config::Config = toml::from_str(config_str).unwrap();
 
@@ -1633,6 +1575,7 @@ mod tests {
             [sync]
             backdated_tag = "backdated"
             updated_tag = "updated"
+            orphaned_tag = "orphaned"
         "#;
         let config: crate::config::Config = toml::from_str(config_str).unwrap();
 
@@ -1758,6 +1701,7 @@ mod tests {
             [sync]
             backdated_tag = "backdated"
             updated_tag = "updated"
+            orphaned_tag = "orphaned"
         "#;
         let config: crate::config::Config = toml::from_str(config_str).unwrap();
 
@@ -1835,6 +1779,8 @@ mod tests {
                     crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
                         LunchMoneyTxMetadata::Delta {
                             original_transaction_id: 10,
+                            delta_transaction_ids: vec![20],
+                            splitwise_id: 1,
                         },
                     ),
                 ),

@@ -15,6 +15,15 @@ pub enum LunchMoneyTxMetadata {
     },
     Delta {
         original_transaction_id: u64,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        delta_transaction_ids: Vec<u64>,
+        splitwise_id: u64,
+    },
+    Orphan {
+        original_transaction_id: u64,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        orphaned_transaction_ids: Vec<u64>,
+        splitwise_id: u64,
     },
 }
 
