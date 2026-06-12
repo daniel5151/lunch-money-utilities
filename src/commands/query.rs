@@ -75,19 +75,17 @@ fn print_expenses_table(
             config.splitwise.is_group_ignored(gid, name)
         });
 
-        // Styling and status tag
-        let (style, status_tag, is_uninvolved) = if expense.parsed.deleted_at.is_some() {
-            (STYLE_DIM, " [DELETED]", false)
+        let status_tag = if expense.parsed.deleted_at.is_some() {
+            " [DELETED]"
         } else if is_ignored {
-            (STYLE_WARNING, " [IGNORED]", false)
-        } else if net_balance.is_zero() {
-            has_uninvolved = true;
-            (STYLE_DIM, "", true)
-        } else if net_balance.is_sign_negative() {
-            (STYLE_ERROR, "", false)
+            " [IGNORED]"
         } else {
-            (STYLE_SUCCESS, "", false)
+            ""
         };
+
+        if net_balance.is_zero() {
+            has_uninvolved = true;
+        }
 
         // Determine max allowed length for description
         let max_desc_len = 30_usize.saturating_sub(status_tag.len());
@@ -104,15 +102,24 @@ fn print_expenses_table(
             clean_desc
         };
 
-        // Format and align the balance column using our shared helper
-        let balance_plain = super::format_aligned_balance(
-            net_balance,
-            &expense.parsed.currency_code,
-            max_num_len,
-            max_currency_len,
-            is_uninvolved,
-        );
-        let balance_colored = format!("{}{}{:#}", style, balance_plain, style);
+        let balance_colored = if is_ignored {
+            let plain = super::format_aligned_balance(
+                net_balance,
+                &expense.parsed.currency_code,
+                max_num_len,
+                max_currency_len,
+                false,
+            );
+            format!("{}{}{:#}", STYLE_WARNING, plain, STYLE_WARNING)
+        } else {
+            super::format_colored_balance(
+                net_balance,
+                &expense.parsed.currency_code,
+                max_num_len,
+                max_currency_len,
+                expense.parsed.deleted_at.is_some() || net_balance.is_zero(),
+            )
+        };
 
         records.push(ExpenseRecord {
             date: date_str,

@@ -195,19 +195,13 @@ pub async fn run_migrate_add_metadata(
             format! { "{STYLE_DIM}{} bytes{STYLE_DIM:#}", meta_size }
         };
 
-        let amount_style = if u.amount.is_sign_negative() {
-            STYLE_ERROR
-        } else {
-            STYLE_SUCCESS
-        };
-        let amount_plain = super::format_aligned_balance(
+        let amount_colored = super::format_colored_balance(
             u.amount,
             &u.currency,
             max_num_len,
             max_currency_len,
             false,
         );
-        let amount_colored = format! { "{}{}{:#}", amount_style, amount_plain, amount_style };
 
         records.push(MigrationRecord {
             id: u.id.to_string(),

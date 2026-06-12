@@ -191,6 +191,27 @@ pub(crate) fn format_aligned_balance(
     format!("{} {}", padded_num, currency_suffix)
 }
 
+/// Formats a decimal amount and a currency code into a styled and aligned terminal string.
+pub(crate) fn format_colored_balance(
+    amount: rust_decimal::Decimal,
+    currency: &crate::api::Currency,
+    max_num_len: usize,
+    max_currency_len: usize,
+    is_dimmed: bool,
+) -> String {
+    let style = if is_dimmed {
+        STYLE_DIM
+    } else if amount.is_sign_negative() {
+        STYLE_ERROR
+    } else if amount.is_zero() {
+        STYLE_DIM
+    } else {
+        STYLE_SUCCESS
+    };
+    let plain = format_aligned_balance(amount, currency, max_num_len, max_currency_len, is_dimmed);
+    format!("{}{}{:#}", style, plain, style)
+}
+
 pub(crate) fn resolve_group(
     groups: &[crate::api::splitwise::schema::Group],
     input: &str,

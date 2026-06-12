@@ -427,20 +427,13 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                     } = crate::commands::compute_max_widths(all_amounts_and_currencies);
 
                     for u in &extra_updates {
-                        let amount_style = if u.amount.is_sign_negative() {
-                            STYLE_ERROR
-                        } else {
-                            STYLE_SUCCESS
-                        };
-                        let amount_plain = crate::commands::format_aligned_balance(
+                        let amount_colored = crate::commands::format_colored_balance(
                             u.amount,
                             &u.currency,
                             max_num_len,
                             max_currency_len,
                             false,
                         );
-                        let amount_colored =
-                            format!("{}{}{:#}", amount_style, amount_plain, amount_style);
 
                         recovery_records.push(RecoveryRecord {
                             action: format!("{}✎ Update (Parent){}", STYLE_INFO, STYLE_INFO),
@@ -452,20 +445,13 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                     }
 
                     for ins in &extra_inserts {
-                        let amount_style = if ins.amount.is_sign_negative() {
-                            STYLE_ERROR
-                        } else {
-                            STYLE_SUCCESS
-                        };
-                        let amount_plain = crate::commands::format_aligned_balance(
+                        let amount_colored = crate::commands::format_colored_balance(
                             ins.amount,
                             &ins.currency,
                             max_num_len,
                             max_currency_len,
                             false,
                         );
-                        let amount_colored =
-                            format!("{}{}{:#}", amount_style, amount_plain, amount_style);
 
                         recovery_records.push(RecoveryRecord {
                             action: format!("{}✚ Insert (Delta){}", STYLE_SUCCESS, STYLE_SUCCESS),

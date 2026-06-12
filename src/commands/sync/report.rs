@@ -74,19 +74,13 @@ fn to_sync_record(args: ToSyncRecordArgs<'_>) -> SyncRecord {
         lm_category_name.unwrap_or("?")
     };
 
-    let amount_style = if amount.is_sign_negative() {
-        STYLE_ERROR
-    } else {
-        STYLE_SUCCESS
-    };
-    let amount_plain = crate::commands::format_aligned_balance(
+    let amount_colored = crate::commands::format_colored_balance(
         amount,
         currency,
         max_num_len,
         max_currency_len,
         false,
     );
-    let amount_colored = format!("{}{}{:#}", amount_style, amount_plain, amount_style);
 
     let notes_colored = if notes.trim().is_empty() {
         "".to_string()
