@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: Build and Publish Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools nasm
+
+      - name: Cache cargo registry and build cache
+        uses: swatinem/rust-cache@v2
+
+      - name: Run build script
+        run: ./ci/build.sh
+
+      - name: Extract version
+        id: prep
+        run: |
+          # Extract version from Cargo.toml
+          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "binary=target/x86_64-unknown-linux-musl/release/splitwise-lunchmoney-x86_64-unknown-linux-musl" >> $GITHUB_OUTPUT
+          echo "dwp=target/x86_64-unknown-linux-musl/release/splitwise-lunchmoney-x86_64-unknown-linux-musl.dwp" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.prep.outputs.version }}
+          BINARY: ${{ steps.prep.outputs.binary }}
+          DWP: ${{ steps.prep.outputs.dwp }}
+        run: |
+          TAG="v$VERSION"
+          echo "Creating release $TAG..."
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "" \
+            "$BINARY" \
+            "$DWP"

@@ -7,7 +7,7 @@ mod config;
 mod metadata;
 mod style;
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     if let Err(err) = run().await {
         use crate::style::STYLE_ERROR;
@@ -35,6 +35,10 @@ pub struct AppContext {
 }
 
 async fn run() -> anyhow::Result<()> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     use clap::Parser;
 
     let args = cli::Args::parse();
