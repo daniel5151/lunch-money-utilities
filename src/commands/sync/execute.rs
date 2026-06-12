@@ -110,7 +110,16 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                 )) = &inserted_tx.custom_metadata
                 {
                     delta_inserts.push((*original_transaction_id, inserted_tx.id));
-                    inserted_deltas.insert(inserted_tx.id, inserted_tx.clone());
+                    let mut tx = inserted_tx.clone();
+                    let is_loan = tx
+                        .manual_account_id
+                        .and_then(|acc_id| manual_accounts.iter().find(|acc| acc.id == acc_id))
+                        .map(|acc| acc.account_type == AccountType::Loan)
+                        .unwrap_or(false);
+                    if is_loan {
+                        tx.amount = -tx.amount;
+                    }
+                    inserted_deltas.insert(inserted_tx.id, tx);
                 }
             }
 
@@ -387,7 +396,18 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                             )) = &inserted_tx.custom_metadata
                             {
                                 delta_inserts.push((*original_transaction_id, inserted_tx.id));
-                                inserted_deltas.insert(inserted_tx.id, inserted_tx.clone());
+                                let mut tx = inserted_tx.clone();
+                                let is_loan = tx
+                                    .manual_account_id
+                                    .and_then(|acc_id| {
+                                        manual_accounts.iter().find(|acc| acc.id == acc_id)
+                                    })
+                                    .map(|acc| acc.account_type == AccountType::Loan)
+                                    .unwrap_or(false);
+                                if is_loan {
+                                    tx.amount = -tx.amount;
+                                }
+                                inserted_deltas.insert(inserted_tx.id, tx);
                             }
                         }
                     }
