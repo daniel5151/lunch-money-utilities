@@ -627,7 +627,6 @@ mod tests {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn make_test_tx(
         id: u64,
         date: jiff::civil::Date,

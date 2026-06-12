@@ -845,7 +845,7 @@ async fn chase_missing_delta_chains(
     lm_client: &crate::api::lunch_money::Client,
     manual_accounts: &[ManualAccount],
     target_accounts: &HashMap<crate::api::Currency, u64>,
-    mut lm_transactions: Vec<Transaction>,
+    lm_transactions: Vec<Transaction>,
     end_date_str: &str,
     backdated_tag_id: Option<u64>,
     orphaned_tag_id: Option<u64>,
