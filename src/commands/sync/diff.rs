@@ -545,6 +545,7 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal::Decimal;
 
     const CONFIG_STR: &str = r#"
         [splitwise]
@@ -562,11 +563,104 @@ mod tests {
         orphaned_tag = "orphaned"
     "#;
 
+    struct TestEnv {
+        pub config: crate::config::Config,
+        pub target_accounts: HashMap<Currency, u64>,
+        pub group_map: HashMap<u64, String>,
+        pub lm_map: HashMap<ExternalId, Transaction>,
+        pub sw_category_id_to_path: HashMap<u32, String>,
+        pub resolved_categories: HashMap<String, u64>,
+        pub ignored_groups_exclude: Option<u64>,
+        pub bypass_ignore_groups: bool,
+        pub tag_id: Option<u64>,
+        pub loan_tag_id: Option<u64>,
+        pub force_category_id: Option<u64>,
+        pub tags_to_create: Vec<String>,
+        pub sync_window_start: Option<jiff::civil::Date>,
+        pub backdated_tag_id: Option<u64>,
+        pub updated_tag_id: Option<u64>,
+    }
+
+    impl TestEnv {
+        fn new() -> Self {
+            let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
+            let mut target_accounts = HashMap::new();
+            target_accounts.insert(Currency::new("USD"), 999);
+            Self {
+                config,
+                target_accounts,
+                group_map: HashMap::new(),
+                lm_map: HashMap::new(),
+                sw_category_id_to_path: HashMap::new(),
+                resolved_categories: HashMap::new(),
+                ignored_groups_exclude: None,
+                bypass_ignore_groups: false,
+                tag_id: None,
+                loan_tag_id: None,
+                force_category_id: None,
+                tags_to_create: Vec::new(),
+                sync_window_start: None,
+                backdated_tag_id: None,
+                updated_tag_id: None,
+            }
+        }
+
+        fn run(mut self, expenses: Vec<Expense>) -> anyhow::Result<SyncPlan> {
+            diff_transactions(DiffTransactionsArgs {
+                expenses,
+                config: &self.config,
+                target_accounts: &self.target_accounts,
+                group_map: &self.group_map,
+                lm_map: &mut self.lm_map,
+                sw_category_id_to_path: &self.sw_category_id_to_path,
+                resolved_categories: &self.resolved_categories,
+                ignored_groups_exclude: self.ignored_groups_exclude,
+                bypass_ignore_groups: self.bypass_ignore_groups,
+                tag_id: self.tag_id,
+                loan_tag_id: self.loan_tag_id,
+                force_category_id: self.force_category_id,
+                tags_to_create: self.tags_to_create,
+                sync_window_start: self.sync_window_start,
+                backdated_tag_id: self.backdated_tag_id,
+                updated_tag_id: self.updated_tag_id,
+            })
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn make_test_tx(
+        id: u64,
+        date: jiff::civil::Date,
+        amount: Decimal,
+        currency: &str,
+        payee: &str,
+        notes: Option<&str>,
+        external_id: Option<ExternalId>,
+        custom_metadata: Option<LunchMoneyTxMetadata>,
+        manual_account_id: u64,
+    ) -> Transaction {
+        Transaction {
+            id,
+            date,
+            amount,
+            currency: Currency::new(currency),
+            payee: payee.to_string(),
+            notes: notes.map(|s| s.to_string()),
+            external_id,
+            manual_account_id: Some(manual_account_id),
+            is_split_parent: None,
+            group_parent_id: None,
+            status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
+            category_id: None,
+            custom_metadata: custom_metadata
+                .map(crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected),
+        }
+    }
+
     #[test]
     fn test_diff_transactions_loan_tag_behavior() {
-        let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
-
-        let expenses_json = r#"[
+        let expenses: Vec<Expense> = serde_json::from_str(
+            r#"[
             {
                 "id": 1,
                 "description": "Positive Net Balance (folks owe me)",
@@ -593,36 +687,15 @@ mod tests {
                 ],
                 "payment": false
             }
-        ]"#;
-        let expenses: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
-
-        let mut target_accounts = HashMap::new();
-        target_accounts.insert(Currency::new("USD"), 999);
-
-        let mut lm_map = HashMap::new();
-        let sw_category_id_to_path = HashMap::new();
-        let resolved_categories = HashMap::new();
+        ]"#,
+        )
+        .unwrap();
 
         // Case 1: with loan_tag_id configured
-        let plan1 = diff_transactions(DiffTransactionsArgs {
-            expenses: expenses.clone(),
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &HashMap::new(),
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &sw_category_id_to_path,
-            resolved_categories: &resolved_categories,
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: Some(444),
-            loan_tag_id: Some(555),
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: None,
-            backdated_tag_id: None,
-            updated_tag_id: None,
-        })
-        .unwrap();
+        let mut env1 = TestEnv::new();
+        env1.tag_id = Some(444);
+        env1.loan_tag_id = Some(555);
+        let plan1 = env1.run(expenses.clone()).unwrap();
 
         assert_eq!(plan1.inserts.len(), 2);
         // Positive net balance gets both tags
@@ -641,25 +714,9 @@ mod tests {
         assert_eq!(tx2.tag_ids, Some(vec![444]));
 
         // Case 2: without loan_tag_id configured
-        let plan2 = diff_transactions(DiffTransactionsArgs {
-            expenses,
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &HashMap::new(),
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &sw_category_id_to_path,
-            resolved_categories: &resolved_categories,
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: Some(444),
-            loan_tag_id: None,
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: None,
-            backdated_tag_id: None,
-            updated_tag_id: None,
-        })
-        .unwrap();
+        let mut env2 = TestEnv::new();
+        env2.tag_id = Some(444);
+        let plan2 = env2.run(expenses).unwrap();
 
         assert_eq!(plan2.inserts.len(), 2);
         // Positive net balance only gets main tag
@@ -673,9 +730,8 @@ mod tests {
 
     #[test]
     fn test_diff_transactions_force_category() {
-        let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
-
-        let expenses_json = r#"[
+        let expenses: Vec<Expense> = serde_json::from_str(
+            r#"[
             {
                 "id": 1,
                 "description": "Any expense",
@@ -689,35 +745,13 @@ mod tests {
                 ],
                 "payment": false
             }
-        ]"#;
-        let expenses: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
-
-        let mut target_accounts = HashMap::new();
-        target_accounts.insert(Currency::new("USD"), 999);
-
-        let mut lm_map = HashMap::new();
-        let sw_category_id_to_path = HashMap::new();
-        let resolved_categories = HashMap::new();
-
-        let plan = diff_transactions(DiffTransactionsArgs {
-            expenses,
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &HashMap::new(),
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &sw_category_id_to_path,
-            resolved_categories: &resolved_categories,
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: None,
-            loan_tag_id: None,
-            force_category_id: Some(1010),
-            tags_to_create: vec![],
-            sync_window_start: None,
-            backdated_tag_id: None,
-            updated_tag_id: None,
-        })
+        ]"#,
+        )
         .unwrap();
+
+        let mut env = TestEnv::new();
+        env.force_category_id = Some(1010);
+        let plan = env.run(expenses).unwrap();
 
         let inserts = plan.inserts;
         assert_eq!(inserts.len(), 1);
@@ -726,9 +760,8 @@ mod tests {
 
     #[test]
     fn test_individual_payee_formatting() {
-        let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
-
-        let expenses_json = r#"[
+        let expenses: Vec<Expense> = serde_json::from_str(
+            r#"[
             {
                 "id": 1,
                 "description": "Dinner expense",
@@ -764,41 +797,15 @@ mod tests {
                 ],
                 "payment": false
             }
-        ]"#;
-        let expenses: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
-
-        let mut target_accounts = HashMap::new();
-        target_accounts.insert(Currency::new("USD"), 999);
-
-        let mut lm_map = HashMap::new();
-        let sw_category_id_to_path = HashMap::new();
-        let resolved_categories = HashMap::new();
-
-        let mut group_map = HashMap::new();
-        group_map.insert(789, "Roommates".to_string());
-
-        let plan = diff_transactions(DiffTransactionsArgs {
-            expenses,
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &group_map,
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &sw_category_id_to_path,
-            resolved_categories: &resolved_categories,
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: None,
-            loan_tag_id: None,
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: None,
-            backdated_tag_id: None,
-            updated_tag_id: None,
-        })
+        ]"#,
+        )
         .unwrap();
 
-        let inserts = plan.inserts;
+        let mut env = TestEnv::new();
+        env.group_map.insert(789, "Roommates".to_string());
+        let plan = env.run(expenses).unwrap();
 
+        let inserts = plan.inserts;
         assert_eq!(inserts.len(), 2);
 
         // Individual expense (id: 1) should have payee "Alice Smith" (no "Splitwise - " prefix)
@@ -818,24 +825,8 @@ mod tests {
 
     #[test]
     fn test_diff_transactions_no_ignore() {
-        let config_str = r#"
-            [splitwise]
-            api_key = "dummy"
-            user_id = 123
-            ignored_groups = [ 789 ]
-
-            [lunch_money]
-            api_key = "dummy"
-            custom_accounts = { USD = 999 }
-
-            [sync]
-            backdated_tag = "backdated"
-            updated_tag = "updated"
-            orphaned_tag = "orphaned"
-        "#;
-        let config: crate::config::Config = toml::from_str(config_str).unwrap();
-
-        let expenses_json = r#"[
+        let expenses: Vec<Expense> = serde_json::from_str(
+            r#"[
             {
                 "id": 1,
                 "description": "Group expense",
@@ -850,72 +841,31 @@ mod tests {
                 ],
                 "payment": false
             }
-        ]"#;
-        let expenses1: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
-        let expenses2: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
-
-        let mut target_accounts = HashMap::new();
-        target_accounts.insert(Currency::new("USD"), 999);
-
-        let mut lm_map = HashMap::new();
-        let sw_category_id_to_path = HashMap::new();
-        let resolved_categories = HashMap::new();
-
-        let mut group_map = HashMap::new();
-        group_map.insert(789, "Roommates".to_string());
+        ]"#,
+        )
+        .unwrap();
 
         // Case 1: bypass_ignore_groups = false (should be ignored, inserts is empty)
-        let plan1 = diff_transactions(DiffTransactionsArgs {
-            expenses: expenses1,
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &group_map,
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &sw_category_id_to_path,
-            resolved_categories: &resolved_categories,
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: None,
-            loan_tag_id: None,
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: None,
-            backdated_tag_id: None,
-            updated_tag_id: None,
-        })
-        .unwrap();
-        let inserts1 = plan1.inserts;
-        assert!(inserts1.is_empty());
+        let mut env1 = TestEnv::new();
+        env1.config.splitwise.ignored_groups = vec![crate::config::IgnoredGroup::Id(789)];
+        env1.group_map.insert(789, "Roommates".to_string());
+        env1.bypass_ignore_groups = false;
+        let plan1 = env1.run(expenses.clone()).unwrap();
+        assert!(plan1.inserts.is_empty());
 
         // Case 2: bypass_ignore_groups = true (should NOT be ignored, inserts has 1 item)
-        let plan2 = diff_transactions(DiffTransactionsArgs {
-            expenses: expenses2,
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &group_map,
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &sw_category_id_to_path,
-            resolved_categories: &resolved_categories,
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: true,
-            tag_id: None,
-            loan_tag_id: None,
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: None,
-            backdated_tag_id: None,
-            updated_tag_id: None,
-        })
-        .unwrap();
-        let inserts2 = plan2.inserts;
-        assert_eq!(inserts2.len(), 1);
+        let mut env2 = TestEnv::new();
+        env2.config.splitwise.ignored_groups = vec![crate::config::IgnoredGroup::Id(789)];
+        env2.group_map.insert(789, "Roommates".to_string());
+        env2.bypass_ignore_groups = true;
+        let plan2 = env2.run(expenses).unwrap();
+        assert_eq!(plan2.inserts.len(), 1);
     }
 
     #[test]
     fn test_diff_transactions_custom_metadata() {
-        let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
-
-        let expenses_json = r#"[
+        let expenses: Vec<Expense> = serde_json::from_str(
+            r#"[
             {
                 "id": 1,
                 "description": "Positive Net Balance (folks owe me)",
@@ -929,154 +879,65 @@ mod tests {
                 ],
                 "payment": false
             }
-        ]"#;
-        let expenses: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
+        ]"#,
+        )
+        .unwrap();
         let desired_metadata = LunchMoneyTxMetadata::Import {
             delta_transaction_ids: Vec::new(),
             original: expenses[0].parsed.clone().into(),
         };
 
-        let mut target_accounts = HashMap::new();
-        target_accounts.insert(Currency::new("USD"), 999);
-
         // Case 1: Existing transaction has no custom_metadata, but amount and currency are unchanged.
-        // Should NOT trigger an update during diffing, because the sync command performs a fail-fast check earlier.
-        let mut lm_map = HashMap::new();
-        lm_map.insert(
-            ExternalId::Splitwise(1),
-            Transaction {
-                id: 10,
-                date: jiff::civil::date(2026, 6, 6),
-                amount: Decimal::new(5000, 2),
-                currency: Currency::new("USD"),
-                payee: "Positive Net Balance (folks owe me)".to_string(),
-                notes: None,
-                external_id: Some(ExternalId::Splitwise(1)),
-                manual_account_id: Some(999),
-                is_split_parent: None,
-                group_parent_id: None,
-                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                category_id: None,
-                custom_metadata: None,
-            },
+        let tx1 = make_test_tx(
+            10,
+            jiff::civil::date(2026, 6, 6),
+            Decimal::new(5000, 2),
+            "USD",
+            "Positive Net Balance (folks owe me)",
+            None,
+            Some(ExternalId::Splitwise(1)),
+            None,
+            999,
         );
-
-        let plan = diff_transactions(DiffTransactionsArgs {
-            expenses: expenses.clone(),
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &HashMap::new(),
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &HashMap::new(),
-            resolved_categories: &HashMap::new(),
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: None,
-            loan_tag_id: None,
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: None,
-            backdated_tag_id: None,
-            updated_tag_id: None,
-        })
-        .unwrap();
-
+        let mut env1 = TestEnv::new();
+        env1.lm_map.insert(ExternalId::Splitwise(1), tx1);
+        let plan = env1.run(expenses.clone()).unwrap();
         assert!(plan.inserts.is_empty());
         assert!(plan.updates.is_empty());
 
         // Case 2: Existing transaction has identical custom_metadata. Should NOT trigger an update.
-        let mut lm_map = HashMap::new();
-        lm_map.insert(
-            ExternalId::Splitwise(1),
-            Transaction {
-                id: 10,
-                date: jiff::civil::date(2026, 6, 6),
-                amount: Decimal::new(5000, 2),
-                currency: Currency::new("USD"),
-                payee: "Positive Net Balance (folks owe me)".to_string(),
-                notes: None,
-                external_id: Some(ExternalId::Splitwise(1)),
-                manual_account_id: Some(999),
-                is_split_parent: None,
-                group_parent_id: None,
-                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                category_id: None,
-                custom_metadata: Some(
-                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
-                        desired_metadata.clone(),
-                    ),
-                ),
-            },
+        let tx2 = make_test_tx(
+            10,
+            jiff::civil::date(2026, 6, 6),
+            Decimal::new(5000, 2),
+            "USD",
+            "Positive Net Balance (folks owe me)",
+            None,
+            Some(ExternalId::Splitwise(1)),
+            Some(desired_metadata.clone()),
+            999,
         );
-
-        let plan = diff_transactions(DiffTransactionsArgs {
-            expenses: expenses.clone(),
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &HashMap::new(),
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &HashMap::new(),
-            resolved_categories: &HashMap::new(),
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: None,
-            loan_tag_id: None,
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: None,
-            backdated_tag_id: None,
-            updated_tag_id: None,
-        })
-        .unwrap();
-
+        let mut env2 = TestEnv::new();
+        env2.lm_map.insert(ExternalId::Splitwise(1), tx2);
+        let plan = env2.run(expenses.clone()).unwrap();
         assert!(plan.inserts.is_empty());
         assert!(plan.updates.is_empty());
 
         // Case 3: Amount changed. Should trigger an update carrying custom_metadata.
-        let mut lm_map = HashMap::new();
-        lm_map.insert(
-            ExternalId::Splitwise(1),
-            Transaction {
-                id: 10,
-                date: jiff::civil::date(2026, 6, 6),
-                amount: Decimal::new(4000, 2), // 40.00 instead of 50.00
-                currency: Currency::new("USD"),
-                payee: "Positive Net Balance (folks owe me)".to_string(),
-                notes: None,
-                external_id: Some(ExternalId::Splitwise(1)),
-                manual_account_id: Some(999),
-                is_split_parent: None,
-                group_parent_id: None,
-                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                category_id: None,
-                custom_metadata: Some(
-                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
-                        desired_metadata.clone(),
-                    ),
-                ),
-            },
+        let tx3 = make_test_tx(
+            10,
+            jiff::civil::date(2026, 6, 6),
+            Decimal::new(4000, 2), // 40.00 instead of 50.00
+            "USD",
+            "Positive Net Balance (folks owe me)",
+            None,
+            Some(ExternalId::Splitwise(1)),
+            Some(desired_metadata.clone()),
+            999,
         );
-
-        let plan = diff_transactions(DiffTransactionsArgs {
-            expenses: expenses.clone(),
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &HashMap::new(),
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &HashMap::new(),
-            resolved_categories: &HashMap::new(),
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: None,
-            loan_tag_id: None,
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: None,
-            backdated_tag_id: None,
-            updated_tag_id: None,
-        })
-        .unwrap();
-
+        let mut env3 = TestEnv::new();
+        env3.lm_map.insert(ExternalId::Splitwise(1), tx3);
+        let plan = env3.run(expenses).unwrap();
         assert!(plan.inserts.is_empty());
         assert_eq!(plan.updates.len(), 1);
         assert_eq!(plan.updates[0].amount, Decimal::new(5000, 2));
@@ -1085,10 +946,9 @@ mod tests {
 
     #[test]
     fn test_backdated_sync_lpp_delta_engine() {
-        let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
-
         // 1. Splitwise expense is dated 2026-05-01 (before sync window start: 2026-06-01)
-        let expenses_json = r#"[
+        let expenses: Vec<Expense> = serde_json::from_str(
+            r#"[
             {
                 "id": 1,
                 "description": "Lunch outside window",
@@ -1102,64 +962,34 @@ mod tests {
                 ],
                 "payment": false
             }
-        ]"#;
-        let expenses: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
+        ]"#,
+        )
+        .unwrap();
         let original_expense = expenses[0].parsed.clone();
 
-        let mut target_accounts = HashMap::new();
-        target_accounts.insert(Currency::new("USD"), 999);
-
-        // Case A: No existing delta transactions.
-        // We have the original transaction (amount: -10.00). But the expense says -15.00.
-        // It should insert a new delta transaction of -5.00 on the current day.
-        let mut lm_map = HashMap::new();
         let orig_metadata = LunchMoneyTxMetadata::Import {
             delta_transaction_ids: Vec::new(),
             original: original_expense.clone().into(),
         };
 
-        lm_map.insert(
-            ExternalId::Splitwise(1),
-            Transaction {
-                id: 10,
-                date: jiff::civil::date(2026, 5, 1),
-                amount: Decimal::new(-1000, 2), // -10.00
-                currency: Currency::new("USD"),
-                payee: "Lunch outside window".to_string(),
-                notes: None,
-                external_id: Some(ExternalId::Splitwise(1)),
-                manual_account_id: Some(999),
-                is_split_parent: None,
-                group_parent_id: None,
-                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                category_id: None,
-                custom_metadata: Some(
-                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
-                        orig_metadata.clone(),
-                    ),
-                ),
-            },
+        // Case A: No existing delta transactions.
+        let tx_a = make_test_tx(
+            10,
+            jiff::civil::date(2026, 5, 1),
+            Decimal::new(-1000, 2), // -10.00
+            "USD",
+            "Lunch outside window",
+            None,
+            Some(ExternalId::Splitwise(1)),
+            Some(orig_metadata.clone()),
+            999,
         );
-
-        let plan = diff_transactions(DiffTransactionsArgs {
-            expenses: expenses.clone(),
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &HashMap::new(),
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &HashMap::new(),
-            resolved_categories: &HashMap::new(),
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: None,
-            loan_tag_id: None,
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: Some(jiff::civil::date(2026, 6, 1)),
-            backdated_tag_id: Some(888),
-            updated_tag_id: Some(777),
-        })
-        .unwrap();
+        let mut env_a = TestEnv::new();
+        env_a.lm_map.insert(ExternalId::Splitwise(1), tx_a);
+        env_a.sync_window_start = Some(jiff::civil::date(2026, 6, 1));
+        env_a.backdated_tag_id = Some(888);
+        env_a.updated_tag_id = Some(777);
+        let plan = env_a.run(expenses.clone()).unwrap();
 
         assert_eq!(plan.inserts.len(), 1);
         assert_eq!(plan.inserts[0].amount, Decimal::new(-500, 2)); // -5.00 delta
@@ -1174,83 +1004,47 @@ mod tests {
         );
 
         // Case B: There is an existing delta transaction outside LPP (dated 2026-05-15, which is before 2026-06-01).
-        // Total so far: original (-10.00) + delta (-3.00) = -13.00. Target is -15.00.
-        // It should insert a new delta transaction of -2.00 on the current day.
-        let mut lm_map = HashMap::new();
         let orig_metadata_with_delta = LunchMoneyTxMetadata::Import {
             delta_transaction_ids: vec![20],
             original: original_expense.clone().into(),
         };
 
-        lm_map.insert(
-            ExternalId::Splitwise(1),
-            Transaction {
-                id: 10,
-                date: jiff::civil::date(2026, 5, 1),
-                amount: Decimal::new(-1000, 2), // -10.00
-                currency: Currency::new("USD"),
-                payee: "Lunch outside window".to_string(),
-                notes: None,
-                external_id: Some(ExternalId::Splitwise(1)),
-                manual_account_id: Some(999),
-                is_split_parent: None,
-                group_parent_id: None,
-                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                category_id: None,
-                custom_metadata: Some(
-                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
-                        orig_metadata_with_delta.clone(),
-                    ),
-                ),
-            },
+        let tx_b_orig = make_test_tx(
+            10,
+            jiff::civil::date(2026, 5, 1),
+            Decimal::new(-1000, 2), // -10.00
+            "USD",
+            "Lunch outside window",
+            None,
+            Some(ExternalId::Splitwise(1)),
+            Some(orig_metadata_with_delta.clone()),
+            999,
+        );
+        let tx_b_delta = make_test_tx(
+            20,
+            jiff::civil::date(2026, 5, 15), // outside window
+            Decimal::new(-300, 2),          // -3.00
+            "USD",
+            "Lunch outside window delta",
+            None,
+            Some(ExternalId::SplitwiseDelta(1, 0)),
+            Some(LunchMoneyTxMetadata::Delta {
+                original_transaction_id: 10,
+                delta_transaction_ids: vec![20],
+                splitwise_id: 1,
+            }),
+            999,
         );
 
-        lm_map.insert(
-            ExternalId::SplitwiseDelta(1, 0),
-            Transaction {
-                id: 20,
-                date: jiff::civil::date(2026, 5, 15), // outside window
-                amount: Decimal::new(-300, 2),        // -3.00
-                currency: Currency::new("USD"),
-                payee: "Lunch outside window delta".to_string(),
-                notes: None,
-                external_id: Some(ExternalId::SplitwiseDelta(1, 0)),
-                manual_account_id: Some(999),
-                is_split_parent: None,
-                group_parent_id: None,
-                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                category_id: None,
-                custom_metadata: Some(
-                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
-                        LunchMoneyTxMetadata::Delta {
-                            original_transaction_id: 10,
-                            delta_transaction_ids: vec![20],
-                            splitwise_id: 1,
-                        },
-                    ),
-                ),
-            },
-        );
-
-        let plan = diff_transactions(DiffTransactionsArgs {
-            expenses: expenses.clone(),
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &HashMap::new(),
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &HashMap::new(),
-            resolved_categories: &HashMap::new(),
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: None,
-            loan_tag_id: None,
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: Some(jiff::civil::date(2026, 6, 1)),
-            backdated_tag_id: Some(888),
-            updated_tag_id: Some(777),
-        })
-        .unwrap();
+        let mut env_b = TestEnv::new();
+        env_b.lm_map.insert(ExternalId::Splitwise(1), tx_b_orig);
+        env_b
+            .lm_map
+            .insert(ExternalId::SplitwiseDelta(1, 0), tx_b_delta);
+        env_b.sync_window_start = Some(jiff::civil::date(2026, 6, 1));
+        env_b.backdated_tag_id = Some(888);
+        env_b.updated_tag_id = Some(777);
+        let plan = env_b.run(expenses.clone()).unwrap();
 
         assert_eq!(plan.inserts.len(), 1);
         assert_eq!(plan.inserts[0].amount, Decimal::new(-200, 2)); // -2.00 delta
@@ -1264,83 +1058,47 @@ mod tests {
         );
 
         // Case C: There is an existing delta transaction inside LPP (dated 2026-06-05, which is after 2026-06-01).
-        // Total so far: original (-10.00) + delta (-3.00) = -13.00. Target is -15.00.
-        // It should update the existing delta transaction in-place to -5.00, rather than inserting a new one.
-        let mut lm_map = HashMap::new();
         let orig_metadata_with_lpp_delta = LunchMoneyTxMetadata::Import {
             delta_transaction_ids: vec![20],
             original: original_expense.clone().into(),
         };
 
-        lm_map.insert(
-            ExternalId::Splitwise(1),
-            Transaction {
-                id: 10,
-                date: jiff::civil::date(2026, 5, 1),
-                amount: Decimal::new(-1000, 2), // -10.00
-                currency: Currency::new("USD"),
-                payee: "Lunch outside window".to_string(),
-                notes: None,
-                external_id: Some(ExternalId::Splitwise(1)),
-                manual_account_id: Some(999),
-                is_split_parent: None,
-                group_parent_id: None,
-                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                category_id: None,
-                custom_metadata: Some(
-                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
-                        orig_metadata_with_lpp_delta.clone(),
-                    ),
-                ),
-            },
+        let tx_c_orig = make_test_tx(
+            10,
+            jiff::civil::date(2026, 5, 1),
+            Decimal::new(-1000, 2), // -10.00
+            "USD",
+            "Lunch outside window",
+            None,
+            Some(ExternalId::Splitwise(1)),
+            Some(orig_metadata_with_lpp_delta),
+            999,
+        );
+        let tx_c_delta = make_test_tx(
+            20,
+            jiff::civil::date(2026, 6, 5), // inside window (LPP)
+            Decimal::new(-300, 2),         // -3.00
+            "USD",
+            "Lunch outside window delta",
+            None,
+            Some(ExternalId::SplitwiseDelta(1, 0)),
+            Some(LunchMoneyTxMetadata::Delta {
+                original_transaction_id: 10,
+                delta_transaction_ids: vec![20],
+                splitwise_id: 1,
+            }),
+            999,
         );
 
-        lm_map.insert(
-            ExternalId::SplitwiseDelta(1, 0),
-            Transaction {
-                id: 20,
-                date: jiff::civil::date(2026, 6, 5), // inside window (LPP)
-                amount: Decimal::new(-300, 2),       // -3.00
-                currency: Currency::new("USD"),
-                payee: "Lunch outside window delta".to_string(),
-                notes: None,
-                external_id: Some(ExternalId::SplitwiseDelta(1, 0)),
-                manual_account_id: Some(999),
-                is_split_parent: None,
-                group_parent_id: None,
-                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                category_id: None,
-                custom_metadata: Some(
-                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
-                        LunchMoneyTxMetadata::Delta {
-                            original_transaction_id: 10,
-                            delta_transaction_ids: vec![20],
-                            splitwise_id: 1,
-                        },
-                    ),
-                ),
-            },
-        );
-
-        let plan = diff_transactions(DiffTransactionsArgs {
-            expenses: expenses.clone(),
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &HashMap::new(),
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &HashMap::new(),
-            resolved_categories: &HashMap::new(),
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: None,
-            loan_tag_id: None,
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: Some(jiff::civil::date(2026, 6, 1)),
-            backdated_tag_id: Some(888),
-            updated_tag_id: Some(777),
-        })
-        .unwrap();
+        let mut env_c = TestEnv::new();
+        env_c.lm_map.insert(ExternalId::Splitwise(1), tx_c_orig);
+        env_c
+            .lm_map
+            .insert(ExternalId::SplitwiseDelta(1, 0), tx_c_delta);
+        env_c.sync_window_start = Some(jiff::civil::date(2026, 6, 1));
+        env_c.backdated_tag_id = Some(888);
+        env_c.updated_tag_id = Some(777);
+        let plan = env_c.run(expenses.clone()).unwrap();
 
         assert_eq!(plan.inserts.len(), 0);
         // It updates the delta transaction (ID 20) and adds the updated tag to the original transaction (ID 10)
@@ -1353,57 +1111,30 @@ mod tests {
         assert_eq!(u_orig.additional_tag_ids, Some(vec![777]));
         assert_eq!(u_orig.notes, "");
 
-        // Case D: The backdated expense was already imported, and its Lunch Money transaction date is inside the sync window (e.g. 2026-06-05, which is after 2026-06-01).
-        // Total so far: original (-10.00). Target is -15.00.
-        // Since the Lunch Money transaction's posted date is within the LPP sync window, it should be updated in-place directly without delta creation.
-        let mut lm_map = HashMap::new();
+        // Case D: The backdated expense was already imported, and its Lunch Money transaction date is inside the sync window.
         let orig_metadata_in_window = LunchMoneyTxMetadata::Import {
             delta_transaction_ids: Vec::new(),
             original: original_expense.clone().into(),
         };
 
-        lm_map.insert(
-            ExternalId::Splitwise(1),
-            Transaction {
-                id: 10,
-                date: jiff::civil::date(2026, 6, 5), // inside window (LPP)
-                amount: Decimal::new(-1000, 2),      // -10.00
-                currency: Currency::new("USD"),
-                payee: "Lunch outside window".to_string(),
-                notes: None,
-                external_id: Some(ExternalId::Splitwise(1)),
-                manual_account_id: Some(999),
-                is_split_parent: None,
-                group_parent_id: None,
-                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                category_id: None,
-                custom_metadata: Some(
-                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
-                        orig_metadata_in_window.clone(),
-                    ),
-                ),
-            },
+        let tx_d = make_test_tx(
+            10,
+            jiff::civil::date(2026, 6, 5), // inside window (LPP)
+            Decimal::new(-1000, 2),        // -10.00
+            "USD",
+            "Lunch outside window",
+            None,
+            Some(ExternalId::Splitwise(1)),
+            Some(orig_metadata_in_window),
+            999,
         );
 
-        let plan = diff_transactions(DiffTransactionsArgs {
-            expenses: expenses.clone(),
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &HashMap::new(),
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &HashMap::new(),
-            resolved_categories: &HashMap::new(),
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: None,
-            loan_tag_id: None,
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: Some(jiff::civil::date(2026, 6, 1)),
-            backdated_tag_id: Some(888),
-            updated_tag_id: Some(777),
-        })
-        .unwrap();
+        let mut env_d = TestEnv::new();
+        env_d.lm_map.insert(ExternalId::Splitwise(1), tx_d);
+        env_d.sync_window_start = Some(jiff::civil::date(2026, 6, 1));
+        env_d.backdated_tag_id = Some(888);
+        env_d.updated_tag_id = Some(777);
+        let plan = env_d.run(expenses).unwrap();
 
         assert_eq!(plan.inserts.len(), 0);
         assert_eq!(plan.updates.len(), 1);
@@ -1413,24 +1144,8 @@ mod tests {
 
     #[test]
     fn test_diff_transactions_currency_changed_in_window() {
-        let config_str = r#"
-            [splitwise]
-            api_key = "dummy"
-            user_id = 123
-            ignored_groups = []
-
-            [lunch_money]
-            api_key = "dummy"
-            custom_accounts = { USD = 999, CAD = 888 }
-
-            [sync]
-            backdated_tag = "backdated"
-            updated_tag = "updated"
-            orphaned_tag = "orphaned"
-        "#;
-        let config: crate::config::Config = toml::from_str(config_str).unwrap();
-
-        let expenses_json = r#"[
+        let expenses: Vec<Expense> = serde_json::from_str(
+            r#"[
             {
                 "id": 1,
                 "description": "Lunch outside window",
@@ -1444,14 +1159,10 @@ mod tests {
                 ],
                 "payment": false
             }
-        ]"#;
-        let expenses: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
+        ]"#,
+        )
+        .unwrap();
 
-        let mut target_accounts = HashMap::new();
-        target_accounts.insert(Currency::new("USD"), 999);
-        target_accounts.insert(Currency::new("CAD"), 888);
-
-        let mut lm_map = HashMap::new();
         let original_expense = expenses[0].parsed.clone();
         let orig_metadata = LunchMoneyTxMetadata::Import {
             delta_transaction_ids: Vec::new(),
@@ -1459,48 +1170,29 @@ mod tests {
         };
 
         // Existing transaction is USD in Lunch Money, but changed to CAD in Splitwise.
-        lm_map.insert(
-            ExternalId::Splitwise(1),
-            Transaction {
-                id: 10,
-                date: jiff::civil::date(2026, 6, 6),
-                amount: Decimal::new(-1500, 2),
-                currency: Currency::new("USD"),
-                payee: "Lunch outside window".to_string(),
-                notes: None,
-                external_id: Some(ExternalId::Splitwise(1)),
-                manual_account_id: Some(999),
-                is_split_parent: None,
-                group_parent_id: None,
-                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                category_id: None,
-                custom_metadata: Some(
-                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
-                        orig_metadata,
-                    ),
-                ),
-            },
+        let tx = make_test_tx(
+            10,
+            jiff::civil::date(2026, 6, 6),
+            Decimal::new(-1500, 2),
+            "USD",
+            "Lunch outside window",
+            None,
+            Some(ExternalId::Splitwise(1)),
+            Some(orig_metadata),
+            999,
         );
 
-        let plan = diff_transactions(DiffTransactionsArgs {
-            expenses: expenses.clone(),
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &HashMap::new(),
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &HashMap::new(),
-            resolved_categories: &HashMap::new(),
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: None,
-            loan_tag_id: None,
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: Some(jiff::civil::date(2026, 6, 1)),
-            backdated_tag_id: Some(888),
-            updated_tag_id: Some(777),
-        })
-        .unwrap();
+        let mut env = TestEnv::new();
+        env.config
+            .lunch_money
+            .custom_accounts
+            .insert(Currency::new("CAD"), 888);
+        env.target_accounts.insert(Currency::new("CAD"), 888);
+        env.lm_map.insert(ExternalId::Splitwise(1), tx);
+        env.sync_window_start = Some(jiff::civil::date(2026, 6, 1));
+        env.backdated_tag_id = Some(888);
+        env.updated_tag_id = Some(777);
+        let plan = env.run(expenses).unwrap();
 
         // Check that the old transaction is deleted
         assert_eq!(plan.deletes.len(), 1);
@@ -1519,24 +1211,8 @@ mod tests {
 
     #[test]
     fn test_diff_transactions_currency_changed_outside_window() {
-        let config_str = r#"
-            [splitwise]
-            api_key = "dummy"
-            user_id = 123
-            ignored_groups = []
-
-            [lunch_money]
-            api_key = "dummy"
-            custom_accounts = { USD = 999, CAD = 888 }
-
-            [sync]
-            backdated_tag = "backdated"
-            updated_tag = "updated"
-            orphaned_tag = "orphaned"
-        "#;
-        let config: crate::config::Config = toml::from_str(config_str).unwrap();
-
-        let expenses_json = r#"[
+        let expenses: Vec<Expense> = serde_json::from_str(
+            r#"[
             {
                 "id": 1,
                 "description": "Lunch outside window",
@@ -1550,14 +1226,10 @@ mod tests {
                 ],
                 "payment": false
             }
-        ]"#;
-        let expenses: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
+        ]"#,
+        )
+        .unwrap();
 
-        let mut target_accounts = HashMap::new();
-        target_accounts.insert(Currency::new("USD"), 999);
-        target_accounts.insert(Currency::new("CAD"), 888);
-
-        let mut lm_map = HashMap::new();
         let original_expense = expenses[0].parsed.clone();
         // The original expense was in USD, but now Splitwise shows it as CAD.
         let mut original_expense_usd = original_expense.clone();
@@ -1567,48 +1239,29 @@ mod tests {
             original: original_expense_usd.into(),
         };
 
-        lm_map.insert(
-            ExternalId::Splitwise(1),
-            Transaction {
-                id: 10,
-                date: jiff::civil::date(2026, 6, 1),
-                amount: Decimal::new(-1500, 2),
-                currency: Currency::new("USD"),
-                payee: "Lunch outside window".to_string(),
-                notes: None,
-                external_id: Some(ExternalId::Splitwise(1)),
-                manual_account_id: Some(999),
-                is_split_parent: None,
-                group_parent_id: None,
-                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                category_id: None,
-                custom_metadata: Some(
-                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
-                        orig_metadata,
-                    ),
-                ),
-            },
+        let tx = make_test_tx(
+            10,
+            jiff::civil::date(2026, 6, 1),
+            Decimal::new(-1500, 2),
+            "USD",
+            "Lunch outside window",
+            None,
+            Some(ExternalId::Splitwise(1)),
+            Some(orig_metadata),
+            999,
         );
 
-        let plan = diff_transactions(DiffTransactionsArgs {
-            expenses: expenses.clone(),
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &HashMap::new(),
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &HashMap::new(),
-            resolved_categories: &HashMap::new(),
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: None,
-            loan_tag_id: None,
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: Some(jiff::civil::date(2026, 6, 8)),
-            backdated_tag_id: Some(888),
-            updated_tag_id: Some(777),
-        })
-        .unwrap();
+        let mut env = TestEnv::new();
+        env.config
+            .lunch_money
+            .custom_accounts
+            .insert(Currency::new("CAD"), 888);
+        env.target_accounts.insert(Currency::new("CAD"), 888);
+        env.lm_map.insert(ExternalId::Splitwise(1), tx);
+        env.sync_window_start = Some(jiff::civil::date(2026, 6, 8));
+        env.backdated_tag_id = Some(888);
+        env.updated_tag_id = Some(777);
+        let plan = env.run(expenses).unwrap();
 
         // Since original transaction was USD (outside window) and currency changed to CAD:
         // 1. The old USD transaction balance should be zeroed out via a delta transaction in USD.
@@ -1645,24 +1298,8 @@ mod tests {
 
     #[test]
     fn test_diff_transactions_currency_changed_outside_window_latest_delta_in_lpp() {
-        let config_str = r#"
-            [splitwise]
-            api_key = "dummy"
-            user_id = 123
-            ignored_groups = []
-
-            [lunch_money]
-            api_key = "dummy"
-            custom_accounts = { USD = 999, CAD = 888 }
-
-            [sync]
-            backdated_tag = "backdated"
-            updated_tag = "updated"
-            orphaned_tag = "orphaned"
-        "#;
-        let config: crate::config::Config = toml::from_str(config_str).unwrap();
-
-        let expenses_json = r#"[
+        let expenses: Vec<Expense> = serde_json::from_str(
+            r#"[
             {
                 "id": 1,
                 "description": "Lunch outside window",
@@ -1673,17 +1310,13 @@ mod tests {
                         "user_id": 123,
                         "net_balance": "-15.00"
                      }
-                 ],
-                 "payment": false
+                  ],
+                  "payment": false
             }
-        ]"#;
-        let expenses: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
+        ]"#,
+        )
+        .unwrap();
 
-        let mut target_accounts = HashMap::new();
-        target_accounts.insert(Currency::new("USD"), 999);
-        target_accounts.insert(Currency::new("CAD"), 888);
-
-        let mut lm_map = HashMap::new();
         let original_expense = expenses[0].parsed.clone();
         let mut original_expense_usd = original_expense.clone();
         original_expense_usd.currency_code = Currency::new("USD");
@@ -1693,102 +1326,65 @@ mod tests {
         };
 
         // Original transaction
-        lm_map.insert(
-            ExternalId::Splitwise(1),
-            Transaction {
-                id: 10,
-                date: jiff::civil::date(2026, 6, 1),
-                amount: Decimal::new(-1500, 2),
-                currency: Currency::new("USD"),
-                payee: "Lunch outside window".to_string(),
-                notes: Some("Lunch outside window".to_string()),
-                external_id: Some(ExternalId::Splitwise(1)),
-                manual_account_id: Some(999),
-                is_split_parent: None,
-                group_parent_id: None,
-                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                category_id: None,
-                custom_metadata: Some(
-                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
-                        orig_metadata,
-                    ),
-                ),
-            },
+        let tx_orig = make_test_tx(
+            10,
+            jiff::civil::date(2026, 6, 1),
+            Decimal::new(-1500, 2),
+            "USD",
+            "Lunch outside window",
+            Some("Lunch outside window"),
+            Some(ExternalId::Splitwise(1)),
+            Some(orig_metadata),
+            999,
         );
 
         // Delta transaction (in LPP: date is 2026-06-09, sync window start is 2026-06-08)
-        lm_map.insert(
-            ExternalId::SplitwiseDelta(1, 0),
-            Transaction {
-                id: 20,
-                date: jiff::civil::date(2026, 6, 9),
-                amount: Decimal::new(500, 2), // delta was +5.00
-                currency: Currency::new("USD"),
-                payee: "Lunch outside window".to_string(),
-                notes: Some("(Original Transaction: 10) Lunch outside window".to_string()),
-                external_id: Some(ExternalId::SplitwiseDelta(1, 0)),
-                manual_account_id: Some(999),
-                is_split_parent: None,
-                group_parent_id: None,
-                status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
-                category_id: None,
-                custom_metadata: Some(
-                    crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(
-                        LunchMoneyTxMetadata::Delta {
-                            original_transaction_id: 10,
-                            delta_transaction_ids: vec![20],
-                            splitwise_id: 1,
-                        },
-                    ),
-                ),
-            },
+        let tx_delta = make_test_tx(
+            20,
+            jiff::civil::date(2026, 6, 9),
+            Decimal::new(500, 2), // delta was +5.00
+            "USD",
+            "Lunch outside window",
+            Some("(Original Transaction: 10) Lunch outside window"),
+            Some(ExternalId::SplitwiseDelta(1, 0)),
+            Some(LunchMoneyTxMetadata::Delta {
+                original_transaction_id: 10,
+                delta_transaction_ids: vec![20],
+                splitwise_id: 1,
+            }),
+            999,
         );
 
-        let plan = diff_transactions(DiffTransactionsArgs {
-            expenses: expenses.clone(),
-            config: &config,
-            target_accounts: &target_accounts,
-            group_map: &HashMap::new(),
-            lm_map: &mut lm_map,
-            sw_category_id_to_path: &HashMap::new(),
-            resolved_categories: &HashMap::new(),
-            ignored_groups_exclude: None,
-            bypass_ignore_groups: false,
-            tag_id: None,
-            loan_tag_id: None,
-            force_category_id: None,
-            tags_to_create: vec![],
-            sync_window_start: Some(jiff::civil::date(2026, 6, 8)),
-            backdated_tag_id: Some(888),
-            updated_tag_id: Some(777),
-        })
-        .unwrap();
+        let mut env = TestEnv::new();
+        env.config
+            .lunch_money
+            .custom_accounts
+            .insert(Currency::new("CAD"), 888);
+        env.target_accounts.insert(Currency::new("CAD"), 888);
+        env.lm_map.insert(ExternalId::Splitwise(1), tx_orig);
+        env.lm_map
+            .insert(ExternalId::SplitwiseDelta(1, 0), tx_delta);
+        env.sync_window_start = Some(jiff::civil::date(2026, 6, 8));
+        env.backdated_tag_id = Some(888);
+        env.updated_tag_id = Some(777);
+        let plan = env.run(expenses).unwrap();
 
-        // 1. We expect inserts to contain:
-        //    - One CAD insert for the new CAD expense (since target_amount is -15.00 CAD)
-        //    No delta insert is needed in USD because we can update the existing USD delta in-place to zero it out!
+        // CAD insert for the new CAD expense
         assert_eq!(plan.inserts.len(), 1);
         let new_ins = &plan.inserts[0];
         assert_eq!(new_ins.currency.as_str(), "CAD");
         assert_eq!(new_ins.manual_account_id, 888);
         assert_eq!(new_ins.amount, Decimal::new(-1500, 2));
 
-        // 2. We expect updates to contain exactly 2 updates (no duplicates!):
-        //    - One for the delta transaction (ID 20) to zero out USD:
-        //      Its current sum was -15.00 (original) + 5.00 (delta) = -10.00.
-        //      To reach target 0.00, the new delta amount should be +15.00.
-        //    - One for the original transaction (ID 10) to clear its external_id, add pointer notes, and updated tag.
+        // Updates
         assert_eq!(plan.updates.len(), 2);
 
         let delta_upd = plan.updates.iter().find(|u| u.id == 20).unwrap();
         assert_eq!(delta_upd.amount, Decimal::new(1500, 2));
 
         let orig_upd = plan.updates.iter().find(|u| u.id == 10).unwrap();
-        // It must clear external_id
         assert_eq!(orig_upd.external_id, Some(None));
-        // It must have the updated tag
         assert_eq!(orig_upd.additional_tag_ids, Some(vec![777]));
-        // It must not format notes with a pointer anymore
         assert_eq!(orig_upd.notes, "Lunch outside window");
     }
 }
