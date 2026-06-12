@@ -5,4 +5,4 @@ description: OpenAPI schema of the splitwise API
 
 See `resources/openapi.json` for the splitwise openapi spec.
 
-Use `jq` to explore the spec, rather than raw `grep` on the .json file.
+Do NOT use any built-in search tools / raw `grep` to explore the spec! Instead - shell out to `jq` to efficiently understand and explore the spec.

@@ -48,6 +48,7 @@ pub enum SyncMode {
         window: std::time::Duration,
         from: Option<jiff::civil::Date>,
         no_groups: bool,
+        grace_period: Option<std::time::Duration>,
     },
     Group {
         group_query: String,
@@ -95,6 +96,7 @@ impl<'a> SyncOrchestrator<'a> {
                 window,
                 from,
                 no_groups,
+                grace_period,
             } => {
                 let window_duration = jiff::SignedDuration::try_from(*window)
                     .context("window duration is too large")?;
@@ -109,6 +111,9 @@ impl<'a> SyncOrchestrator<'a> {
                 println! { "{STYLE_HEADER}⚡ Splitwise to Lunch Money Sync Window{}{STYLE_HEADER:#}", dry_run_suffix };
                 println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
                 println! { "{STYLE_INFO}📅 Window boundary:{STYLE_INFO:#} {} to {}", start_window_str, end_window_str };
+                if let Some(gp) = grace_period {
+                    println! { "{STYLE_INFO}⏳ Grace period:{STYLE_INFO:#} {}", humantime::format_duration(*gp) };
+                }
                 if *no_groups {
                     println! { "{STYLE_INFO}🚫 Filter:{STYLE_INFO:#} Non-group expenses only" };
                 }
@@ -147,6 +152,35 @@ impl<'a> SyncOrchestrator<'a> {
                 if *no_groups {
                     merged_txs.retain(|e| e.parsed.group_id.is_none());
                 }
+
+                if let Some(gp) = grace_period {
+                    let ref_time = match from {
+                        Some(f) => f
+                            .at(23, 59, 59, 999_999_999)
+                            .to_zoned(jiff::tz::TimeZone::UTC)
+                            .expect("valid datetime")
+                            .timestamp(),
+                        None => jiff::Timestamp::now(),
+                    };
+                    let gp_duration = jiff::SignedDuration::try_from(*gp)
+                        .context("grace period duration is too large")?;
+                    let cutoff = ref_time - gp_duration;
+
+                    merged_txs.retain(|e| {
+                        let last_modified = [
+                            e.parsed.updated_at,
+                            e.parsed.created_at,
+                            Some(e.parsed.date),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .max()
+                        .unwrap();
+
+                        last_modified < cutoff
+                    });
+                }
+
                 merged_txs
             }
             SyncMode::Group { group_query, .. } => {
@@ -823,6 +857,15 @@ pub(crate) async fn run_sync_window(
     ctx: &crate::AppContext,
     sync_args: crate::cli::SyncWindowArgs,
 ) -> anyhow::Result<()> {
+    if let Some(gp) = sync_args.grace_period {
+        if gp >= sync_args.window {
+            anyhow::bail!(
+                "grace period ({}) must be less than window size ({})",
+                humantime::format_duration(gp),
+                humantime::format_duration(sync_args.window)
+            );
+        }
+    }
     let orchestrator = SyncOrchestrator::new(ctx);
     orchestrator
         .execute(SyncOptions {
@@ -835,6 +878,7 @@ pub(crate) async fn run_sync_window(
                 window: sync_args.window,
                 from: sync_args.from,
                 no_groups: sync_args.no_groups,
+                grace_period: sync_args.grace_period,
             },
         })
         .await

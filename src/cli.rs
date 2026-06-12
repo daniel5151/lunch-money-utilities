@@ -176,6 +176,10 @@ pub struct SyncWindowArgs {
     #[arg(long)]
     pub from: Option<jiff::civil::Date>,
 
+    /// Exclude transactions newer than this grace period duration (e.g., "1h", "15m", "2 hours")
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub grace_period: Option<std::time::Duration>,
+
     /// Print what would be synced without modifying Lunch Money
     #[arg(long)]
     pub dry_run: bool,
@@ -367,6 +371,44 @@ mod tests {
                 );
             } else {
                 panic!("Expected SyncSubcommands::Balances");
+            }
+        } else {
+            panic!("Expected Commands::Sync");
+        }
+    }
+
+    #[test]
+    fn test_sync_window_grace_period_parsing() {
+        // Case 1: no grace-period passed
+        let args = Args::try_parse_from(["splitwise-lunchmoney", "sync", "window", "1d"]).unwrap();
+        if let Commands::Sync(sync_args) = args.command {
+            if let SyncSubcommands::Window(window_args) = sync_args.command {
+                assert_eq!(window_args.grace_period, None);
+            } else {
+                panic!("Expected SyncSubcommands::Window");
+            }
+        } else {
+            panic!("Expected Commands::Sync");
+        }
+
+        // Case 2: grace-period passed
+        let args = Args::try_parse_from([
+            "splitwise-lunchmoney",
+            "sync",
+            "window",
+            "1d",
+            "--grace-period",
+            "1h",
+        ])
+        .unwrap();
+        if let Commands::Sync(sync_args) = args.command {
+            if let SyncSubcommands::Window(window_args) = sync_args.command {
+                assert_eq!(
+                    window_args.grace_period,
+                    Some(std::time::Duration::from_secs(3600))
+                );
+            } else {
+                panic!("Expected SyncSubcommands::Window");
             }
         } else {
             panic!("Expected Commands::Sync");
