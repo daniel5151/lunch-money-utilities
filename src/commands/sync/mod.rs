@@ -1112,23 +1112,38 @@ async fn plan_tags(
     println! { "  {STYLE_DIM}Fetching Lunch Money tags...{STYLE_DIM:#}" };
     let mut tags = lm_client.fetch_tags().await?;
 
-    let tag_names = [
-        tag_name,
-        loan_tag_name,
-        backdated_tag_name,
-        updated_tag_name,
-        orphaned_tag_name,
+    let tag_specs = [
+        (tag_name, None),
+        (loan_tag_name, None),
+        (
+            backdated_tag_name,
+            Some(
+                "(splitwise-lunchmoney) Tag applied to newly inserted backdated transactions or delta adjustments posted on the current day",
+            ),
+        ),
+        (
+            updated_tag_name,
+            Some(
+                "(splitwise-lunchmoney) Tag applied to original/older transactions to flag that they have a newer delta adjustment",
+            ),
+        ),
+        (
+            orphaned_tag_name,
+            Some(
+                "(splitwise-lunchmoney) Tag applied to orphaned delta transactions when their corresponding original transaction has been deleted",
+            ),
+        ),
     ];
     let mut resolved_ids = [None; 5];
 
-    for (idx, name_opt) in tag_names.iter().enumerate() {
+    for (idx, (name_opt, description)) in tag_specs.iter().copied().enumerate() {
         let name = match name_opt {
             Some(n) => n,
             None => continue,
         };
 
         // 1. Check if the tag already exists in Lunch Money (case-sensitive)
-        if let Some(existing) = tags.iter().find(|t| &t.name == name) {
+        if let Some(existing) = tags.iter().find(|t| t.name == name) {
             resolved_ids[idx] = Some(existing.id);
             continue;
         }
@@ -1141,7 +1156,7 @@ async fn plan_tags(
         } else {
             // 2b. If not dry-run, create the tag immediately
             println! { "  {STYLE_DIM}Creating new tag '{}'...{STYLE_DIM:#}", name };
-            let new_tag = lm_client.create_tag(name).await?;
+            let new_tag = lm_client.create_tag(name, description).await?;
             resolved_ids[idx] = Some(new_tag.id);
             // Add to local tags list so subsequent tag lookups can find/reuse it
             tags.push(new_tag);

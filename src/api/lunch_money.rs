@@ -148,12 +148,17 @@ impl Client {
         Ok(res.tags)
     }
 
-    pub async fn create_tag(&self, name: &str) -> anyhow::Result<schema::Tag> {
+    pub async fn create_tag(
+        &self,
+        name: &str,
+        description: Option<&str>,
+    ) -> anyhow::Result<schema::Tag> {
         self.exec_with_response(
             reqwest::Method::POST,
             "tags",
             &schema::CreateTagPayload {
                 name: name.to_string(),
+                description: description.map(|s| s.to_string()),
             },
         )
         .await
@@ -332,6 +337,8 @@ pub mod schema {
     #[derive(Serialize, Debug)]
     pub struct CreateTagPayload {
         pub name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub description: Option<String>,
     }
 
     #[derive(Serialize, Debug)]
