@@ -19,15 +19,22 @@ impl std::fmt::Display for SplitwiseUser {
     }
 }
 
-pub(crate) async fn run_init() -> anyhow::Result<()> {
-    if std::path::Path::new("splitwise-lunchmoney.toml").exists() {
-        anyhow::bail!("splitwise-lunchmoney.toml already exists in this directory.");
+pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
+    let output_path = args
+        .file
+        .unwrap_or_else(|| std::path::PathBuf::from("splitwise-lunchmoney.toml"));
+
+    if output_path.exists() {
+        anyhow::bail!(
+            "{} already exists in this directory.",
+            output_path.display()
+        );
     }
 
     println! {};
     println! { "{STYLE_HEADER}⚙️  Configuring Splitwise & Lunch Money Integration{STYLE_HEADER:#}" };
     println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
-    println! { "{STYLE_INFO}This wizard will help you set up splitwise-lunchmoney.toml.{STYLE_INFO:#}" };
+    println! { "{STYLE_INFO}This wizard will help you set up {}.{STYLE_INFO:#}", output_path.display() };
     println! {};
 
     let splitwise_api_key = inquire::Password::new("Splitwise API Key:")
@@ -93,6 +100,7 @@ pub(crate) async fn run_init() -> anyhow::Result<()> {
     }
 
     println! {};
+
     let backdated_tag = inquire::Text::new("Backdated Tag:")
         .with_default("🧾🕰️ Splitwise Backdated")
         .with_help_message("Tag applied to newly imported transactions whose original Splitwise date falls outside the sync window")
@@ -112,6 +120,35 @@ pub(crate) async fn run_init() -> anyhow::Result<()> {
         )
         .prompt()
         .context("Failed to get orphaned_tag")?;
+
+    let use_loan_tag = inquire::Confirm::new("(Optional) Would you like to set a \"loan tag\"?")
+        .with_default(false)
+        .with_help_message("This tag will be auto-applied to imported transactions where you've loaned money to others, and can make it easier to spot what Splitwise transactions might need to be (manually) grouped with another account's transaction in Lunch Money (e.g. grouping a $100 dinner transaction from a credit card with a $50 Splitwise loan). NOTE: this can be set up using a lunch-money rule, but can be done via splitwise-sync as a convenience.")
+        .prompt()
+        .context("Failed to get loan_tag preference")?;
+
+    let loan_tag = if use_loan_tag {
+        let tag = inquire::Text::new("Loan Tag:")
+            .with_default("💵 Splitwise")
+            .with_help_message("Tag applied to transactions where you've loaned out money")
+            .prompt()
+            .context("Failed to get loan_tag value")?;
+        Some(tag)
+    } else {
+        None
+    };
+
+    let loan_tag_line = match &loan_tag {
+        Some(tag) => format!(r#"loan_tag = "{}""#, tag),
+        None => {
+            r#"# (Optional) Extra tag to associate with transactions where you've loaned out money
+#  This can be used to make it easy to spot which splitwise transactions should be
+#  (manually) grouped with another account's transaction in lunch money.
+#  e.g: grouping a $100 dinner transaction from a credit-card with a $50 splitwise loan
+# loan_tag = "💵 Splitwise""#
+                .to_string()
+        }
+    };
 
     let mut categories_toml = String::new();
     categories_toml.push_str("# \"Payment\" = \"...\"\n");
@@ -145,14 +182,10 @@ api_key = "{lunch_money_api_key}"
 # GBP = 789012
 
 [sync]
-# (Optional) Extra tag to associate with transactions where you've loaned out money
-#  This can be used to make it easy to spot which splitwise transactions should be
-#  (manually) grouped with another account's transaction in lunch money.
-#  e.g: grouping a $100 dinner transaction from a credit-card with a $50 splitwise loan
-# loan_tag = "Splitwise Loan"
 backdated_tag = "{backdated_tag}"
 updated_tag = "{updated_tag}"
 orphaned_tag = "{orphaned_tag}"
+{loan_tag_line}
 
 [categories]
 # Map Splitwise category names/IDs to Lunch Money category names/IDs (optional)
@@ -163,12 +196,12 @@ orphaned_tag = "{orphaned_tag}"
 "#
     );
 
-    fs::write("splitwise-lunchmoney.toml", template)
-        .context("Failed to write splitwise-lunchmoney.toml")?;
+    fs::write(&output_path, template)
+        .context(format!("Failed to write {}", output_path.display()))?;
 
     println! {};
     println! { "{STYLE_SUCCESS}🎉 Configuration created successfully!{STYLE_SUCCESS:#}" };
-    println! { "{STYLE_INFO}Saved to:{STYLE_INFO:#} splitwise-lunchmoney.toml" };
+    println! { "{STYLE_INFO}Saved to:{STYLE_INFO:#} {}", output_path.display() };
     println! {};
     println! { "{STYLE_DIM}Run {STYLE_DIM:#}{STYLE_HEADER}splitwise-lunchmoney sync window --window \"3 days\"{STYLE_HEADER:#}{STYLE_DIM} to begin syncing.{STYLE_DIM:#}" };
     println! {};

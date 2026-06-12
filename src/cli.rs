@@ -36,11 +36,18 @@ pub enum Commands {
     /// Sync Splitwise transactions or global balances to Lunch Money
     Sync(SyncArgs),
     /// Run the interactive setup wizard to configure splitwise-lunchmoney.toml
-    Init,
+    Init(InitArgs),
     /// Query data from Splitwise or Lunch Money
     Query(QueryArgs),
     /// Migrate previously imported transactions in Lunch Money
     Migrate(MigrateArgs),
+}
+
+#[derive(Parser, Debug)]
+pub struct InitArgs {
+    /// Output file path (defaults to splitwise-lunchmoney.toml)
+    #[arg(long, hide = true)]
+    pub file: Option<std::path::PathBuf>,
 }
 
 #[derive(Parser, Debug)]

@@ -40,8 +40,8 @@ async fn run() -> anyhow::Result<()> {
     let args = cli::Args::parse();
 
     match args.command {
-        cli::Commands::Init => {
-            commands::init::run_init().await?;
+        cli::Commands::Init(init_args) => {
+            commands::init::run_init(init_args).await?;
         }
         cmd => {
             let config = load_config()?;
@@ -58,7 +58,7 @@ async fn run() -> anyhow::Result<()> {
             };
 
             match cmd {
-                cli::Commands::Init => unreachable!(),
+                cli::Commands::Init(_) => unreachable!(),
                 cli::Commands::Sync(sync_args) => match sync_args.command {
                     cli::SyncSubcommands::Window(args) => {
                         commands::sync::run_sync_window(&ctx, args).await?;
