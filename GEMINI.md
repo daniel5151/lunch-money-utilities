@@ -57,8 +57,8 @@
     - *New backdated inserts*: Posted to the current day, tagged with `backdated_tag`, with notes `(Original Date: YYYY-MM-DD) Description`.
     - *Updates / Deletes (LPP Delta Engine)*:
       - If the latest delta transaction date falls within the sync window (LPP), that latest delta transaction is updated in-place.
-      - If no delta exists or the latest delta is older than the sync window, a new delta transaction is inserted on the current day, tagged with `backdated_tag` and notes `(Original Transaction: <original_id>) Description`.
-      - When a delta is inserted/updated and the user-configured `updated_tag` is defined, the original transaction is tagged with `updated_tag` and its notes are updated with a pointer to the next delta (e.g. `(See Transaction: <delta_id>)`).
+      - If no delta exists or the latest delta is older than the sync window, a new delta transaction is inserted on the current day, tagged with `backdated_tag` and notes `(Original Transaction: YYYY-MM-DD) Description` (where the date is the posted date of the original transaction in Lunch Money).
+      - When a delta is inserted/updated and the user-configured `updated_tag` is defined, the original transaction is tagged with `updated_tag`.
     - *Currency Changes*: Treated as a deletion in the old currency/account (delta engine bringing balance to `0.00`) and a new backdated insertion on the current day in the new currency/account.
   - **Delta Chain Self-Healing & Deletion Recovery**:
     - *Resilient 404 Handling*: If a transaction in the delta chain was deleted on Lunch Money by the user, querying it via `fetch_transaction_by_id` returns a 404. This is mapped to `None` and handled gracefully instead of failing execution.

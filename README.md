@@ -201,8 +201,8 @@ To handle Splitwise expenses that were updated, deleted, or newly added outside 
      - **Updates and Deletions (LPP Delta Engine)**:
        - The tool computes the difference between the target Splitwise balance and the current sum of the original Lunch Money transaction and its previously synced deltas.
        - **Within the Logical Posted Period (LPP)**: If the latest delta transaction falls within the active sync window, that latest delta transaction is updated in-place to adjust the total balance.
-       - **Outside the LPP**: A **new** delta transaction is posted to the **current day** (tagged with `backdated_tag` and notes `(Original Transaction: <original_id>) Description`).
-       - The original transaction's metadata is updated to link to the new delta transaction, and if `updated_tag` is defined, the original transaction is tagged with `updated_tag` and its notes are updated with a pointer (e.g., `(See Transaction: <delta_id>)`).
+       - **Outside the LPP**: A **new** delta transaction is posted to the **current day** (tagged with `backdated_tag` and notes `(Original Transaction: YYYY-MM-DD) Description`, where the date is the posted date of the original transaction in Lunch Money).
+       - The original transaction's metadata is updated to link to the new delta transaction, and if `updated_tag` is defined, the original transaction is tagged with `updated_tag` to indicate it has been updated.
      - **Currency Changes**: Handled as a deletion (using the LPP delta engine to zero out the old currency manual account transaction) and a new backdated insertion in the new currency manual account on the current day.
 4. **Delta Chain Resilience & Self-Healing**:
    - **Resilient API Error Mapping**: If a transaction in the delta chain was deleted on Lunch Money by the user, querying it via `fetch_transaction_by_id` returns a `404 Not Found` response. The HTTP client intercepts this expected error and returns `None` rather than failing the execution.

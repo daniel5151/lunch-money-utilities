@@ -138,10 +138,7 @@ pub(super) fn apply_lpp_delta_engine(
                     amount: existing_lm.amount,
                     currency: existing_lm.currency.clone(),
                     payee: existing_lm.payee.clone(),
-                    notes: super::format_notes_with_pointer(
-                        &existing_lm.notes.clone().unwrap_or_default(),
-                        latest.id,
-                    ),
+                    notes: existing_lm.notes.clone().unwrap_or_default(),
                     custom_metadata: Some(LunchMoneyTxMetadata::Import {
                         delta_transaction_ids: delta_transaction_ids.clone(),
                         original: expense.parsed.clone().into(),
@@ -180,7 +177,7 @@ pub(super) fn apply_lpp_delta_engine(
                 payee: payee_str.to_string(),
                 notes: format!(
                     "(Original Transaction: {}) {}",
-                    existing_lm.id, expense.parsed.description
+                    existing_lm.date, expense.parsed.description
                 ),
                 external_id: ExternalId::SplitwiseDelta(expense.parsed.id, next_index),
                 manual_account_id,
@@ -1213,7 +1210,7 @@ mod tests {
         assert_eq!(plan.inserts[0].tag_ids, Some(vec![888]));
         assert_eq!(
             plan.inserts[0].notes,
-            "(Original Transaction: 10) Lunch outside window"
+            "(Original Transaction: 2026-05-01) Lunch outside window"
         );
 
         // Case B: There is an existing delta transaction outside LPP (dated 2026-05-15, which is before 2026-06-01).
@@ -1303,7 +1300,7 @@ mod tests {
         );
         assert_eq!(
             plan.inserts[0].notes,
-            "(Original Transaction: 10) Lunch outside window"
+            "(Original Transaction: 2026-05-01) Lunch outside window"
         );
 
         // Case C: There is an existing delta transaction inside LPP (dated 2026-06-05, which is after 2026-06-01).
@@ -1394,7 +1391,7 @@ mod tests {
 
         let u_orig = plan.updates.iter().find(|u| u.id == 10).unwrap();
         assert_eq!(u_orig.additional_tag_ids, Some(vec![777]));
-        assert_eq!(u_orig.notes, "(See Transaction: 20)");
+        assert_eq!(u_orig.notes, "");
 
         // Case D: The backdated expense was already imported, and its Lunch Money transaction date is inside the sync window (e.g. 2026-06-05, which is after 2026-06-01).
         // Total so far: original (-10.00). Target is -15.00.
@@ -1673,7 +1670,7 @@ mod tests {
         assert_eq!(delta_ins.amount, Decimal::new(1500, 2)); // +15.00 to cancel out -15.00 USD
         assert_eq!(
             delta_ins.notes,
-            "(Original Transaction: 10) Lunch outside window"
+            "(Original Transaction: 2026-06-01) Lunch outside window"
         );
 
         assert_eq!(new_ins.manual_account_id, 888);
@@ -1831,7 +1828,7 @@ mod tests {
         assert_eq!(orig_upd.external_id, Some(None));
         // It must have the updated tag
         assert_eq!(orig_upd.additional_tag_ids, Some(vec![777]));
-        // It must format notes with pointer to the latest delta (ID 20)
-        assert!(orig_upd.notes.contains("(See Transaction: 20)"));
+        // It must not format notes with a pointer anymore
+        assert_eq!(orig_upd.notes, "Lunch outside window");
     }
 }

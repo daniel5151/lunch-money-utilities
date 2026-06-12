@@ -584,7 +584,6 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                         Vec::new()
                     };
 
-                    let next_delta_id = new_delta_ids[0];
                     updated_delta_ids.extend(new_delta_ids);
 
                     let original_expense = if let Some(
@@ -647,14 +646,7 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                         amount: orig_tx.amount,
                         currency: orig_tx.currency.clone(),
                         payee: orig_tx.payee.clone(),
-                        notes: if updated_tag_id.is_some() {
-                            super::format_notes_with_pointer(
-                                &orig_tx.notes.clone().unwrap_or_default(),
-                                next_delta_id,
-                            )
-                        } else {
-                            orig_tx.notes.clone().unwrap_or_default()
-                        },
+                        notes: orig_tx.notes.clone().unwrap_or_default(),
                         custom_metadata: Some(desired_metadata),
                         additional_tag_ids: if tag_ids.is_empty() {
                             None
