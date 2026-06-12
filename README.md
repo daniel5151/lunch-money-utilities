@@ -18,7 +18,7 @@ Sync Splitwise transactions (and global outstanding balances) into Lunch Money m
 ## ⚡ Key Features
 
 - **Multiple Sync Strategies**:
-  - **Rolling Time Window (`sync window`)**: Syncs transactions within a relative timeframe (e.g. `3 days`, `30 days`). Perfect for periodic automation via `cron`!
+  - **Rolling Time Window (`sync window`)**: Syncs transactions within a relative timeframe (e.g. `3 days`, `30 days`). Perfect for periodic automation via systemd timers!
   - **Group/Individual Sync (`sync group`)**: Syncs transactions for a specific Splitwise group, or individual non-group transactions.
   - **Global Balance Sync (`sync balances`)**: Syncs net outstanding Splitwise balances to Lunch Money manual accounts.
 - **Interactive Configuration Wizard (`init`)**: Walks you through setting up credentials, fetches active manual accounts from your Lunch Money profile, auto-maps them based on name patterns (`Splitwise {CURRENCY}`), and generates a boilerplate category map.
@@ -185,13 +185,118 @@ orphaned_tag = "🧾⚠️ Splitwise Orphaned"
 
 ---
 
-## ⏰ Automated Scheduling (Cron)
+## ⏰ Automated Scheduling (Systemd Timers)
 
-To keep Lunch Money up-to-date, you can schedule the `sync window` command to run periodically using `cron`.
+To keep Lunch Money up-to-date automatically, you can schedule the synchronization tasks using `systemd` user timers. Running these tasks as user services is highly recommended: they require no root (`sudo`) privileges, run under your local user session, and log directly to `journald`.
+
+I suggest setting up two separate timers:
+1. **Balance Sync (`sync balances`)**: Runs every hour to update your global outstanding Splitwise balances in Lunch Money.
+2. **Window Sync (`sync window`)**: Runs every 15 minutes with a `1 day` rolling window to pull in recent transactions and backdated updates.
+
+Feel free to update the timings as you see fit. e.g: increase the window size if you expect expenses to remain "unstable" for longer than a day.
+
+### Step-by-Step Installation
+
+#### 1. Create the Systemd User Directory
+Ensure your systemd user configuration directory exists:
+```bash
+mkdir -p ~/.config/systemd/user
+```
+
+#### 2. Define the Balance Sync Service & Timer (Every 1 Hour)
+This task keeps your manual account balances matching Splitwise's outstanding totals.
+
+Create `~/.config/systemd/user/splitwise-sync-balances.service`:
+```ini
+[Unit]
+Description=Sync Splitwise Balances to Lunch Money
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/splitwise-lunchmoney
+ExecStart=/path/to/splitwise-lunchmoney/target/release/splitwise-lunchmoney sync balances
+```
+> [!NOTE]
+> Replace `/path/to/splitwise-lunchmoney` with the absolute path to your cloned repository (where `splitwise-lunchmoney.toml` and the compiled binary are located). Do not use `~` in unit files as systemd does not perform shell expansion (though systemd specifiers like `%h` can be used to refer to your home directory).
+
+Create `~/.config/systemd/user/splitwise-sync-balances.timer`:
+```ini
+[Unit]
+Description=Run splitwise-sync-balances every hour
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+#### 3. Define the Window Sync Service & Timer (Every 15 Minutes)
+This task syncs transactions occurring or updating in the last day.
+
+Create `~/.config/systemd/user/splitwise-sync-window.service`:
+```ini
+[Unit]
+Description=Sync Splitwise Window to Lunch Money (1 day window)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/splitwise-lunchmoney
+ExecStart=/path/to/splitwise-lunchmoney/target/release/splitwise-lunchmoney sync window "1 day"
+```
+
+Create `~/.config/systemd/user/splitwise-sync-window.timer`:
+```ini
+[Unit]
+Description=Run splitwise-sync-window every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+#### 4. Load and Enable the Timers
+Tell systemd to reload its configuration, then enable and start both timers:
+```bash
+# Reload the systemd user daemon to register the new units
+systemctl --user daemon-reload
+
+# Enable and start the timers immediately
+systemctl --user enable --now splitwise-sync-balances.timer
+systemctl --user enable --now splitwise-sync-window.timer
+```
+
+#### 5. Verify the Installation
+You can verify that the timers are active and see when they are next scheduled to run:
+```bash
+systemctl --user list-timers
+```
+
+#### 6. View Logs and Debugging
+To view the output/logs of the sync executions, use `journald`'s query tool:
+```bash
+# View logs for the balance sync service
+journalctl --user -u splitwise-sync-balances.service
+
+# View logs for the transaction window sync service
+journalctl --user -u splitwise-sync-window.service
+
+# Stream logs in real-time
+journalctl --user -u splitwise-sync-window.service -f
+```
+
+---
+
+## How Backdated Sync Works
 
 To handle Splitwise expenses that were updated, deleted, or newly added outside the active `sync window`, the tool implements a **non-destructive backdated synchronization workflow**. This ensures older, logically "posted" months in Lunch Money are not modified retroactively, while still correctly reflecting financial adjustments.
 
-### How Backdated Sync Works:
 1. **Dual Query Fetching**: When syncing, the tool queries Splitwise both for expenses dated within the window and expenses *updated* within the timeframe (using the `updated_after` filter). This ensures backdated changes are captured.
 2. **Tag-Based Pre-fetching**: The tool pre-fetches all Lunch Money transactions carrying the `backdated_tag` (and `orphaned_tag`) across the entire history (from `2000-01-01` to today) to resolve existing delta adjustment chains and orphaned states without performing N+1 API calls.
 3. **Partitioning**: Expenses are split by transaction date:
@@ -208,15 +313,3 @@ To handle Splitwise expenses that were updated, deleted, or newly added outside 
    - **Resilient API Error Mapping**: If a transaction in the delta chain was deleted on Lunch Money by the user, querying it via `fetch_transaction_by_id` returns a `404 Not Found` response. The HTTP client intercepts this expected error and returns `None` rather than failing the execution.
    - **Self-Healing References**: When a deleted delta transaction is detected, its ID is pruned from the in-memory delta list. The delta engine automatically recalculates the sync delta to restore the correct target balance and propagates metadata updates (the `delta_transaction_ids` list) to all active transactions in the chain (both the `Import` transaction and all active `Delta` transactions) so that every transaction in the chain contains the exact same list of `delta_transaction_ids`.
    - **Orphaned Delta Tagging & Balancing**: If the original `Import` transaction itself is deleted, the remaining `Delta` transactions are considered "orphaned". The sync tool tags these orphaned deltas with `orphaned_tag` and posts a new current-dated balancing transaction (`kind: "orphan"`) that offsets the total sum of the orphaned deltas. The balancing transaction notes are set to: `"Offsetting orphaned deltas for deleted transaction:<original_id>, splitwise_id:<splitwise_id>"`.
-
-### Example Crontab Setup
-
-1. Open your user crontab editor:
-   ```bash
-   crontab -e
-   ```
-
-2. Add a cron job to run the sync every day at 3:00 AM with a rolling window of 7 days:
-   ```cron
-   0 3 * * * cd /path/to/splitwise-lunchmoney && ./target/release/splitwise-lunchmoney sync window "7 days" >> ./sync.log 2>&1
-   ```
