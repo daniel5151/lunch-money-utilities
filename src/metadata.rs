@@ -282,6 +282,13 @@ impl MaybeLunchMoneyTxMetadata {
             _ => None,
         }
     }
+
+    pub fn as_expected_mut(&mut self) -> Option<&mut LunchMoneyTxMetadata> {
+        match self {
+            Self::Expected(meta) => Some(meta),
+            _ => None,
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for MaybeLunchMoneyTxMetadata {
