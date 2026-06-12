@@ -275,6 +275,15 @@ pub enum MaybeLunchMoneyTxMetadata {
     Unexpected(serde_json::Value),
 }
 
+impl MaybeLunchMoneyTxMetadata {
+    pub fn as_expected(&self) -> Option<&LunchMoneyTxMetadata> {
+        match self {
+            Self::Expected(meta) => Some(meta),
+            _ => None,
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for MaybeLunchMoneyTxMetadata {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
