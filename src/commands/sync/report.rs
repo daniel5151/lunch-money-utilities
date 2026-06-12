@@ -98,6 +98,70 @@ fn to_sync_record(args: ToSyncRecordArgs<'_>) -> SyncRecord {
     }
 }
 
+struct PrintItem<'a> {
+    payee: &'a str,
+    amount: Decimal,
+    currency: &'a crate::api::Currency,
+    date: jiff::civil::Date,
+    notes: &'a str,
+    category_id: Option<u64>,
+    external_id: Option<crate::api::ExternalId>,
+}
+
+fn print_transaction_table(
+    title: &str,
+    items: &[PrintItem<'_>],
+    lm_category_names: &HashMap<u64, String>,
+    sw_expense_categories: &HashMap<crate::api::ExternalId, Option<(u32, String)>>,
+    sw_category_id_to_path: &HashMap<u32, String>,
+) {
+    if items.is_empty() {
+        return;
+    }
+
+    let crate::commands::MaxWidths {
+        max_num_len,
+        max_currency_len,
+    } = crate::commands::compute_max_widths(items.iter().map(|item| (item.amount, item.currency)));
+
+    let mut records = Vec::new();
+    for item in items {
+        let lm_cat_name = item
+            .category_id
+            .and_then(|id| lm_category_names.get(&id).cloned());
+        let sw_category_name = item
+            .external_id
+            .as_ref()
+            .and_then(|ext_id| sw_expense_categories.get(ext_id))
+            .and_then(|cat_info| {
+                cat_info.as_ref().and_then(|(cat_id, cat_name)| {
+                    sw_category_id_to_path
+                        .get(cat_id)
+                        .map(|s| s.as_str())
+                        .or(Some(cat_name.as_str()))
+                })
+            });
+
+        records.push(to_sync_record(ToSyncRecordArgs {
+            payee: item.payee,
+            amount: item.amount,
+            currency: item.currency,
+            date: item.date,
+            notes: item.notes,
+            sw_category_name,
+            lm_category_name: lm_cat_name.as_deref(),
+            max_num_len,
+            max_currency_len,
+        }));
+    }
+
+    println!("{}", title);
+    let mut table = Table::new(records);
+    table.with(Style::rounded());
+    println!("{}", table);
+    println!();
+}
+
 pub struct PrintAndLogSyncPlanArgs<'a> {
     pub plan: &'a super::SyncPlan,
     pub dry_run: bool,
@@ -211,133 +275,83 @@ pub fn print_and_log_sync_plan(args: PrintAndLogSyncPlanArgs<'_>) -> anyhow::Res
     }
 
     // Execute batches output
-    if !plan.deletes.is_empty() {
-        println! { "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:", plan.deletes.len() };
-        let crate::commands::MaxWidths {
-            max_num_len,
-            max_currency_len,
-        } = crate::commands::compute_max_widths(
-            plan.deletes.iter().map(|t| (t.amount, &t.currency)),
-        );
-        let mut records = Vec::new();
-        for t in &plan.deletes {
-            let category_name = t
-                .category_id
-                .and_then(|id| lm_category_names.get(&id).cloned());
-            let sw_category_name = t
-                .external_id
-                .as_ref()
-                .and_then(|ext_id| sw_expense_categories.get(ext_id))
-                .and_then(|cat_info| {
-                    cat_info.as_ref().and_then(|(cat_id, cat_name)| {
-                        sw_category_id_to_path
-                            .get(cat_id)
-                            .map(|s| s.as_str())
-                            .or(Some(cat_name.as_str()))
-                    })
-                });
-            records.push(to_sync_record(ToSyncRecordArgs {
-                payee: &t.payee,
-                amount: t.amount,
-                currency: &t.currency,
-                date: t.date,
-                notes: t.notes.as_deref().unwrap_or(""),
-                sw_category_name,
-                lm_category_name: category_name.as_deref(),
-                max_num_len,
-                max_currency_len,
-            }));
-        }
-        let mut table = Table::new(records);
-        table.with(Style::rounded());
-        println! { "{}" , table };
-        println! {};
-    }
+    let delete_items: Vec<_> = plan
+        .deletes
+        .iter()
+        .map(|t| PrintItem {
+            payee: &t.payee,
+            amount: t.amount,
+            currency: &t.currency,
+            date: t.date,
+            notes: t.notes.as_deref().unwrap_or(""),
+            category_id: t.category_id,
+            external_id: t.external_id.clone(),
+        })
+        .collect();
+    print_transaction_table(
+        &format!(
+            "🗑️  {STYLE_WARNING}Deleting {STYLE_WARNING:#}{} old/modified transaction(s) from Lunch Money:",
+            plan.deletes.len()
+        ),
+        &delete_items,
+        lm_category_names,
+        sw_expense_categories,
+        sw_category_id_to_path,
+    );
 
-    if !plan.updates.is_empty() {
-        println! { "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:", plan.updates.len() };
-        let crate::commands::MaxWidths {
-            max_num_len,
-            max_currency_len,
-        } = crate::commands::compute_max_widths(
-            plan.updates.iter().map(|u| (u.amount, &u.currency)),
-        );
-        let mut records = Vec::new();
-        for u in &plan.updates {
+    let update_items: Vec<_> = plan
+        .updates
+        .iter()
+        .map(|u| {
             let (external_id, category_id) = lm_tx_categories
                 .get(&u.id)
-                .map(|(ext_id, cat_id)| (ext_id.as_ref(), *cat_id))
+                .map(|(ext_id, cat_id)| (ext_id.clone(), *cat_id))
                 .unwrap_or((None, None));
-            let sw_category_name = external_id
-                .and_then(|ext_id| sw_expense_categories.get(ext_id))
-                .and_then(|cat_info| {
-                    cat_info.as_ref().and_then(|(cat_id, cat_name)| {
-                        sw_category_id_to_path
-                            .get(cat_id)
-                            .map(|s| s.as_str())
-                            .or(Some(cat_name.as_str()))
-                    })
-                });
-            let category_name = category_id.and_then(|id| lm_category_names.get(&id).cloned());
-            records.push(to_sync_record(ToSyncRecordArgs {
+            PrintItem {
                 payee: &u.payee,
                 amount: u.amount,
                 currency: &u.currency,
                 date: u.date,
                 notes: &u.notes,
-                sw_category_name,
-                lm_category_name: category_name.as_deref(),
-                max_num_len,
-                max_currency_len,
-            }));
-        }
-        let mut table = Table::new(records);
-        table.with(Style::rounded());
-        println! { "{}" , table };
-        println! {};
-    }
+                category_id,
+                external_id,
+            }
+        })
+        .collect();
+    print_transaction_table(
+        &format!(
+            "✎  {STYLE_INFO}Updating {STYLE_INFO:#}{} modified transaction(s) in Lunch Money:",
+            plan.updates.len()
+        ),
+        &update_items,
+        lm_category_names,
+        sw_expense_categories,
+        sw_category_id_to_path,
+    );
 
-    if !plan.inserts.is_empty() {
-        println! { "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:", plan.inserts.len() };
-        let crate::commands::MaxWidths {
-            max_num_len,
-            max_currency_len,
-        } = crate::commands::compute_max_widths(
-            plan.inserts.iter().map(|ins| (ins.amount, &ins.currency)),
-        );
-        let mut records = Vec::new();
-        for ins in &plan.inserts {
-            let category_name = ins
-                .category_id
-                .and_then(|id| lm_category_names.get(&id).cloned());
-            let sw_category_name =
-                sw_expense_categories
-                    .get(&ins.external_id)
-                    .and_then(|cat_info| {
-                        cat_info.as_ref().and_then(|(cat_id, cat_name)| {
-                            sw_category_id_to_path
-                                .get(cat_id)
-                                .map(|s| s.as_str())
-                                .or(Some(cat_name.as_str()))
-                        })
-                    });
-            records.push(to_sync_record(ToSyncRecordArgs {
-                payee: &ins.payee,
-                amount: ins.amount,
-                currency: &ins.currency,
-                date: ins.date,
-                notes: &ins.notes,
-                sw_category_name,
-                lm_category_name: category_name.as_deref(),
-                max_num_len,
-                max_currency_len,
-            }));
-        }
-        let mut table = Table::new(records);
-        table.with(Style::rounded());
-        println! { "{}" , table };
-        println! {};
-    }
+    let insert_items: Vec<_> = plan
+        .inserts
+        .iter()
+        .map(|ins| PrintItem {
+            payee: &ins.payee,
+            amount: ins.amount,
+            currency: &ins.currency,
+            date: ins.date,
+            notes: &ins.notes,
+            category_id: ins.category_id,
+            external_id: Some(ins.external_id.clone()),
+        })
+        .collect();
+    print_transaction_table(
+        &format!(
+            "✓  {STYLE_SUCCESS}Inserting {STYLE_SUCCESS:#}{} new transaction(s) to Lunch Money:",
+            plan.inserts.len()
+        ),
+        &insert_items,
+        lm_category_names,
+        sw_expense_categories,
+        sw_category_id_to_path,
+    );
 
     if plan.deletes.is_empty() && plan.updates.is_empty() && plan.inserts.is_empty() {
         println! { "{STYLE_SUCCESS}✨ No changes detected. Lunch Money manual account is up-to-date!{STYLE_SUCCESS:#}" };
