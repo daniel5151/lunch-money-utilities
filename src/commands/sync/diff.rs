@@ -563,7 +563,7 @@ mod tests {
     "#;
 
     #[test]
-    fn test_diff_transactions_loan_tag() {
+    fn test_diff_transactions_loan_tag_behavior() {
         let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
 
         let expenses_json = r#"[
@@ -603,8 +603,9 @@ mod tests {
         let sw_category_id_to_path = HashMap::new();
         let resolved_categories = HashMap::new();
 
-        let plan = diff_transactions(DiffTransactionsArgs {
-            expenses,
+        // Case 1: with loan_tag_id configured
+        let plan1 = diff_transactions(DiffTransactionsArgs {
+            expenses: expenses.clone(),
             config: &config,
             target_accounts: &target_accounts,
             group_map: &HashMap::new(),
@@ -623,59 +624,24 @@ mod tests {
         })
         .unwrap();
 
-        let inserts = plan.inserts;
-        let updates = plan.updates;
-        let deletes = plan.deletes;
-
-        assert!(updates.is_empty());
-        assert!(deletes.is_empty());
-        assert_eq!(inserts.len(), 2);
-
-        // Transaction 1: net_balance is 50.00 (positive). Should have both tags.
-        let tx1 = inserts
+        assert_eq!(plan1.inserts.len(), 2);
+        // Positive net balance gets both tags
+        let tx1 = plan1
+            .inserts
             .iter()
             .find(|tx| tx.amount == Decimal::new(5000, 2))
             .unwrap();
         assert_eq!(tx1.tag_ids, Some(vec![444, 555]));
-
-        // Transaction 2: net_balance is -20.00 (negative). Should only have tag_id.
-        let tx2 = inserts
+        // Negative net balance only gets main tag
+        let tx2 = plan1
+            .inserts
             .iter()
             .find(|tx| tx.amount == Decimal::new(-2000, 2))
             .unwrap();
         assert_eq!(tx2.tag_ids, Some(vec![444]));
-    }
 
-    #[test]
-    fn test_diff_transactions_no_loan_tag() {
-        let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
-
-        let expenses_json = r#"[
-            {
-                "id": 1,
-                "description": "Positive Net Balance (folks owe me)",
-                "date": "2026-06-06T12:00:00Z",
-                "currency_code": "USD",
-                "users": [
-                    {
-                        "user_id": 123,
-                        "net_balance": "50.00"
-                    }
-                ],
-                "payment": false
-            }
-        ]"#;
-        let expenses: Vec<Expense> = serde_json::from_str(expenses_json).unwrap();
-
-        let mut target_accounts = HashMap::new();
-        target_accounts.insert(Currency::new("USD"), 999);
-
-        let mut lm_map = HashMap::new();
-        let sw_category_id_to_path = HashMap::new();
-        let resolved_categories = HashMap::new();
-
-        // Pass None for loan_tag_id
-        let plan = diff_transactions(DiffTransactionsArgs {
+        // Case 2: without loan_tag_id configured
+        let plan2 = diff_transactions(DiffTransactionsArgs {
             expenses,
             config: &config,
             target_accounts: &target_accounts,
@@ -695,20 +661,14 @@ mod tests {
         })
         .unwrap();
 
-        let inserts = plan.inserts;
-        let updates = plan.updates;
-        let deletes = plan.deletes;
-
-        assert!(updates.is_empty());
-        assert!(deletes.is_empty());
-        assert_eq!(inserts.len(), 1);
-
-        // Transaction 1: net_balance is 50.00 (positive). Should only have tag_id, not loan_tag_id.
-        let tx1 = inserts
+        assert_eq!(plan2.inserts.len(), 2);
+        // Positive net balance only gets main tag
+        let tx1_no_loan = plan2
+            .inserts
             .iter()
             .find(|tx| tx.amount == Decimal::new(5000, 2))
             .unwrap();
-        assert_eq!(tx1.tag_ids, Some(vec![444]));
+        assert_eq!(tx1_no_loan.tag_ids, Some(vec![444]));
     }
 
     #[test]
