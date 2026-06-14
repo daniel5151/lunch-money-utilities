@@ -69,6 +69,7 @@ impl Serialize for Currency {
 /// A client for the Lunch Money API.
 ///
 /// Holds the HTTP client and developer API key used to make authenticated requests.
+#[derive(Clone)]
 pub struct Client {
     http: reqwest::Client,
     api_key: String,
@@ -317,16 +318,22 @@ impl Client {
 #[derive(serde::Serialize, Debug, Clone)]
 pub struct TransactionQuery {
     /// Start date in ISO 8601 format (YYYY-MM-DD).
-    pub start_date: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_date: Option<String>,
     /// End date in ISO 8601 format (YYYY-MM-DD).
-    pub end_date: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_date: Option<String>,
     /// Unique identifier for the manual account.
-    pub manual_account_id: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manual_account_id: Option<u64>,
     /// Maximum number of transactions to return.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
     /// If true, include transactions that are children of a group.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub include_group_children: Option<bool>,
     /// If true, include parent transactions of splits.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub include_split_parents: Option<bool>,
     /// If true, include custom metadata in the response.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -458,17 +465,23 @@ pub mod schema {
         /// Transaction amount.
         pub amount: Decimal,
         /// Currency of the transaction.
-        pub currency: Currency,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub currency: Option<Currency>,
         /// Payee name.
-        pub payee: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub payee: Option<String>,
         /// Transaction notes.
-        pub notes: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub notes: Option<String>,
         /// User-defined external ID (must be unique for the manual account).
-        pub external_id: E,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub external_id: Option<E>,
         /// Unique identifier for the manually managed account.
-        pub manual_account_id: u64,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub manual_account_id: Option<u64>,
         /// Transaction status (reviewed or unreviewed).
-        pub status: TransactionStatus,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub status: Option<TransactionStatus>,
         /// Optional list of tag IDs to associate with this transaction.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub tag_ids: Option<Vec<u64>>,
@@ -521,15 +534,20 @@ pub mod schema {
         /// System defined unique identifier of the transaction.
         pub id: u64,
         /// Date of the transaction.
-        pub date: jiff::civil::Date,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub date: Option<jiff::civil::Date>,
         /// Transaction amount.
-        pub amount: Decimal,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub amount: Option<Decimal>,
         /// Currency of the transaction.
-        pub currency: Currency,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub currency: Option<Currency>,
         /// Payee name.
-        pub payee: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub payee: Option<String>,
         /// Transaction notes.
-        pub notes: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub notes: Option<String>,
         /// Optional custom JSON metadata.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub custom_metadata: Option<T>,
