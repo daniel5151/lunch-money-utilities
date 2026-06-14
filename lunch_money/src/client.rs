@@ -1,6 +1,11 @@
 use crate::categories::CategoriesResponse;
 use crate::categories::Category;
+use crate::core::ids::AttachmentId;
+use crate::core::ids::CategoryId;
 use crate::core::ids::ManualAccountId;
+use crate::core::ids::PlaidAccountId;
+use crate::core::ids::RecurringId;
+use crate::core::ids::TagId;
 use crate::core::ids::TransactionId;
 use crate::manual_accounts::ManualAccount;
 use crate::manual_accounts::ManualAccountsResponse;
@@ -255,5 +260,494 @@ impl Client {
             &UpdateManualAccountObject { balance },
         )
         .await
+    }
+
+    async fn exec_empty(&self, method: reqwest::Method, endpoint: &str) -> anyhow::Result<()> {
+        let url = format!("https://api.lunchmoney.dev/v2/{}", endpoint);
+        let res = self
+            .http
+            .request(method, &url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await
+            .context("Lunch Money HTTP call failed")?;
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            anyhow::bail!("Lunch Money request failed ({}): {}", status, body.trim());
+        }
+        Ok(())
+    }
+
+    // --- User & Summary Endpoints ---
+
+    /// Fetches details about the user associated with the API key.
+    pub async fn fetch_user(&self) -> anyhow::Result<crate::users::User> {
+        self.fetch("me", &[] as &[(&str, &str)]).await
+    }
+
+    /// Fetches the monthly budget summary for the specified date range and options.
+    pub async fn fetch_budget_summary(
+        &self,
+        query: &crate::budgets::BudgetSummaryQuery,
+    ) -> anyhow::Result<crate::budgets::BudgetSummary> {
+        self.fetch("summary", query).await
+    }
+
+    // --- Budgets Endpoints ---
+
+    /// Fetches budget settings for the user's account.
+    pub async fn fetch_budget_settings(&self) -> anyhow::Result<crate::budgets::BudgetSettings> {
+        let res: crate::budgets::BudgetSettingsResponse = self
+            .fetch("budgets/settings", &[] as &[(&str, &str)])
+            .await?;
+        Ok(res.budget_settings)
+    }
+
+    /// Creates or updates a budget for a category and period.
+    pub async fn upsert_budget(
+        &self,
+        req: &crate::budgets::UpsertBudgetRequest,
+    ) -> anyhow::Result<crate::budgets::BudgetUpsertResponse> {
+        self.exec_with_response(reqwest::Method::PUT, "budgets", req)
+            .await
+    }
+
+    /// Deletes the budget for the given category and period.
+    pub async fn delete_budget(
+        &self,
+        category_id: CategoryId,
+        start_date: jiff::civil::Date,
+    ) -> anyhow::Result<()> {
+        let url = "https://api.lunchmoney.dev/v2/budgets";
+        let query = vec![
+            ("category_id", category_id.to_string()),
+            ("start_date", start_date.to_string()),
+        ];
+        let res = self
+            .http
+            .delete(url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .query(&query)
+            .send()
+            .await
+            .context("Lunch Money HTTP call failed")?;
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            anyhow::bail!("Lunch Money request failed ({}): {}", status, body.trim());
+        }
+        Ok(())
+    }
+
+    // --- Categories Endpoints ---
+
+    /// Creates a new category or category group.
+    pub async fn create_category(
+        &self,
+        payload: &crate::categories::CreateCategoryPayload,
+    ) -> anyhow::Result<crate::categories::Category> {
+        self.exec_with_response(reqwest::Method::POST, "categories", payload)
+            .await
+    }
+
+    /// Fetches a single category by its ID.
+    pub async fn fetch_category_by_id(
+        &self,
+        id: CategoryId,
+    ) -> anyhow::Result<crate::categories::Category> {
+        self.fetch(&format!("categories/{}", id), &[] as &[(&str, &str)])
+            .await
+    }
+
+    /// Updates an existing category or category group.
+    pub async fn update_category(
+        &self,
+        id: CategoryId,
+        payload: &crate::categories::UpdateCategoryPayload,
+    ) -> anyhow::Result<crate::categories::Category> {
+        self.exec_with_response(reqwest::Method::PUT, &format!("categories/{}", id), payload)
+            .await
+    }
+
+    /// Deletes a category or category group.
+    pub async fn delete_category(
+        &self,
+        id: CategoryId,
+        force: Option<bool>,
+    ) -> anyhow::Result<crate::categories::DeleteCategoryResult> {
+        let url = format!("https://api.lunchmoney.dev/v2/categories/{}", id);
+        let q = force.map(|f| vec![("force", f)]).unwrap_or_default();
+        let res = self
+            .http
+            .delete(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .query(&q)
+            .send()
+            .await
+            .context("Lunch Money HTTP call failed")?;
+
+        if res.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY {
+            let deps = res
+                .json::<crate::categories::DeleteCategoryDependenciesResponse>()
+                .await
+                .context("Failed parsing delete category dependencies response")?;
+            return Ok(crate::categories::DeleteCategoryResult::Dependencies(deps));
+        }
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            anyhow::bail!("Lunch Money request failed ({}): {}", status, body.trim());
+        }
+
+        Ok(crate::categories::DeleteCategoryResult::Deleted)
+    }
+
+    // --- Manual Accounts Endpoints ---
+
+    /// Creates a manual account.
+    pub async fn create_manual_account<E, M>(
+        &self,
+        payload: &crate::manual_accounts::CreateManualAccountPayload<E, M>,
+    ) -> anyhow::Result<crate::manual_accounts::ManualAccount<E, M>>
+    where
+        E: serde::Serialize + serde::de::DeserializeOwned + Clone,
+        M: serde::Serialize + serde::de::DeserializeOwned + Clone,
+    {
+        self.exec_with_response(reqwest::Method::POST, "manual_accounts", payload)
+            .await
+    }
+
+    /// Fetches a single manual account by its ID.
+    pub async fn fetch_manual_account_by_id<E, M>(
+        &self,
+        id: ManualAccountId,
+    ) -> anyhow::Result<crate::manual_accounts::ManualAccount<E, M>>
+    where
+        E: serde::de::DeserializeOwned,
+        M: serde::de::DeserializeOwned,
+    {
+        self.fetch(&format!("manual_accounts/{}", id), &[] as &[(&str, &str)])
+            .await
+    }
+
+    /// Deletes a manual account.
+    pub async fn delete_manual_account(
+        &self,
+        id: ManualAccountId,
+        delete_items: Option<bool>,
+        delete_balance_history: Option<bool>,
+    ) -> anyhow::Result<()> {
+        let url = format!("https://api.lunchmoney.dev/v2/manual_accounts/{}", id);
+        let mut q = Vec::new();
+        if let Some(di) = delete_items {
+            q.push(("delete_items", di.to_string()));
+        }
+        if let Some(dbh) = delete_balance_history {
+            q.push(("delete_balance_history", dbh.to_string()));
+        }
+        let res = self
+            .http
+            .delete(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .query(&q)
+            .send()
+            .await
+            .context("Lunch Money HTTP call failed")?;
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            anyhow::bail!("Lunch Money request failed ({}): {}", status, body.trim());
+        }
+        Ok(())
+    }
+
+    /// Updates details of an existing manual account (name, type, etc.).
+    pub async fn update_manual_account_details<E, M>(
+        &self,
+        id: ManualAccountId,
+        payload: &crate::manual_accounts::UpdateManualAccountPayload<E, M>,
+    ) -> anyhow::Result<crate::manual_accounts::ManualAccount<E, M>>
+    where
+        E: serde::Serialize + serde::de::DeserializeOwned + Clone,
+        M: serde::Serialize + serde::de::DeserializeOwned + Clone,
+    {
+        self.exec_with_response(
+            reqwest::Method::PUT,
+            &format!("manual_accounts/{}", id),
+            payload,
+        )
+        .await
+    }
+
+    // --- Plaid Accounts Endpoints ---
+
+    /// Fetches all accounts synced via Plaid.
+    pub async fn fetch_plaid_accounts(
+        &self,
+    ) -> anyhow::Result<Vec<crate::plaid_accounts::PlaidAccount>> {
+        let res: crate::plaid_accounts::PlaidAccountsResponse =
+            self.fetch("plaid_accounts", &[] as &[(&str, &str)]).await?;
+        Ok(res.plaid_accounts)
+    }
+
+    /// Fetches a single Plaid-synced account by its ID.
+    pub async fn fetch_plaid_account_by_id(
+        &self,
+        id: PlaidAccountId,
+    ) -> anyhow::Result<crate::plaid_accounts::PlaidAccount> {
+        self.fetch(&format!("plaid_accounts/{}", id), &[] as &[(&str, &str)])
+            .await
+    }
+
+    /// Triggers a fetch of latest transactions from Plaid.
+    pub async fn trigger_plaid_fetch(
+        &self,
+        query: &crate::plaid_accounts::TriggerPlaidFetchQuery,
+    ) -> anyhow::Result<()> {
+        let url = "https://api.lunchmoney.dev/v2/plaid_accounts/fetch";
+        let res = self
+            .http
+            .post(url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .query(query)
+            .send()
+            .await
+            .context("Lunch Money HTTP call failed")?;
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            anyhow::bail!("Lunch Money request failed ({}): {}", status, body.trim());
+        }
+        Ok(())
+    }
+
+    // --- Transactions Additional Endpoints ---
+
+    /// Updates a single transaction in-place.
+    pub async fn update_transaction<T, E>(
+        &self,
+        id: TransactionId,
+        update_balance: Option<bool>,
+        tx: &crate::transactions::UpdateObject<T, E>,
+    ) -> anyhow::Result<crate::transactions::Transaction<T, E>>
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned + Clone,
+        E: serde::Serialize + serde::de::DeserializeOwned + Clone,
+    {
+        let url = format!("https://api.lunchmoney.dev/v2/transactions/{}", id);
+        let mut q = Vec::new();
+        if let Some(ub) = update_balance {
+            q.push(("update_balance", ub));
+        }
+        let res = self
+            .http
+            .put(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .query(&q)
+            .json(tx)
+            .send()
+            .await
+            .context("Lunch Money HTTP call failed")?;
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            anyhow::bail!("Lunch Money request failed ({}): {}", status, body.trim());
+        }
+        res.json().await.context("Failed parsing Lunch Money JSON")
+    }
+
+    /// Deletes a single transaction.
+    pub async fn delete_transaction(&self, id: TransactionId) -> anyhow::Result<()> {
+        self.exec_empty(reqwest::Method::DELETE, &format!("transactions/{}", id))
+            .await
+    }
+
+    /// Creates a transaction group.
+    pub async fn create_transaction_group<T, E>(
+        &self,
+        payload: &crate::transactions::CreateTransactionGroupPayload,
+    ) -> anyhow::Result<crate::transactions::Transaction<T, E>>
+    where
+        T: serde::de::DeserializeOwned,
+        E: serde::de::DeserializeOwned,
+    {
+        self.exec_with_response(reqwest::Method::POST, "transactions/group", payload)
+            .await
+    }
+
+    /// Deletes a transaction group (ungroups the transactions).
+    pub async fn delete_transaction_group(&self, id: TransactionId) -> anyhow::Result<()> {
+        self.exec_empty(
+            reqwest::Method::DELETE,
+            &format!("transactions/group/{}", id),
+        )
+        .await
+    }
+
+    /// Splits an existing transaction into multiple child transactions.
+    pub async fn split_transaction<T, E>(
+        &self,
+        id: TransactionId,
+        payload: &crate::transactions::SplitTransactionPayload,
+    ) -> anyhow::Result<crate::transactions::Transaction<T, E>>
+    where
+        T: serde::de::DeserializeOwned,
+        E: serde::de::DeserializeOwned,
+    {
+        self.exec_with_response(
+            reqwest::Method::POST,
+            &format!("transactions/split/{}", id),
+            payload,
+        )
+        .await
+    }
+
+    /// Unsplits a previously split transaction.
+    pub async fn unsplit_transaction(&self, id: TransactionId) -> anyhow::Result<()> {
+        self.exec_empty(
+            reqwest::Method::DELETE,
+            &format!("transactions/split/{}", id),
+        )
+        .await
+    }
+
+    /// Attaches a file to a transaction. File size must not exceed 10MB.
+    pub async fn attach_file_to_transaction(
+        &self,
+        transaction_id: TransactionId,
+        file_name: String,
+        file_bytes: Vec<u8>,
+        mime_type: String,
+        notes: Option<&str>,
+    ) -> anyhow::Result<crate::transactions::TransactionAttachment> {
+        let url = format!(
+            "https://api.lunchmoney.dev/v2/transactions/{}/attachments",
+            transaction_id
+        );
+        let part = reqwest::multipart::Part::bytes(file_bytes)
+            .file_name(file_name)
+            .mime_str(&mime_type)?;
+
+        let mut form = reqwest::multipart::Form::new().part("file", part);
+        if let Some(n) = notes {
+            form = form.text("notes", n.to_string());
+        }
+
+        let res = self
+            .http
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .multipart(form)
+            .send()
+            .await
+            .context("Lunch Money HTTP call failed")?;
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            anyhow::bail!("Lunch Money request failed ({}): {}", status, body.trim());
+        }
+        res.json().await.context("Failed parsing Lunch Money JSON")
+    }
+
+    /// Fetches a signed download URL for a file attachment.
+    pub async fn get_transaction_attachment_url(
+        &self,
+        file_id: AttachmentId,
+    ) -> anyhow::Result<crate::transactions::AttachmentUrlResponse> {
+        self.fetch(
+            &format!("transactions/attachments/{}", file_id),
+            &[] as &[(&str, &str)],
+        )
+        .await
+    }
+
+    /// Deletes a file attachment from a transaction.
+    pub async fn delete_transaction_attachment(&self, file_id: AttachmentId) -> anyhow::Result<()> {
+        self.exec_empty(
+            reqwest::Method::DELETE,
+            &format!("transactions/attachments/{}", file_id),
+        )
+        .await
+    }
+
+    // --- Tags Additional Endpoints ---
+
+    /// Fetches details of a single tag by its ID.
+    pub async fn fetch_tag_by_id(&self, id: TagId) -> anyhow::Result<crate::tags::Tag> {
+        self.fetch(&format!("tags/{}", id), &[] as &[(&str, &str)])
+            .await
+    }
+
+    /// Updates details of an existing tag.
+    pub async fn update_tag(
+        &self,
+        id: TagId,
+        payload: &crate::tags::UpdateTagPayload,
+    ) -> anyhow::Result<crate::tags::Tag> {
+        self.exec_with_response(reqwest::Method::PUT, &format!("tags/{}", id), payload)
+            .await
+    }
+
+    /// Deletes a tag by its ID.
+    pub async fn delete_tag(
+        &self,
+        id: TagId,
+        force: Option<bool>,
+    ) -> anyhow::Result<crate::tags::DeleteTagResult> {
+        let url = format!("https://api.lunchmoney.dev/v2/tags/{}", id);
+        let q = force.map(|f| vec![("force", f)]).unwrap_or_default();
+        let res = self
+            .http
+            .delete(&url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .query(&q)
+            .send()
+            .await
+            .context("Lunch Money HTTP call failed")?;
+
+        if res.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY {
+            let deps = res
+                .json::<crate::tags::DeleteTagDependenciesResponse>()
+                .await
+                .context("Failed parsing delete tag dependencies response")?;
+            return Ok(crate::tags::DeleteTagResult::Dependencies(deps));
+        }
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            anyhow::bail!("Lunch Money request failed ({}): {}", status, body.trim());
+        }
+
+        Ok(crate::tags::DeleteTagResult::Deleted)
+    }
+
+    // --- Recurring Items Endpoints ---
+
+    /// Fetches all recurring items.
+    pub async fn fetch_recurring_items(
+        &self,
+        query: &crate::recurring_items::RecurringItemsQuery,
+    ) -> anyhow::Result<Vec<crate::recurring_items::RecurringItem>> {
+        let res: crate::recurring_items::RecurringItemsResponse =
+            self.fetch("recurring_items", query).await?;
+        Ok(res.recurring_items)
+    }
+
+    /// Fetches a single recurring item by its ID.
+    pub async fn fetch_recurring_item_by_id(
+        &self,
+        id: RecurringId,
+        query: &crate::recurring_items::RecurringItemQuery,
+    ) -> anyhow::Result<crate::recurring_items::RecurringItem> {
+        self.fetch(&format!("recurring_items/{}", id), query).await
     }
 }

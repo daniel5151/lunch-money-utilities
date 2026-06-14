@@ -358,3 +358,65 @@ pub struct TransactionQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag_id: Option<TagId>,
 }
+
+/// Object representing a split transaction child.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SplitTransactionObject {
+    /// Individual amount of split.
+    #[serde(with = "rust_decimal::serde::str")]
+    pub amount: Decimal,
+    /// The payee for the child transaction. Will inherit original payee from parent if not defined.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payee: Option<String>,
+    /// Date of the transaction. Will inherit from parent if not defined.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<jiff::civil::Date>,
+    /// Unique identifier for associated category. Will inherit from parent if not defined.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category_id: Option<CategoryId>,
+    /// The IDs of any tags to apply.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag_ids: Option<Vec<TagId>>,
+    /// Notes for the child transaction. Will inherit from parent if not defined.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+/// Request payload for splitting a transaction.
+#[derive(Serialize, Clone, Debug)]
+pub struct SplitTransactionPayload {
+    /// List of child transactions to create.
+    pub child_transactions: Vec<SplitTransactionObject>,
+}
+
+/// Request payload for creating a transaction group.
+#[derive(Serialize, Clone, Debug)]
+pub struct CreateTransactionGroupPayload {
+    /// List of existing transaction IDs to group.
+    pub ids: Vec<TransactionId>,
+    /// Date for the new grouped transaction.
+    pub date: jiff::civil::Date,
+    /// The payee for the new grouped transaction.
+    pub payee: String,
+    /// The ID of an existing category to assign to the grouped transaction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category_id: Option<CategoryId>,
+    /// Notes for the grouped transaction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    /// Status of the grouped transaction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<TransactionStatus>,
+    /// A list of IDs for the tags associated with the grouped transaction.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag_ids: Option<Vec<TagId>>,
+}
+
+/// Response returned by the signed attachment URL endpoint.
+#[derive(Deserialize, Clone, Debug)]
+pub struct AttachmentUrlResponse {
+    /// The signed URL to download the file attachment.
+    pub url: String,
+    /// The date and time the signed URL will expire.
+    pub expires_at: jiff::Timestamp,
+}
