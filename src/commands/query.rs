@@ -25,6 +25,9 @@ fn print_expenses_table(
     config: &crate::config::Config,
     group_map: &HashMap<u64, String>,
 ) {
+    let mut expenses = expenses;
+    expenses.sort_by_key(|e| std::cmp::Reverse(e.parsed.date));
+
     let mut has_uninvolved = false;
 
     // Scan expenses to compute the maximum width of the numeric and currency sub-components.

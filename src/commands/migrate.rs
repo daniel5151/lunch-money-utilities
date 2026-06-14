@@ -173,6 +173,8 @@ pub async fn run_migrate_add_metadata(
         println! { "  ⚠️  {STYLE_WARNING}Skipped {} transactions due to Splitwise fetch errors.{STYLE_WARNING:#}", skipped };
     }
 
+    updates.sort_by_key(|u| std::cmp::Reverse(u.date));
+
     let super::MaxWidths {
         max_num_len,
         max_currency_len,

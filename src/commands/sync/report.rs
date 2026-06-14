@@ -126,8 +126,11 @@ fn print_transaction_table(
         max_currency_len,
     } = crate::commands::compute_max_widths(items.iter().map(|item| (item.amount, item.currency)));
 
+    let mut sorted_items: Vec<&PrintItem<'_>> = items.iter().collect();
+    sorted_items.sort_by_key(|item| std::cmp::Reverse(item.date));
+
     let mut records = Vec::new();
-    for item in items {
+    for item in sorted_items {
         let lm_cat_name = item
             .category_id
             .and_then(|id| lm_category_names.get(&id).cloned());

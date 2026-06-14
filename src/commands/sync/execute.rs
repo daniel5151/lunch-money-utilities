@@ -467,6 +467,7 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                     }
 
                     if !recovery_records.is_empty() {
+                        recovery_records.sort_by(|a, b| b.date.cmp(&a.date));
                         println! {};
                         println! { "🔧  {STYLE_SUCCESS}Applying recovery actions for time-shifted transaction(s):{STYLE_SUCCESS:#}" };
                         let mut table = Table::new(recovery_records);
