@@ -5,7 +5,7 @@ pub mod query_params {
     use serde::Serialize;
 
     /// Query parameters for fetching categories.
-    #[derive(Serialize, Debug, Clone, Default)]
+    #[derive(bon::Builder, Serialize, Debug, Clone, Default)]
     pub struct CategoryQuery {
         /// Response format: `"nested"` (default) or `"flattened"`.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -77,7 +77,7 @@ pub mod schemas {
     }
 
     /// Request payload for creating a new category or category group.
-    #[derive(Serialize, Clone, Debug)]
+    #[derive(bon::Builder, Serialize, Clone, Debug)]
     pub struct CreateCategoryPayload {
         /// Name of the category (1-100 characters).
         pub name: String,
@@ -114,7 +114,7 @@ pub mod schemas {
     }
 
     /// Request payload for updating an existing category or category group.
-    #[derive(Serialize, Clone, Debug, Default)]
+    #[derive(bon::Builder, Serialize, Clone, Debug, Default)]
     pub struct UpdateCategoryPayload {
         /// New name of the category (1-100 characters).
         #[serde(skip_serializing_if = "Option::is_none")]

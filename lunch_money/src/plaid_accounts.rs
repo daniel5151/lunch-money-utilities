@@ -6,7 +6,7 @@ pub mod query_params {
     use serde::Serialize;
 
     /// Query parameters to trigger a manual fetch from Plaid.
-    #[derive(Serialize, Debug, Clone, Default)]
+    #[derive(bon::Builder, Serialize, Debug, Clone, Default)]
     pub struct TriggerPlaidFetchQuery {
         /// Beginning of time period to fetch transactions for.
         #[serde(skip_serializing_if = "Option::is_none")]

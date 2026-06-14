@@ -21,6 +21,7 @@ anstream = "1.0"
 tabled = { version = "0.21.0", features = ["ansi"] }
 csv = "1.3"
 anyhow = "1.0"
+bon = "3"
 lunch_money = { path = "lunch_money", features = ["client"] }
 
 

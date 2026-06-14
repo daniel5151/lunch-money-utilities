@@ -281,20 +281,21 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                                     }
                                 }
                                 if !found {
-                                    dup_updates.push(crate::api::lunch_money::schema::UpdateObject {
-                                        id: existing_lm.id,
-                                        date: existing_lm.date,
-                                        amount: existing_lm.amount,
-                                        currency: existing_lm.currency.clone(),
-                                        payee: existing_lm.payee.clone(),
-                                        notes: existing_lm.notes.clone().unwrap_or_default(),
-                                        custom_metadata: existing_lm.custom_metadata.clone().and_then(|m| match m {
-                                            crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(metadata) => Some(metadata),
-                                            _ => None,
-                                        }),
-                                        additional_tag_ids: None,
-                                        external_id: Some(None),
-                                    });
+                                    dup_updates.push(
+                                        crate::api::lunch_money::schema::UpdateObject::builder()
+                                            .id(existing_lm.id)
+                                            .date(existing_lm.date)
+                                            .amount(existing_lm.amount)
+                                            .currency(existing_lm.currency.clone())
+                                            .payee(existing_lm.payee.clone())
+                                            .notes(existing_lm.notes.clone().unwrap_or_default())
+                                            .maybe_custom_metadata(existing_lm.custom_metadata.clone().and_then(|m| match m {
+                                                crate::api::lunch_money::schema::MaybeLunchMoneyTxMetadata::Expected(metadata) => Some(metadata),
+                                                _ => None,
+                                            }))
+                                            .external_id(None)
+                                            .build()
+                                    );
                                 }
 
                                 if !target_amount.is_zero() {
@@ -606,23 +607,23 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                             .or_else(|| recovered_transactions.get(&d_id))
                             .or_else(|| inserted_deltas.get(&d_id))
                         {
-                            linkage_updates.push(crate::api::lunch_money::schema::UpdateObject {
-                                id: d_tx.id,
-                                date: d_tx.date,
-                                amount: d_tx.amount,
-                                currency: d_tx.currency.clone(),
-                                payee: d_tx.payee.clone(),
-                                notes: d_tx.notes.clone().unwrap_or_default(),
-                                custom_metadata: Some(
-                                    crate::api::lunch_money::schema::LunchMoneyTxMetadata::Delta {
-                                        original_transaction_id: orig_tx.id,
-                                        delta_transaction_ids: updated_delta_ids.clone(),
-                                        splitwise_id,
-                                    },
-                                ),
-                                additional_tag_ids: None,
-                                external_id: None,
-                            });
+                            linkage_updates.push(
+                                crate::api::lunch_money::schema::UpdateObject::builder()
+                                    .id(d_tx.id)
+                                    .date(d_tx.date)
+                                    .amount(d_tx.amount)
+                                    .currency(d_tx.currency.clone())
+                                    .payee(d_tx.payee.clone())
+                                    .notes(d_tx.notes.clone().unwrap_or_default())
+                                    .custom_metadata(
+                                        crate::api::lunch_money::schema::LunchMoneyTxMetadata::Delta {
+                                            original_transaction_id: orig_tx.id,
+                                            delta_transaction_ids: updated_delta_ids.clone(),
+                                            splitwise_id,
+                                        },
+                                    )
+                                    .build()
+                            );
                         }
                     }
 
@@ -631,21 +632,22 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                         tag_ids.push(ut_id);
                     }
 
-                    linkage_updates.push(crate::api::lunch_money::schema::UpdateObject {
-                        id: orig_tx.id,
-                        date: orig_tx.date,
-                        amount: orig_tx.amount,
-                        currency: orig_tx.currency.clone(),
-                        payee: orig_tx.payee.clone(),
-                        notes: orig_tx.notes.clone().unwrap_or_default(),
-                        custom_metadata: Some(desired_metadata),
-                        additional_tag_ids: if tag_ids.is_empty() {
-                            None
-                        } else {
-                            Some(tag_ids)
-                        },
-                        external_id: None,
-                    });
+                    linkage_updates.push(
+                        crate::api::lunch_money::schema::UpdateObject::builder()
+                            .id(orig_tx.id)
+                            .date(orig_tx.date)
+                            .amount(orig_tx.amount)
+                            .currency(orig_tx.currency.clone())
+                            .payee(orig_tx.payee.clone())
+                            .notes(orig_tx.notes.clone().unwrap_or_default())
+                            .custom_metadata(desired_metadata)
+                            .maybe_additional_tag_ids(if tag_ids.is_empty() {
+                                None
+                            } else {
+                                Some(tag_ids)
+                            })
+                            .build(),
+                    );
                 }
             }
 

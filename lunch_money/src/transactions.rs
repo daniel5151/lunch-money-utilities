@@ -11,7 +11,7 @@ pub mod query_params {
     use serde::Serialize;
 
     /// Query parameters for fetching transactions.
-    #[derive(Serialize, Debug, Clone, Default)]
+    #[derive(bon::Builder, Serialize, Debug, Clone, Default)]
     pub struct TransactionQuery {
         /// Start date in ISO 8601 format (YYYY-MM-DD).
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -281,7 +281,7 @@ pub mod schemas {
     }
 
     /// Object representing a transaction to be inserted.
-    #[derive(Serialize, Clone, Debug)]
+    #[derive(bon::Builder, Serialize, Clone, Debug)]
     pub struct InsertObject<T = (), E = String> {
         /// Date of the transaction.
         pub date: jiff::civil::Date,
@@ -333,7 +333,7 @@ pub mod schemas {
     }
 
     /// Object representing updates to make on an existing transaction.
-    #[derive(Serialize, Clone, Debug)]
+    #[derive(bon::Builder, Serialize, Clone, Debug)]
     pub struct UpdateObject<T = (), E = String> {
         /// System defined unique identifier of the transaction.
         pub id: TransactionId,
@@ -414,7 +414,7 @@ pub mod schemas {
     }
 
     /// Object representing a split transaction child.
-    #[derive(Serialize, Deserialize, Clone, Debug)]
+    #[derive(bon::Builder, Serialize, Deserialize, Clone, Debug)]
     pub struct SplitTransactionObject {
         /// Individual amount of split.
         #[serde(with = "rust_decimal::serde::str")]
@@ -444,7 +444,7 @@ pub mod schemas {
     }
 
     /// Request payload for creating a transaction group.
-    #[derive(Serialize, Clone, Debug)]
+    #[derive(bon::Builder, Serialize, Clone, Debug)]
     pub struct CreateTransactionGroupPayload {
         /// List of existing transaction IDs to group.
         pub ids: Vec<TransactionId>,

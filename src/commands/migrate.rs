@@ -71,16 +71,17 @@ pub async fn run_migrate_add_metadata(
     let mut lm_transactions = Vec::new();
     for &account_id in target_accounts.values() {
         let txs = lm_client
-            .fetch_transactions(&TransactionQuery {
-                start_date: start_date_str.clone(),
-                end_date: end_date_str.clone(),
-                manual_account_id: account_id,
-                limit: Some(1000),
-                include_group_children: Some(true),
-                include_split_parents: Some(true),
-                include_metadata: Some(true),
-                tag_id: None,
-            })
+            .fetch_transactions(
+                &TransactionQuery::builder()
+                    .start_date(start_date_str.clone())
+                    .end_date(end_date_str.clone())
+                    .manual_account_id(account_id)
+                    .limit(1000)
+                    .include_group_children(true)
+                    .include_split_parents(true)
+                    .include_metadata(true)
+                    .build(),
+            )
             .await?;
         lm_transactions.extend(txs);
     }
@@ -148,17 +149,17 @@ pub async fn run_migrate_add_metadata(
                 original: exp.parsed.clone().into(),
             };
 
-            updates.push(UpdateObject {
-                id: t.id,
-                date: t.date,
-                amount: t.amount,
-                currency: t.currency,
-                payee: t.payee,
-                notes: t.notes.unwrap_or_default(),
-                custom_metadata: Some(desired_metadata),
-                additional_tag_ids: None,
-                external_id: None,
-            });
+            updates.push(
+                UpdateObject::builder()
+                    .id(t.id)
+                    .date(t.date)
+                    .amount(t.amount)
+                    .currency(t.currency)
+                    .payee(t.payee)
+                    .notes(t.notes.unwrap_or_default())
+                    .custom_metadata(desired_metadata)
+                    .build(),
+            );
         }
     }
 

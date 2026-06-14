@@ -9,6 +9,7 @@ client = ["dep:anyhow", "dep:reqwest"]
 
 [dependencies]
 anyhow = { version = "1.0", optional = true }
+bon = "3"
 jiff = { version = "0.2", features = ["serde"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls-no-provider", "http2", "multipart"], optional = true }
 rust_decimal = { version = "1.33", features = ["serde", "serde-with-str"] }

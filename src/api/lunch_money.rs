@@ -21,7 +21,7 @@ use rust_decimal::Decimal;
 #[derive(Clone)]
 pub struct Client(lunch_money::client::Client);
 
-#[derive(serde::Serialize, Debug, Clone)]
+#[derive(bon::Builder, serde::Serialize, Debug, Clone)]
 pub struct TransactionQuery {
     pub start_date: String,
     pub end_date: String,
@@ -48,17 +48,16 @@ impl Client {
         &self,
         query: &TransactionQuery,
     ) -> anyhow::Result<Vec<schema::Transaction>> {
-        let lib_query = lunch_money::transactions::query_params::TransactionQuery {
-            start_date: Some(query.start_date.clone()),
-            end_date: Some(query.end_date.clone()),
-            manual_account_id: Some(query.manual_account_id),
-            limit: query.limit,
-            include_group_children: query.include_group_children,
-            include_split_parents: query.include_split_parents,
-            include_metadata: query.include_metadata,
-            tag_id: query.tag_id,
-            ..Default::default()
-        };
+        let lib_query = lunch_money::transactions::query_params::TransactionQuery::builder()
+            .start_date(query.start_date.clone())
+            .end_date(query.end_date.clone())
+            .manual_account_id(query.manual_account_id)
+            .maybe_limit(query.limit)
+            .maybe_include_group_children(query.include_group_children)
+            .maybe_include_split_parents(query.include_split_parents)
+            .maybe_include_metadata(query.include_metadata)
+            .maybe_tag_id(query.tag_id)
+            .build();
         Ok(self.0.fetch_transactions(&lib_query).await?.transactions)
     }
 
@@ -73,10 +72,9 @@ impl Client {
         &self,
         format: Option<&str>,
     ) -> anyhow::Result<Vec<schema::Category>> {
-        let query = lunch_money::categories::query_params::CategoryQuery {
-            format: format.map(|f| f.to_string()),
-            ..Default::default()
-        };
+        let query = lunch_money::categories::query_params::CategoryQuery::builder()
+            .maybe_format(format.map(|f| f.to_string()))
+            .build();
         self.0.fetch_categories(&query).await
     }
 
@@ -100,21 +98,20 @@ impl Client {
             lunch_money::transactions::schemas::InsertObject<LunchMoneyTxMetadata, ExternalId>,
         > = txs
             .iter()
-            .map(|tx| lunch_money::transactions::schemas::InsertObject {
-                date: tx.date,
-                amount: tx.amount,
-                currency: Some(tx.currency.clone()),
-                payee: Some(tx.payee.clone()),
-                original_name: None,
-                notes: Some(tx.notes.clone()),
-                external_id: Some(tx.external_id.clone()),
-                manual_account_id: Some(tx.manual_account_id),
-                plaid_account_id: None,
-                recurring_id: None,
-                status: Some(tx.status),
-                tag_ids: tx.tag_ids.clone(),
-                category_id: tx.category_id,
-                custom_metadata: tx.custom_metadata.clone(),
+            .map(|tx| {
+                lunch_money::transactions::schemas::InsertObject::builder()
+                    .date(tx.date)
+                    .amount(tx.amount)
+                    .currency(tx.currency.clone())
+                    .payee(tx.payee.clone())
+                    .notes(tx.notes.clone())
+                    .external_id(tx.external_id.clone())
+                    .manual_account_id(tx.manual_account_id)
+                    .status(tx.status)
+                    .maybe_tag_ids(tx.tag_ids.clone())
+                    .maybe_category_id(tx.category_id)
+                    .maybe_custom_metadata(tx.custom_metadata.clone())
+                    .build()
             })
             .collect();
         self.0.insert_transactions(&lib_txs).await
@@ -125,22 +122,18 @@ impl Client {
             lunch_money::transactions::schemas::UpdateObject<LunchMoneyTxMetadata, ExternalId>,
         > = txs
             .iter()
-            .map(|tx| lunch_money::transactions::schemas::UpdateObject {
-                id: tx.id,
-                date: Some(tx.date),
-                amount: Some(tx.amount),
-                currency: Some(tx.currency.clone()),
-                payee: Some(tx.payee.clone()),
-                category_id: None,
-                notes: Some(tx.notes.clone()),
-                manual_account_id: None,
-                plaid_account_id: None,
-                tag_ids: None,
-                additional_tag_ids: tx.additional_tag_ids.clone(),
-                external_id: tx.external_id.clone(),
-                custom_metadata: tx.custom_metadata.clone(),
-                status: None,
-                recurring_id: None,
+            .map(|tx| {
+                lunch_money::transactions::schemas::UpdateObject::builder()
+                    .id(tx.id)
+                    .date(tx.date)
+                    .amount(tx.amount)
+                    .currency(tx.currency.clone())
+                    .payee(tx.payee.clone())
+                    .notes(tx.notes.clone())
+                    .maybe_additional_tag_ids(tx.additional_tag_ids.clone())
+                    .maybe_external_id(tx.external_id.clone())
+                    .maybe_custom_metadata(tx.custom_metadata.clone())
+                    .build()
             })
             .collect();
         self.0.update_transactions(&lib_txs).await
@@ -184,7 +177,7 @@ pub mod schema {
     pub use lunch_money::tags::schemas::Tag;
     pub use lunch_money::transactions::schemas::TransactionStatus;
 
-    #[derive(serde::Serialize, Clone, Debug)]
+    #[derive(bon::Builder, serde::Serialize, Clone, Debug)]
     pub struct InsertObject {
         pub date: jiff::civil::Date,
         pub amount: Decimal,
@@ -202,7 +195,7 @@ pub mod schema {
         pub custom_metadata: Option<LunchMoneyTxMetadata>,
     }
 
-    #[derive(serde::Serialize, Clone, Debug)]
+    #[derive(bon::Builder, serde::Serialize, Clone, Debug)]
     pub struct UpdateObject {
         pub id: TransactionId,
         pub date: jiff::civil::Date,

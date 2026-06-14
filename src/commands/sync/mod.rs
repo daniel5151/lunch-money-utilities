@@ -1171,20 +1171,21 @@ fn repair_deleted_and_orphaned_deltas(
 
         if let Some(ot_id) = orphaned_tag_id {
             for tx in &orphaned_deltas {
-                orphaned_updates.push(UpdateObject {
-                    id: tx.id,
-                    date: tx.date,
-                    amount: tx.amount,
-                    currency: tx.currency.clone(),
-                    payee: tx.payee.clone(),
-                    notes: tx.notes.clone().unwrap_or_default(),
-                    custom_metadata: tx.custom_metadata.clone().and_then(|m| match m {
-                        MaybeLunchMoneyTxMetadata::Expected(meta) => Some(meta),
-                        _ => None,
-                    }),
-                    additional_tag_ids: Some(vec![ot_id]),
-                    external_id: None,
-                });
+                orphaned_updates.push(
+                    UpdateObject::builder()
+                        .id(tx.id)
+                        .date(tx.date)
+                        .amount(tx.amount)
+                        .currency(tx.currency.clone())
+                        .payee(tx.payee.clone())
+                        .notes(tx.notes.clone().unwrap_or_default())
+                        .maybe_custom_metadata(tx.custom_metadata.clone().and_then(|m| match m {
+                            MaybeLunchMoneyTxMetadata::Expected(meta) => Some(meta),
+                            _ => None,
+                        }))
+                        .additional_tag_ids(vec![ot_id])
+                        .build(),
+                );
             }
         }
 
@@ -1195,49 +1196,53 @@ fn repair_deleted_and_orphaned_deltas(
 
         if let Some(orphan_tx) = existing_orphan {
             if orphan_tx.amount != target_balancing_amount {
-                orphaned_updates.push(UpdateObject {
-                    id: orphan_tx.id,
-                    date: orphan_tx.date,
-                    amount: target_balancing_amount,
-                    currency: orphan_tx.currency.clone(),
-                    payee: orphan_tx.payee.clone(),
-                    notes: notes_str,
-                    custom_metadata: Some(LunchMoneyTxMetadata::Orphan {
-                        original_transaction_id,
-                        orphaned_transaction_ids,
-                        splitwise_id,
-                    }),
-                    additional_tag_ids: orphaned_tag_id.map(|ot_id| vec![ot_id]),
-                    external_id: None,
-                });
+                orphaned_updates.push(
+                    UpdateObject::builder()
+                        .id(orphan_tx.id)
+                        .date(orphan_tx.date)
+                        .amount(target_balancing_amount)
+                        .currency(orphan_tx.currency.clone())
+                        .payee(orphan_tx.payee.clone())
+                        .notes(notes_str)
+                        .custom_metadata(LunchMoneyTxMetadata::Orphan {
+                            original_transaction_id,
+                            orphaned_transaction_ids,
+                            splitwise_id,
+                        })
+                        .maybe_additional_tag_ids(orphaned_tag_id.map(|ot_id| vec![ot_id]))
+                        .build(),
+                );
             }
         } else {
             let manual_account_id = orphaned_deltas[0]
                 .manual_account_id
                 .unwrap_or_else(|| target_accounts[&orphaned_deltas[0].currency]);
 
-            orphaned_inserts.push(InsertObject {
-                date: jiff::Timestamp::now()
-                    .to_zoned(jiff::tz::TimeZone::UTC)
-                    .date(),
-                amount: target_balancing_amount,
-                currency: orphaned_deltas[0].currency.clone(),
-                payee: "Splitwise - Orphaned Balance Adjustment".to_string(),
-                notes: notes_str,
-                external_id: ExternalId::Other(format!(
-                    "splitwise_{}_orphan",
-                    original_transaction_id
-                )),
-                manual_account_id,
-                status: TransactionStatus::Unreviewed,
-                tag_ids: orphaned_tag_id.map(|ot_id| vec![ot_id]),
-                category_id: None,
-                custom_metadata: Some(LunchMoneyTxMetadata::Orphan {
-                    original_transaction_id,
-                    orphaned_transaction_ids,
-                    splitwise_id,
-                }),
-            });
+            orphaned_inserts.push(
+                InsertObject::builder()
+                    .date(
+                        jiff::Timestamp::now()
+                            .to_zoned(jiff::tz::TimeZone::UTC)
+                            .date(),
+                    )
+                    .amount(target_balancing_amount)
+                    .currency(orphaned_deltas[0].currency.clone())
+                    .payee("Splitwise - Orphaned Balance Adjustment".to_string())
+                    .notes(notes_str)
+                    .external_id(ExternalId::Other(format!(
+                        "splitwise_{}_orphan",
+                        original_transaction_id
+                    )))
+                    .manual_account_id(manual_account_id)
+                    .status(TransactionStatus::Unreviewed)
+                    .maybe_tag_ids(orphaned_tag_id.map(|ot_id| vec![ot_id]))
+                    .custom_metadata(LunchMoneyTxMetadata::Orphan {
+                        original_transaction_id,
+                        orphaned_transaction_ids,
+                        splitwise_id,
+                    })
+                    .build(),
+            );
         }
     }
 

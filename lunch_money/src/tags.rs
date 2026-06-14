@@ -37,7 +37,7 @@ pub mod schemas {
     }
 
     /// Request payload for creating a new tag.
-    #[derive(Serialize, Debug)]
+    #[derive(bon::Builder, Serialize, Debug)]
     pub struct CreateTagPayload {
         /// Name of the tag (between 1 and 100 characters).
         pub name: String,
@@ -47,7 +47,7 @@ pub mod schemas {
     }
 
     /// Request payload for updating an existing tag.
-    #[derive(Serialize, Clone, Debug, Default)]
+    #[derive(bon::Builder, Serialize, Clone, Debug, Default)]
     pub struct UpdateTagPayload {
         /// If set, the new name of the tag (1-100 characters).
         #[serde(skip_serializing_if = "Option::is_none")]

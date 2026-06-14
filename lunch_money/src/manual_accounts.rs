@@ -148,7 +148,7 @@ pub mod schemas {
     }
 
     /// Request payload for creating a new manual account.
-    #[derive(Serialize, Clone, Debug)]
+    #[derive(bon::Builder, Serialize, Clone, Debug)]
     pub struct CreateManualAccountPayload<E = String, M = serde_json::Value> {
         /// Name of the manual account.
         pub name: String,
@@ -191,7 +191,7 @@ pub mod schemas {
     }
 
     /// Request payload for updating an existing manual account.
-    #[derive(Serialize, Clone, Debug, Default)]
+    #[derive(bon::Builder, Serialize, Clone, Debug, Default)]
     pub struct UpdateManualAccountPayload<E = String, M = serde_json::Value> {
         /// New name of the manual account.
         #[serde(skip_serializing_if = "Option::is_none")]

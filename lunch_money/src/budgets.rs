@@ -5,7 +5,7 @@ pub mod query_params {
     use serde::Serialize;
 
     /// Query parameters for fetching a budget summary.
-    #[derive(Serialize, Debug, Clone, Default)]
+    #[derive(bon::Builder, Serialize, Debug, Clone, Default)]
     pub struct BudgetSummaryQuery {
         /// Start of date range (YYYY-MM-DD).
         pub start_date: jiff::civil::Date,
@@ -98,7 +98,7 @@ pub mod schemas {
     }
 
     /// Request payload to create or update a budget.
-    #[derive(Serialize, Clone, Debug)]
+    #[derive(bon::Builder, Serialize, Clone, Debug)]
     pub struct UpsertBudgetRequest {
         /// Start date of the budget period (must be a valid budget period start).
         pub start_date: jiff::civil::Date,

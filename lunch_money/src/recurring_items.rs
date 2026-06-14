@@ -5,7 +5,7 @@ pub mod query_params {
     use serde::Serialize;
 
     /// Query parameters for listing recurring items.
-    #[derive(Serialize, Debug, Clone, Default)]
+    #[derive(bon::Builder, Serialize, Debug, Clone, Default)]
     pub struct RecurringItemsQuery {
         /// Range start date for populating matches.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -19,7 +19,7 @@ pub mod query_params {
     }
 
     /// Query parameters for a single recurring item.
-    #[derive(Serialize, Debug, Clone, Default)]
+    #[derive(bon::Builder, Serialize, Debug, Clone, Default)]
     pub struct RecurringItemQuery {
         /// Range start date for populating matches.
         #[serde(skip_serializing_if = "Option::is_none")]
