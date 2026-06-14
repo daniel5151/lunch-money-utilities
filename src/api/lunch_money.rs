@@ -12,10 +12,10 @@
 
 use crate::api::ExternalId;
 use crate::metadata::LunchMoneyTxMetadata;
-use lunch_money::Currency;
-use lunch_money::ManualAccountId;
-use lunch_money::TagId;
-use lunch_money::TransactionId;
+use lunch_money::schema::Currency;
+use lunch_money::schema::ManualAccountId;
+use lunch_money::schema::TagId;
+use lunch_money::schema::TransactionId;
 use rust_decimal::Decimal;
 
 #[derive(Clone)]
@@ -166,10 +166,10 @@ pub mod schema {
     pub use lunch_money::schema::Tag;
     pub use lunch_money::schema::TransactionStatus;
 
-    pub use lunch_money::CategoryId;
-    pub use lunch_money::ManualAccountId;
-    pub use lunch_money::TagId;
-    pub use lunch_money::TransactionId;
+    pub use lunch_money::schema::CategoryId;
+    pub use lunch_money::schema::ManualAccountId;
+    pub use lunch_money::schema::TagId;
+    pub use lunch_money::schema::TransactionId;
 
     #[derive(serde::Serialize, Clone, Debug)]
     pub struct InsertObject {

@@ -21,7 +21,7 @@ pub struct SyncConfig {
 #[derive(Deserialize, Clone, Debug)]
 #[serde(untagged)]
 pub enum CategoryValue {
-    Id(lunch_money::CategoryId),
+    Id(lunch_money::schema::CategoryId),
     Name(String),
 }
 
@@ -73,5 +73,5 @@ pub struct LunchMoneyConfig {
     pub api_key: String,
     #[serde(default)]
     pub custom_accounts:
-        std::collections::HashMap<crate::api::Currency, lunch_money::ManualAccountId>,
+        std::collections::HashMap<crate::api::Currency, lunch_money::schema::ManualAccountId>,
 }
