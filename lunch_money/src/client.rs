@@ -1,5 +1,5 @@
-use crate::categories::CategoriesResponse;
-use crate::categories::Category;
+use crate::categories::schemas::CategoriesResponse;
+use crate::categories::schemas::Category;
 use crate::core::ids::AttachmentId;
 use crate::core::ids::CategoryId;
 use crate::core::ids::ManualAccountId;
@@ -7,23 +7,22 @@ use crate::core::ids::PlaidAccountId;
 use crate::core::ids::RecurringId;
 use crate::core::ids::TagId;
 use crate::core::ids::TransactionId;
-use crate::manual_accounts::ManualAccount;
-use crate::manual_accounts::ManualAccountsResponse;
-use crate::manual_accounts::UpdateManualAccountObject;
-use crate::tags::CreateTagPayload;
-use crate::tags::Tag;
-use crate::tags::TagsResponse;
-use crate::transactions::DeletePayload;
-use crate::transactions::InsertObject;
-use crate::transactions::InsertPayload;
-use crate::transactions::InsertTransactionsResponse;
-use crate::transactions::Transaction;
-use crate::transactions::TransactionsResponse;
-use crate::transactions::UpdateObject;
-use crate::transactions::UpdatePayload;
+use crate::manual_accounts::schemas::ManualAccount;
+use crate::manual_accounts::schemas::ManualAccountsResponse;
+use crate::manual_accounts::schemas::UpdateManualAccountObject;
+use crate::tags::schemas::CreateTagPayload;
+use crate::tags::schemas::Tag;
+use crate::tags::schemas::TagsResponse;
+use crate::transactions::query_params::TransactionQuery;
+use crate::transactions::schemas::DeletePayload;
+use crate::transactions::schemas::InsertObject;
+use crate::transactions::schemas::InsertPayload;
+use crate::transactions::schemas::InsertTransactionsResponse;
+use crate::transactions::schemas::Transaction;
+use crate::transactions::schemas::TransactionsResponse;
+use crate::transactions::schemas::UpdateObject;
+use crate::transactions::schemas::UpdatePayload;
 use anyhow::Context;
-
-pub use crate::transactions::TransactionQuery;
 
 /// A client for the Lunch Money API.
 ///
@@ -283,23 +282,25 @@ impl Client {
     // --- User & Summary Endpoints ---
 
     /// Fetches details about the user associated with the API key.
-    pub async fn fetch_user(&self) -> anyhow::Result<crate::users::User> {
+    pub async fn fetch_user(&self) -> anyhow::Result<crate::users::schemas::User> {
         self.fetch("me", &[] as &[(&str, &str)]).await
     }
 
     /// Fetches the monthly budget summary for the specified date range and options.
     pub async fn fetch_budget_summary(
         &self,
-        query: &crate::budgets::BudgetSummaryQuery,
-    ) -> anyhow::Result<crate::budgets::BudgetSummary> {
+        query: &crate::budgets::query_params::BudgetSummaryQuery,
+    ) -> anyhow::Result<crate::budgets::schemas::BudgetSummary> {
         self.fetch("summary", query).await
     }
 
     // --- Budgets Endpoints ---
 
     /// Fetches budget settings for the user's account.
-    pub async fn fetch_budget_settings(&self) -> anyhow::Result<crate::budgets::BudgetSettings> {
-        let res: crate::budgets::BudgetSettingsResponse = self
+    pub async fn fetch_budget_settings(
+        &self,
+    ) -> anyhow::Result<crate::budgets::schemas::BudgetSettings> {
+        let res: crate::budgets::schemas::BudgetSettingsResponse = self
             .fetch("budgets/settings", &[] as &[(&str, &str)])
             .await?;
         Ok(res.budget_settings)
@@ -308,8 +309,8 @@ impl Client {
     /// Creates or updates a budget for a category and period.
     pub async fn upsert_budget(
         &self,
-        req: &crate::budgets::UpsertBudgetRequest,
-    ) -> anyhow::Result<crate::budgets::BudgetUpsertResponse> {
+        req: &crate::budgets::schemas::UpsertBudgetRequest,
+    ) -> anyhow::Result<crate::budgets::schemas::BudgetUpsertResponse> {
         self.exec_with_response(reqwest::Method::PUT, "budgets", req)
             .await
     }
@@ -347,8 +348,8 @@ impl Client {
     /// Creates a new category or category group.
     pub async fn create_category(
         &self,
-        payload: &crate::categories::CreateCategoryPayload,
-    ) -> anyhow::Result<crate::categories::Category> {
+        payload: &crate::categories::schemas::CreateCategoryPayload,
+    ) -> anyhow::Result<crate::categories::schemas::Category> {
         self.exec_with_response(reqwest::Method::POST, "categories", payload)
             .await
     }
@@ -357,7 +358,7 @@ impl Client {
     pub async fn fetch_category_by_id(
         &self,
         id: CategoryId,
-    ) -> anyhow::Result<crate::categories::Category> {
+    ) -> anyhow::Result<crate::categories::schemas::Category> {
         self.fetch(&format!("categories/{}", id), &[] as &[(&str, &str)])
             .await
     }
@@ -366,8 +367,8 @@ impl Client {
     pub async fn update_category(
         &self,
         id: CategoryId,
-        payload: &crate::categories::UpdateCategoryPayload,
-    ) -> anyhow::Result<crate::categories::Category> {
+        payload: &crate::categories::schemas::UpdateCategoryPayload,
+    ) -> anyhow::Result<crate::categories::schemas::Category> {
         self.exec_with_response(reqwest::Method::PUT, &format!("categories/{}", id), payload)
             .await
     }
@@ -377,7 +378,7 @@ impl Client {
         &self,
         id: CategoryId,
         force: Option<bool>,
-    ) -> anyhow::Result<crate::categories::DeleteCategoryResult> {
+    ) -> anyhow::Result<crate::categories::schemas::DeleteCategoryResult> {
         let url = format!("https://api.lunchmoney.dev/v2/categories/{}", id);
         let q = force.map(|f| vec![("force", f)]).unwrap_or_default();
         let res = self
@@ -391,10 +392,10 @@ impl Client {
 
         if res.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY {
             let deps = res
-                .json::<crate::categories::DeleteCategoryDependenciesResponse>()
+                .json::<crate::categories::schemas::DeleteCategoryDependenciesResponse>()
                 .await
                 .context("Failed parsing delete category dependencies response")?;
-            return Ok(crate::categories::DeleteCategoryResult::Dependencies(deps));
+            return Ok(crate::categories::schemas::DeleteCategoryResult::Dependencies(deps));
         }
 
         if !res.status().is_success() {
@@ -403,7 +404,7 @@ impl Client {
             anyhow::bail!("Lunch Money request failed ({}): {}", status, body.trim());
         }
 
-        Ok(crate::categories::DeleteCategoryResult::Deleted)
+        Ok(crate::categories::schemas::DeleteCategoryResult::Deleted)
     }
 
     // --- Manual Accounts Endpoints ---
@@ -411,8 +412,8 @@ impl Client {
     /// Creates a manual account.
     pub async fn create_manual_account<E, M>(
         &self,
-        payload: &crate::manual_accounts::CreateManualAccountPayload<E, M>,
-    ) -> anyhow::Result<crate::manual_accounts::ManualAccount<E, M>>
+        payload: &crate::manual_accounts::schemas::CreateManualAccountPayload<E, M>,
+    ) -> anyhow::Result<crate::manual_accounts::schemas::ManualAccount<E, M>>
     where
         E: serde::Serialize + serde::de::DeserializeOwned + Clone,
         M: serde::Serialize + serde::de::DeserializeOwned + Clone,
@@ -425,7 +426,7 @@ impl Client {
     pub async fn fetch_manual_account_by_id<E, M>(
         &self,
         id: ManualAccountId,
-    ) -> anyhow::Result<crate::manual_accounts::ManualAccount<E, M>>
+    ) -> anyhow::Result<crate::manual_accounts::schemas::ManualAccount<E, M>>
     where
         E: serde::de::DeserializeOwned,
         M: serde::de::DeserializeOwned,
@@ -470,8 +471,8 @@ impl Client {
     pub async fn update_manual_account_details<E, M>(
         &self,
         id: ManualAccountId,
-        payload: &crate::manual_accounts::UpdateManualAccountPayload<E, M>,
-    ) -> anyhow::Result<crate::manual_accounts::ManualAccount<E, M>>
+        payload: &crate::manual_accounts::schemas::UpdateManualAccountPayload<E, M>,
+    ) -> anyhow::Result<crate::manual_accounts::schemas::ManualAccount<E, M>>
     where
         E: serde::Serialize + serde::de::DeserializeOwned + Clone,
         M: serde::Serialize + serde::de::DeserializeOwned + Clone,
@@ -489,8 +490,8 @@ impl Client {
     /// Fetches all accounts synced via Plaid.
     pub async fn fetch_plaid_accounts(
         &self,
-    ) -> anyhow::Result<Vec<crate::plaid_accounts::PlaidAccount>> {
-        let res: crate::plaid_accounts::PlaidAccountsResponse =
+    ) -> anyhow::Result<Vec<crate::plaid_accounts::schemas::PlaidAccount>> {
+        let res: crate::plaid_accounts::schemas::PlaidAccountsResponse =
             self.fetch("plaid_accounts", &[] as &[(&str, &str)]).await?;
         Ok(res.plaid_accounts)
     }
@@ -499,7 +500,7 @@ impl Client {
     pub async fn fetch_plaid_account_by_id(
         &self,
         id: PlaidAccountId,
-    ) -> anyhow::Result<crate::plaid_accounts::PlaidAccount> {
+    ) -> anyhow::Result<crate::plaid_accounts::schemas::PlaidAccount> {
         self.fetch(&format!("plaid_accounts/{}", id), &[] as &[(&str, &str)])
             .await
     }
@@ -507,7 +508,7 @@ impl Client {
     /// Triggers a fetch of latest transactions from Plaid.
     pub async fn trigger_plaid_fetch(
         &self,
-        query: &crate::plaid_accounts::TriggerPlaidFetchQuery,
+        query: &crate::plaid_accounts::query_params::TriggerPlaidFetchQuery,
     ) -> anyhow::Result<()> {
         let url = "https://api.lunchmoney.dev/v2/plaid_accounts/fetch";
         let res = self
@@ -534,8 +535,8 @@ impl Client {
         &self,
         id: TransactionId,
         update_balance: Option<bool>,
-        tx: &crate::transactions::UpdateObject<T, E>,
-    ) -> anyhow::Result<crate::transactions::Transaction<T, E>>
+        tx: &crate::transactions::schemas::UpdateObject<T, E>,
+    ) -> anyhow::Result<crate::transactions::schemas::Transaction<T, E>>
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Clone,
         E: serde::Serialize + serde::de::DeserializeOwned + Clone,
@@ -572,8 +573,8 @@ impl Client {
     /// Creates a transaction group.
     pub async fn create_transaction_group<T, E>(
         &self,
-        payload: &crate::transactions::CreateTransactionGroupPayload,
-    ) -> anyhow::Result<crate::transactions::Transaction<T, E>>
+        payload: &crate::transactions::schemas::CreateTransactionGroupPayload,
+    ) -> anyhow::Result<crate::transactions::schemas::Transaction<T, E>>
     where
         T: serde::de::DeserializeOwned,
         E: serde::de::DeserializeOwned,
@@ -595,8 +596,8 @@ impl Client {
     pub async fn split_transaction<T, E>(
         &self,
         id: TransactionId,
-        payload: &crate::transactions::SplitTransactionPayload,
-    ) -> anyhow::Result<crate::transactions::Transaction<T, E>>
+        payload: &crate::transactions::schemas::SplitTransactionPayload,
+    ) -> anyhow::Result<crate::transactions::schemas::Transaction<T, E>>
     where
         T: serde::de::DeserializeOwned,
         E: serde::de::DeserializeOwned,
@@ -626,7 +627,7 @@ impl Client {
         file_bytes: Vec<u8>,
         mime_type: String,
         notes: Option<&str>,
-    ) -> anyhow::Result<crate::transactions::TransactionAttachment> {
+    ) -> anyhow::Result<crate::transactions::schemas::TransactionAttachment> {
         let url = format!(
             "https://api.lunchmoney.dev/v2/transactions/{}/attachments",
             transaction_id
@@ -661,7 +662,7 @@ impl Client {
     pub async fn get_transaction_attachment_url(
         &self,
         file_id: AttachmentId,
-    ) -> anyhow::Result<crate::transactions::AttachmentUrlResponse> {
+    ) -> anyhow::Result<crate::transactions::schemas::AttachmentUrlResponse> {
         self.fetch(
             &format!("transactions/attachments/{}", file_id),
             &[] as &[(&str, &str)],
@@ -681,7 +682,7 @@ impl Client {
     // --- Tags Additional Endpoints ---
 
     /// Fetches details of a single tag by its ID.
-    pub async fn fetch_tag_by_id(&self, id: TagId) -> anyhow::Result<crate::tags::Tag> {
+    pub async fn fetch_tag_by_id(&self, id: TagId) -> anyhow::Result<crate::tags::schemas::Tag> {
         self.fetch(&format!("tags/{}", id), &[] as &[(&str, &str)])
             .await
     }
@@ -690,8 +691,8 @@ impl Client {
     pub async fn update_tag(
         &self,
         id: TagId,
-        payload: &crate::tags::UpdateTagPayload,
-    ) -> anyhow::Result<crate::tags::Tag> {
+        payload: &crate::tags::schemas::UpdateTagPayload,
+    ) -> anyhow::Result<crate::tags::schemas::Tag> {
         self.exec_with_response(reqwest::Method::PUT, &format!("tags/{}", id), payload)
             .await
     }
@@ -701,7 +702,7 @@ impl Client {
         &self,
         id: TagId,
         force: Option<bool>,
-    ) -> anyhow::Result<crate::tags::DeleteTagResult> {
+    ) -> anyhow::Result<crate::tags::schemas::DeleteTagResult> {
         let url = format!("https://api.lunchmoney.dev/v2/tags/{}", id);
         let q = force.map(|f| vec![("force", f)]).unwrap_or_default();
         let res = self
@@ -715,10 +716,10 @@ impl Client {
 
         if res.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY {
             let deps = res
-                .json::<crate::tags::DeleteTagDependenciesResponse>()
+                .json::<crate::tags::schemas::DeleteTagDependenciesResponse>()
                 .await
                 .context("Failed parsing delete tag dependencies response")?;
-            return Ok(crate::tags::DeleteTagResult::Dependencies(deps));
+            return Ok(crate::tags::schemas::DeleteTagResult::Dependencies(deps));
         }
 
         if !res.status().is_success() {
@@ -727,7 +728,7 @@ impl Client {
             anyhow::bail!("Lunch Money request failed ({}): {}", status, body.trim());
         }
 
-        Ok(crate::tags::DeleteTagResult::Deleted)
+        Ok(crate::tags::schemas::DeleteTagResult::Deleted)
     }
 
     // --- Recurring Items Endpoints ---
@@ -735,9 +736,9 @@ impl Client {
     /// Fetches all recurring items.
     pub async fn fetch_recurring_items(
         &self,
-        query: &crate::recurring_items::RecurringItemsQuery,
-    ) -> anyhow::Result<Vec<crate::recurring_items::RecurringItem>> {
-        let res: crate::recurring_items::RecurringItemsResponse =
+        query: &crate::recurring_items::query_params::RecurringItemsQuery,
+    ) -> anyhow::Result<Vec<crate::recurring_items::schemas::RecurringItem>> {
+        let res: crate::recurring_items::schemas::RecurringItemsResponse =
             self.fetch("recurring_items", query).await?;
         Ok(res.recurring_items)
     }
@@ -746,8 +747,8 @@ impl Client {
     pub async fn fetch_recurring_item_by_id(
         &self,
         id: RecurringId,
-        query: &crate::recurring_items::RecurringItemQuery,
-    ) -> anyhow::Result<crate::recurring_items::RecurringItem> {
+        query: &crate::recurring_items::query_params::RecurringItemQuery,
+    ) -> anyhow::Result<crate::recurring_items::schemas::RecurringItem> {
         self.fetch(&format!("recurring_items/{}", id), query).await
     }
 }
