@@ -119,16 +119,17 @@ impl Client {
     }
 
     /// Fetches transactions matching the specified query parameters.
+    ///
+    /// Returns the full response including pagination metadata (`has_more`).
     pub async fn fetch_transactions<T, E>(
         &self,
         query: &TransactionQuery,
-    ) -> anyhow::Result<Vec<Transaction<T, E>>>
+    ) -> anyhow::Result<TransactionsResponse<T, E>>
     where
         T: serde::de::DeserializeOwned,
         E: serde::de::DeserializeOwned,
     {
-        let res: TransactionsResponse<T, E> = self.fetch("transactions", query).await?;
-        Ok(res.transactions)
+        self.fetch("transactions", query).await
     }
 
     /// Fetches a single transaction by its unique ID. Returns `None` if the transaction is not found.
@@ -174,10 +175,12 @@ impl Client {
         Ok(Some(parsed))
     }
 
-    /// Fetches all categories for the user, optionally with formatting (e.g. flat or nested).
-    pub async fn fetch_categories(&self, format: Option<&str>) -> anyhow::Result<Vec<Category>> {
-        let q = format.map(|f| vec![("format", f)]).unwrap_or_default();
-        let res: CategoriesResponse = self.fetch("categories", &q).await?;
+    /// Fetches all categories for the user, with optional filters.
+    pub async fn fetch_categories(
+        &self,
+        query: &crate::categories::query_params::CategoryQuery,
+    ) -> anyhow::Result<Vec<Category>> {
+        let res: CategoriesResponse = self.fetch("categories", query).await?;
         Ok(res.categories)
     }
 

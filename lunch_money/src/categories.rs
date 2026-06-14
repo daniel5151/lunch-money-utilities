@@ -1,4 +1,20 @@
-//! Category schema models and responses.
+//! Category schema models, filters, and responses.
+
+/// Query parameters for category endpoints.
+pub mod query_params {
+    use serde::Serialize;
+
+    /// Query parameters for fetching categories.
+    #[derive(Serialize, Debug, Clone, Default)]
+    pub struct CategoryQuery {
+        /// Response format: `"nested"` (default) or `"flattened"`.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub format: Option<String>,
+        /// If `true`, return only category groups. If `false`, return only non-group categories.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub is_group: Option<bool>,
+    }
+}
 
 /// JSON schemas for categories.
 pub mod schemas {

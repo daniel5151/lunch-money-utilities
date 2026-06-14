@@ -57,8 +57,9 @@ impl Client {
             include_split_parents: query.include_split_parents,
             include_metadata: query.include_metadata,
             tag_id: query.tag_id,
+            ..Default::default()
         };
-        self.0.fetch_transactions(&lib_query).await
+        Ok(self.0.fetch_transactions(&lib_query).await?.transactions)
     }
 
     pub async fn fetch_transaction_by_id(
@@ -72,7 +73,11 @@ impl Client {
         &self,
         format: Option<&str>,
     ) -> anyhow::Result<Vec<schema::Category>> {
-        self.0.fetch_categories(format).await
+        let query = lunch_money::categories::query_params::CategoryQuery {
+            format: format.map(|f| f.to_string()),
+            ..Default::default()
+        };
+        self.0.fetch_categories(&query).await
     }
 
     pub async fn fetch_tags(&self) -> anyhow::Result<Vec<schema::Tag>> {
@@ -135,6 +140,7 @@ impl Client {
                 external_id: tx.external_id.clone(),
                 custom_metadata: tx.custom_metadata.clone(),
                 status: None,
+                recurring_id: None,
             })
             .collect();
         self.0.update_transactions(&lib_txs).await

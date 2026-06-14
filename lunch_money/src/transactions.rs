@@ -2,8 +2,12 @@
 
 /// Query parameters for transaction endpoints.
 pub mod query_params {
+    use crate::core::CategoryId;
     use crate::core::ManualAccountId;
+    use crate::core::PlaidAccountId;
+    use crate::core::RecurringId;
     use crate::core::TagId;
+    use crate::transactions::schemas::TransactionStatus;
     use serde::Serialize;
 
     /// Query parameters for fetching transactions.
@@ -33,6 +37,39 @@ pub mod query_params {
         /// Filter transactions by tag ID.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub tag_id: Option<TagId>,
+        /// Filter transactions updated after this timestamp (ISO 8601 date or date-time).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub updated_since: Option<String>,
+        /// Filter by Plaid account ID, or set to `PlaidAccountId(0)` to omit Plaid transactions.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub plaid_account_id: Option<PlaidAccountId>,
+        /// Filter by Recurring Item ID.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub recurring_id: Option<RecurringId>,
+        /// Filter by Category ID, or set to `CategoryId(0)` for uncategorized.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub category_id: Option<CategoryId>,
+        /// If true, returns only transaction groups.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub is_group_parent: Option<bool>,
+        /// Filter by transaction status.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub status: Option<TransactionStatus>,
+        /// Filter by pending status.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub is_pending: Option<bool>,
+        /// If true, include pending transactions in results.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub include_pending: Option<bool>,
+        /// If true, include child transactions of groups/splits in the `children` array.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub include_children: Option<bool>,
+        /// If true, populate the `files` array with transaction attachments.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub include_files: Option<bool>,
+        /// Pagination offset.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub offset: Option<u32>,
     }
 }
 
@@ -232,6 +269,8 @@ pub mod schemas {
     pub struct TransactionsResponse<T = (), E = String> {
         /// List of transaction objects.
         pub transactions: Vec<Transaction<T, E>>,
+        /// Indicates whether more transactions are available beyond the current page.
+        pub has_more: bool,
     }
 
     /// Request payload for inserting new transactions.
@@ -341,6 +380,10 @@ pub mod schemas {
         /// Status of the transaction (reviewed or unreviewed).
         #[serde(skip_serializing_if = "Option::is_none")]
         pub status: Option<TransactionStatus>,
+        /// Unique identifier of the associated recurring item. Set to null to clear.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        #[expect(clippy::option_option)]
+        pub recurring_id: Option<Option<RecurringId>>,
     }
 
     /// Response payload returned by a transaction insertion request.
