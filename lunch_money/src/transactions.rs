@@ -147,7 +147,7 @@ pub mod schemas {
 
     /// A Lunch Money transaction that is a child of a split or group.
     #[derive(Deserialize, Clone, Debug)]
-    pub struct ChildTransaction<T = (), E = String> {
+    pub struct ChildTransaction<M = serde_json::Value, E = String> {
         /// System-created unique identifier for the transaction.
         pub id: TransactionId,
         /// Date of the transaction.
@@ -195,7 +195,7 @@ pub mod schemas {
         /// System set metadata from Plaid sync.
         pub plaid_metadata: Option<serde_json::Value>,
         /// Optional custom JSON metadata.
-        pub custom_metadata: Option<T>,
+        pub custom_metadata: Option<M>,
         /// A list of objects that describe any attachments to the transaction.
         #[serde(default = "Vec::new")]
         pub files: Vec<TransactionAttachment>,
@@ -205,7 +205,7 @@ pub mod schemas {
 
     /// A Lunch Money transaction.
     #[derive(Deserialize, Clone, Debug)]
-    pub struct Transaction<T = (), E = String> {
+    pub struct Transaction<M = serde_json::Value, E = String> {
         /// System-created unique identifier for the transaction.
         pub id: TransactionId,
         /// Date of the transaction.
@@ -250,11 +250,11 @@ pub mod schemas {
         pub category_id: Option<CategoryId>,
         /// Exists only for transactions which are the parent of a split transaction or for transaction groups.
         #[serde(default = "Vec::new")]
-        pub children: Vec<ChildTransaction<T, E>>,
+        pub children: Vec<ChildTransaction<M, E>>,
         /// System set metadata from Plaid sync.
         pub plaid_metadata: Option<serde_json::Value>,
         /// Optional custom JSON metadata.
-        pub custom_metadata: Option<T>,
+        pub custom_metadata: Option<M>,
         /// A list of objects that describe any attachments to the transaction.
         #[serde(default = "Vec::new")]
         pub files: Vec<TransactionAttachment>,
@@ -266,23 +266,23 @@ pub mod schemas {
 
     /// Response payload containing a list of transactions.
     #[derive(Deserialize)]
-    pub struct TransactionsResponse<T = (), E = String> {
+    pub struct TransactionsResponse<M = serde_json::Value, E = String> {
         /// List of transaction objects.
-        pub transactions: Vec<Transaction<T, E>>,
+        pub transactions: Vec<Transaction<M, E>>,
         /// Indicates whether more transactions are available beyond the current page.
         pub has_more: bool,
     }
 
     /// Request payload for inserting new transactions.
     #[derive(Serialize, Debug)]
-    pub struct InsertPayload<T = (), E = String> {
+    pub struct InsertPayload<M = serde_json::Value, E = String> {
         /// List of transaction objects to insert.
-        pub transactions: Vec<InsertObject<T, E>>,
+        pub transactions: Vec<InsertObject<M, E>>,
     }
 
     /// Object representing a transaction to be inserted.
     #[derive(bon::Builder, Serialize, Clone, Debug)]
-    pub struct InsertObject<T = (), E = String> {
+    pub struct InsertObject<M = serde_json::Value, E = String> {
         /// Date of the transaction.
         pub date: jiff::civil::Date,
         /// Transaction amount.
@@ -322,19 +322,19 @@ pub mod schemas {
         pub category_id: Option<CategoryId>,
         /// Optional custom JSON metadata.
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub custom_metadata: Option<T>,
+        pub custom_metadata: Option<M>,
     }
 
     /// Request payload for updating transactions.
     #[derive(Serialize, Debug)]
-    pub struct UpdatePayload<T = (), E = String> {
+    pub struct UpdatePayload<M = serde_json::Value, E = String> {
         /// List of transaction objects to update.
-        pub transactions: Vec<UpdateObject<T, E>>,
+        pub transactions: Vec<UpdateObject<M, E>>,
     }
 
     /// Object representing updates to make on an existing transaction.
     #[derive(bon::Builder, Serialize, Clone, Debug)]
-    pub struct UpdateObject<T = (), E = String> {
+    pub struct UpdateObject<M = serde_json::Value, E = String> {
         /// System defined unique identifier of the transaction.
         pub id: TransactionId,
         /// Date of the transaction.
@@ -376,7 +376,7 @@ pub mod schemas {
         pub external_id: Option<Option<E>>,
         /// Optional custom JSON metadata.
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub custom_metadata: Option<T>,
+        pub custom_metadata: Option<M>,
         /// Status of the transaction (reviewed or unreviewed).
         #[serde(skip_serializing_if = "Option::is_none")]
         pub status: Option<TransactionStatus>,
@@ -388,9 +388,9 @@ pub mod schemas {
 
     /// Response payload returned by a transaction insertion request.
     #[derive(Deserialize, Debug)]
-    pub struct InsertTransactionsResponse<T = (), E = String> {
+    pub struct InsertTransactionsResponse<M = serde_json::Value, E = String> {
         /// List of successfully inserted transaction objects.
-        pub transactions: Vec<Transaction<T, E>>,
+        pub transactions: Vec<Transaction<M, E>>,
         /// List of transactions that were skipped because they duplicate existing external IDs.
         pub skipped_duplicates: Vec<SkippedExistingExternalIdObject>,
     }
