@@ -1,4 +1,5 @@
 use crate::api::Currency;
+use crate::api::lunch_money::schema::TransactionId;
 use jiff::Timestamp;
 use rust_decimal::Decimal;
 use serde::Deserialize;
@@ -10,19 +11,19 @@ use serde::Serialize;
 pub enum LunchMoneyTxMetadata {
     Import {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        delta_transaction_ids: Vec<u64>,
+        delta_transaction_ids: Vec<TransactionId>,
         original: LunchMoneyTxMetadataExpense,
     },
     Delta {
-        original_transaction_id: u64,
+        original_transaction_id: TransactionId,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        delta_transaction_ids: Vec<u64>,
+        delta_transaction_ids: Vec<TransactionId>,
         splitwise_id: u64,
     },
     Orphan {
-        original_transaction_id: u64,
+        original_transaction_id: TransactionId,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        orphaned_transaction_ids: Vec<u64>,
+        orphaned_transaction_ids: Vec<TransactionId>,
         splitwise_id: u64,
     },
 }

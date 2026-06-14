@@ -1,5 +1,9 @@
 use crate::api::lunch_money::schema::AccountType;
+use crate::api::lunch_money::schema::CategoryId;
 use crate::api::lunch_money::schema::ManualAccount;
+use crate::api::lunch_money::schema::ManualAccountId;
+use crate::api::lunch_money::schema::TagId;
+use crate::api::lunch_money::schema::TransactionId;
 use crate::style::*;
 use anstream::println;
 use rust_decimal::Decimal;
@@ -26,17 +30,17 @@ pub struct ApplySyncPlanArgs<'a> {
     pub plan: &'a mut super::SyncPlan,
     pub lm_client: &'a crate::api::lunch_money::Client,
     pub manual_accounts: &'a [ManualAccount],
-    pub target_accounts: &'a HashMap<crate::api::Currency, u64>,
-    pub tag_id: Option<u64>,
-    pub loan_tag_id: Option<u64>,
-    pub updated_tag_id: Option<u64>,
+    pub target_accounts: &'a HashMap<crate::api::Currency, ManualAccountId>,
+    pub tag_id: Option<TagId>,
+    pub loan_tag_id: Option<TagId>,
+    pub updated_tag_id: Option<TagId>,
     pub lm_transactions: &'a [crate::api::lunch_money::schema::Transaction],
     pub expenses: &'a [crate::api::splitwise::Expense],
     pub config: &'a crate::config::Config,
-    pub backdated_tag_id: Option<u64>,
+    pub backdated_tag_id: Option<TagId>,
     pub sync_window_start: Option<jiff::civil::Date>,
     pub no_ignore: bool,
-    pub lm_category_names: &'a HashMap<u64, String>,
+    pub lm_category_names: &'a HashMap<CategoryId, String>,
     pub csv_path: Option<&'a std::path::Path>,
 }
 
@@ -62,7 +66,7 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
     let mut recovered_transactions = HashMap::new();
 
     if !plan.deletes.is_empty() {
-        let delete_ids: Vec<u64> = plan.deletes.iter().map(|t| t.id).collect();
+        let delete_ids: Vec<TransactionId> = plan.deletes.iter().map(|t| t.id).collect();
         lm_client.delete_transactions(&delete_ids).await?;
     }
 
@@ -476,7 +480,7 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                     #[derive(serde::Serialize)]
                     struct RecoveryCsvRow<'a> {
                         operation: &'static str,
-                        lunch_money_id: Option<u64>,
+                        lunch_money_id: Option<TransactionId>,
                         external_id: Option<String>,
                         date: String,
                         payee: &'a str,
@@ -545,7 +549,7 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
 
         if !delta_inserts.is_empty() {
             let mut linkage_updates = Vec::new();
-            let mut deltas_by_orig: HashMap<u64, Vec<u64>> = HashMap::new();
+            let mut deltas_by_orig: HashMap<TransactionId, Vec<TransactionId>> = HashMap::new();
             for (orig_id, delta_id) in delta_inserts {
                 deltas_by_orig.entry(orig_id).or_default().push(delta_id);
             }

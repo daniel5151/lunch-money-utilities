@@ -137,7 +137,7 @@ pub(crate) async fn run_sync_balances(
         #[derive(serde::Serialize)]
         struct CsvRow<'a> {
             operation: &'static str,
-            account_id: u64,
+            account_id: crate::api::lunch_money::schema::ManualAccountId,
             account_name: &'a str,
             currency: &'a str,
             old_balance: Decimal,

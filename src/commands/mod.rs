@@ -9,8 +9,11 @@ use std::collections::HashMap;
 
 fn resolve_target_accounts(
     manual_accounts: &[crate::api::lunch_money::schema::ManualAccount],
-    custom_accounts: &HashMap<crate::api::Currency, u64>,
-) -> HashMap<crate::api::Currency, u64> {
+    custom_accounts: &HashMap<
+        crate::api::Currency,
+        crate::api::lunch_money::schema::ManualAccountId,
+    >,
+) -> HashMap<crate::api::Currency, crate::api::lunch_money::schema::ManualAccountId> {
     let mut resolved = HashMap::new();
 
     // 1. Start with inferred accounts from the actual manual accounts in Lunch Money

@@ -1,3 +1,5 @@
+use crate::api::lunch_money::schema::CategoryId;
+use crate::api::lunch_money::schema::TransactionId;
 use crate::style::*;
 use anstream::println;
 use anyhow::Context;
@@ -104,14 +106,14 @@ struct PrintItem<'a> {
     currency: &'a crate::api::Currency,
     date: jiff::civil::Date,
     notes: &'a str,
-    category_id: Option<u64>,
+    category_id: Option<CategoryId>,
     external_id: Option<crate::api::ExternalId>,
 }
 
 fn print_transaction_table(
     title: &str,
     items: &[PrintItem<'_>],
-    lm_category_names: &HashMap<u64, String>,
+    lm_category_names: &HashMap<CategoryId, String>,
     sw_expense_categories: &HashMap<crate::api::ExternalId, Option<(u32, String)>>,
     sw_category_id_to_path: &HashMap<u32, String>,
 ) {
@@ -165,10 +167,11 @@ fn print_transaction_table(
 pub struct PrintAndLogSyncPlanArgs<'a> {
     pub plan: &'a super::SyncPlan,
     pub dry_run: bool,
-    pub lm_category_names: &'a HashMap<u64, String>,
+    pub lm_category_names: &'a HashMap<CategoryId, String>,
     pub sw_expense_categories: &'a HashMap<crate::api::ExternalId, Option<(u32, String)>>,
     pub sw_category_id_to_path: &'a HashMap<u32, String>,
-    pub lm_tx_categories: &'a HashMap<u64, (Option<crate::api::ExternalId>, Option<u64>)>,
+    pub lm_tx_categories:
+        &'a HashMap<TransactionId, (Option<crate::api::ExternalId>, Option<CategoryId>)>,
     pub csv_path: Option<&'a std::path::Path>,
 }
 
@@ -187,7 +190,7 @@ pub fn print_and_log_sync_plan(args: PrintAndLogSyncPlanArgs<'_>) -> anyhow::Res
         #[derive(serde::Serialize)]
         struct CsvRow<'a> {
             operation: &'static str,
-            lunch_money_id: Option<u64>,
+            lunch_money_id: Option<TransactionId>,
             external_id: Option<String>,
             date: String,
             payee: &'a str,

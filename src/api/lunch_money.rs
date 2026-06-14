@@ -13,6 +13,9 @@
 use crate::api::ExternalId;
 use crate::metadata::LunchMoneyTxMetadata;
 use lunch_money::Currency;
+use lunch_money::ManualAccountId;
+use lunch_money::TagId;
+use lunch_money::TransactionId;
 use rust_decimal::Decimal;
 
 #[derive(Clone)]
@@ -22,14 +25,14 @@ pub struct Client(lunch_money::Client);
 pub struct TransactionQuery {
     pub start_date: String,
     pub end_date: String,
-    pub manual_account_id: u64,
+    pub manual_account_id: ManualAccountId,
     pub limit: Option<u32>,
     pub include_group_children: Option<bool>,
     pub include_split_parents: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_metadata: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tag_id: Option<u64>,
+    pub tag_id: Option<TagId>,
 }
 
 impl Client {
@@ -60,7 +63,7 @@ impl Client {
 
     pub async fn fetch_transaction_by_id(
         &self,
-        id: u64,
+        id: TransactionId,
     ) -> anyhow::Result<Option<schema::Transaction>> {
         self.0.fetch_transaction_by_id(id).await
     }
@@ -133,11 +136,15 @@ impl Client {
         self.0.update_transactions(&lib_txs).await
     }
 
-    pub async fn delete_transactions(&self, ids: &[u64]) -> anyhow::Result<()> {
+    pub async fn delete_transactions(&self, ids: &[TransactionId]) -> anyhow::Result<()> {
         self.0.delete_transactions(ids).await
     }
 
-    pub async fn update_manual_account(&self, id: u64, balance: Decimal) -> anyhow::Result<()> {
+    pub async fn update_manual_account(
+        &self,
+        id: ManualAccountId,
+        balance: Decimal,
+    ) -> anyhow::Result<()> {
         self.0.update_manual_account(id, balance).await
     }
 }
@@ -159,6 +166,11 @@ pub mod schema {
     pub use lunch_money::schema::Tag;
     pub use lunch_money::schema::TransactionStatus;
 
+    pub use lunch_money::CategoryId;
+    pub use lunch_money::ManualAccountId;
+    pub use lunch_money::TagId;
+    pub use lunch_money::TransactionId;
+
     #[derive(serde::Serialize, Clone, Debug)]
     pub struct InsertObject {
         pub date: jiff::civil::Date,
@@ -167,19 +179,19 @@ pub mod schema {
         pub payee: String,
         pub notes: String,
         pub external_id: ExternalId,
-        pub manual_account_id: u64,
+        pub manual_account_id: ManualAccountId,
         pub status: TransactionStatus,
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub tag_ids: Option<Vec<u64>>,
+        pub tag_ids: Option<Vec<TagId>>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub category_id: Option<u64>,
+        pub category_id: Option<CategoryId>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub custom_metadata: Option<LunchMoneyTxMetadata>,
     }
 
     #[derive(serde::Serialize, Clone, Debug)]
     pub struct UpdateObject {
-        pub id: u64,
+        pub id: TransactionId,
         pub date: jiff::civil::Date,
         pub amount: Decimal,
         pub currency: Currency,
@@ -188,7 +200,7 @@ pub mod schema {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub custom_metadata: Option<LunchMoneyTxMetadata>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        pub additional_tag_ids: Option<Vec<u64>>,
+        pub additional_tag_ids: Option<Vec<TagId>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         #[expect(clippy::option_option)]
         pub external_id: Option<Option<ExternalId>>,

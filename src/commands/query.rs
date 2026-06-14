@@ -484,11 +484,11 @@ pub(crate) async fn run_query_lunchmoney_accounts(ctx: &crate::AppContext) -> an
 
     let mut accounts = lm_client.fetch_manual_accounts().await?;
 
-    let target_accounts: HashMap<u64, crate::api::Currency> =
+    let target_accounts =
         crate::commands::resolve_target_accounts(&accounts, &config.lunch_money.custom_accounts)
             .into_iter()
             .map(|(currency, id)| (id, currency))
-            .collect();
+            .collect::<HashMap<_, _>>();
 
     if accounts.is_empty() {
         println! { "{STYLE_WARNING}No manual accounts found.{STYLE_WARNING:#}" };

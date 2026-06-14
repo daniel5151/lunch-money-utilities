@@ -21,7 +21,7 @@ pub struct SyncConfig {
 #[derive(Deserialize, Clone, Debug)]
 #[serde(untagged)]
 pub enum CategoryValue {
-    Id(u64),
+    Id(lunch_money::CategoryId),
     Name(String),
 }
 
@@ -72,5 +72,6 @@ impl SplitwiseConfig {
 pub struct LunchMoneyConfig {
     pub api_key: String,
     #[serde(default)]
-    pub custom_accounts: std::collections::HashMap<crate::api::Currency, u64>,
+    pub custom_accounts:
+        std::collections::HashMap<crate::api::Currency, lunch_money::ManualAccountId>,
 }

@@ -6,9 +6,13 @@ use crate::api::ExpensesQuery;
 use crate::api::ExternalId;
 use crate::api::TransactionQuery;
 use crate::api::lunch_money::schema::AccountType;
+use crate::api::lunch_money::schema::CategoryId;
 use crate::api::lunch_money::schema::InsertObject;
 use crate::api::lunch_money::schema::ManualAccount;
+use crate::api::lunch_money::schema::ManualAccountId;
+use crate::api::lunch_money::schema::TagId;
 use crate::api::lunch_money::schema::Transaction;
+use crate::api::lunch_money::schema::TransactionId;
 use crate::api::lunch_money::schema::TransactionStatus;
 use crate::api::lunch_money::schema::UpdateObject;
 use crate::metadata::LunchMoneyTxMetadata;
@@ -539,7 +543,7 @@ pub(crate) async fn run_sync_group(
 }
 
 fn verify_target_accounts(
-    target_accounts: &HashMap<crate::api::Currency, u64>,
+    target_accounts: &HashMap<crate::api::Currency, ManualAccountId>,
     manual_accounts: &[ManualAccount],
 ) -> anyhow::Result<()> {
     if target_accounts.is_empty() {
@@ -581,7 +585,7 @@ async fn fetch_splitwise_categories(
 
 struct FetchLunchMoneyTransactionsArgs<'a> {
     lm_client: &'a crate::api::lunch_money::Client,
-    target_accounts: &'a HashMap<crate::api::Currency, u64>,
+    target_accounts: &'a HashMap<crate::api::Currency, ManualAccountId>,
     manual_accounts: &'a [ManualAccount],
     start_date_str: &'a str,
     end_date_str: &'a str,
@@ -629,8 +633,8 @@ async fn fetch_lunch_money_transactions(
 }
 
 pub(crate) struct ResolvedCategories {
-    pub resolved_categories: HashMap<String, u64>,
-    pub lm_category_names: HashMap<u64, String>,
+    pub resolved_categories: HashMap<String, CategoryId>,
+    pub lm_category_names: HashMap<CategoryId, String>,
 }
 
 async fn resolve_categories(
@@ -647,7 +651,8 @@ async fn resolve_categories(
     println! { "  {STYLE_DIM}Fetching Lunch Money categories...{STYLE_DIM:#}" };
     let categories = lm_client.fetch_categories(Some("flattened")).await?;
 
-    let names: HashMap<u64, String> = categories.iter().map(|c| (c.id, c.name.clone())).collect();
+    let names: HashMap<CategoryId, String> =
+        categories.iter().map(|c| (c.id, c.name.clone())).collect();
 
     let mut resolved = HashMap::new();
     for (sw_key, lm_val) in &config.categories {
@@ -695,12 +700,13 @@ async fn resolve_categories(
 async fn resolve_force_category(
     lm_client: &crate::api::lunch_money::Client,
     force_category_str: &str,
-    lm_category_names: &mut HashMap<u64, String>,
-) -> anyhow::Result<u64> {
+    lm_category_names: &mut HashMap<CategoryId, String>,
+) -> anyhow::Result<CategoryId> {
     println! { "  {STYLE_DIM}Fetching Lunch Money categories to resolve forced category...{STYLE_DIM:#}" };
     let categories = lm_client.fetch_categories(Some("flattened")).await?;
 
-    if let Ok(id) = force_category_str.parse::<u64>() {
+    if let Ok(id_u64) = force_category_str.parse::<u64>() {
+        let id = CategoryId(id_u64);
         if let Some(c) = categories.iter().find(|c| c.id == id && !c.archived) {
             lm_category_names.insert(id, c.name.clone());
             return Ok(id);
@@ -740,11 +746,11 @@ async fn resolve_force_category(
 }
 
 pub(crate) struct PlannedTags {
-    pub tag_id: Option<u64>,
-    pub loan_tag_id: Option<u64>,
-    pub backdated_tag_id: Option<u64>,
-    pub updated_tag_id: Option<u64>,
-    pub orphaned_tag_id: Option<u64>,
+    pub tag_id: Option<TagId>,
+    pub loan_tag_id: Option<TagId>,
+    pub backdated_tag_id: Option<TagId>,
+    pub updated_tag_id: Option<TagId>,
+    pub orphaned_tag_id: Option<TagId>,
     pub tags_to_create: Vec<String>,
 }
 
@@ -844,14 +850,14 @@ async fn plan_tags(
 async fn chase_missing_delta_chains(
     lm_client: &crate::api::lunch_money::Client,
     manual_accounts: &[ManualAccount],
-    target_accounts: &HashMap<crate::api::Currency, u64>,
+    target_accounts: &HashMap<crate::api::Currency, ManualAccountId>,
     lm_transactions: Vec<Transaction>,
     end_date_str: &str,
-    backdated_tag_id: Option<u64>,
-    orphaned_tag_id: Option<u64>,
+    backdated_tag_id: Option<TagId>,
+    orphaned_tag_id: Option<TagId>,
     sync_window_start: Option<jiff::civil::Date>,
     expenses: &[crate::api::splitwise::Expense],
-) -> anyhow::Result<(Vec<Transaction>, std::collections::HashSet<u64>)> {
+) -> anyhow::Result<(Vec<Transaction>, std::collections::HashSet<TransactionId>)> {
     // 1. Tag-Based Pre-fetching for backdated transactions
     let mut pre_fetched_backdated = Vec::new();
     if let Some(bt_id) = backdated_tag_id {
@@ -1087,9 +1093,9 @@ async fn chase_missing_delta_chains(
 
 fn repair_deleted_and_orphaned_deltas(
     lm_transactions: &mut Vec<Transaction>,
-    deleted_ids: &std::collections::HashSet<u64>,
-    orphaned_tag_id: Option<u64>,
-    target_accounts: &HashMap<crate::api::Currency, u64>,
+    deleted_ids: &std::collections::HashSet<TransactionId>,
+    orphaned_tag_id: Option<TagId>,
+    target_accounts: &HashMap<crate::api::Currency, ManualAccountId>,
     orphaned_updates: &mut Vec<UpdateObject>,
     orphaned_inserts: &mut Vec<InsertObject>,
 ) {
@@ -1116,7 +1122,7 @@ fn repair_deleted_and_orphaned_deltas(
     }
 
     // Scenario B: The Import transaction is deleted, but active Delta transactions exist
-    let mut orphaned_groups: HashMap<u64, Vec<Transaction>> = HashMap::new();
+    let mut orphaned_groups: HashMap<TransactionId, Vec<Transaction>> = HashMap::new();
     for tx in &*lm_transactions {
         if let Some(LunchMoneyTxMetadata::Delta {
             original_transaction_id,
@@ -1160,7 +1166,8 @@ fn repair_deleted_and_orphaned_deltas(
             })
             .unwrap_or(0);
 
-        let orphaned_transaction_ids: Vec<u64> = orphaned_deltas.iter().map(|t| t.id).collect();
+        let orphaned_transaction_ids: Vec<TransactionId> =
+            orphaned_deltas.iter().map(|t| t.id).collect();
 
         if let Some(ot_id) = orphaned_tag_id {
             for tx in &orphaned_deltas {

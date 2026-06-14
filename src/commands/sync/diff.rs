@@ -1,8 +1,12 @@
 use super::SyncPlan;
 use crate::api::Currency;
 use crate::api::ExternalId;
+use crate::api::lunch_money::schema::CategoryId;
 use crate::api::lunch_money::schema::InsertObject;
+use crate::api::lunch_money::schema::ManualAccountId;
+use crate::api::lunch_money::schema::TagId;
 use crate::api::lunch_money::schema::Transaction;
+use crate::api::lunch_money::schema::TransactionId;
 use crate::api::lunch_money::schema::UpdateObject;
 use crate::api::splitwise::Expense;
 use crate::metadata::LunchMoneyTxMetadata;
@@ -12,28 +16,28 @@ use std::collections::HashMap;
 pub struct DiffTransactionsArgs<'a> {
     pub expenses: Vec<Expense>,
     pub config: &'a crate::config::Config,
-    pub target_accounts: &'a HashMap<Currency, u64>,
+    pub target_accounts: &'a HashMap<Currency, ManualAccountId>,
     pub group_map: &'a HashMap<u64, String>,
     pub lm_map: &'a mut HashMap<ExternalId, Transaction>,
     pub sw_category_id_to_path: &'a HashMap<u32, String>,
-    pub resolved_categories: &'a HashMap<String, u64>,
+    pub resolved_categories: &'a HashMap<String, CategoryId>,
     pub ignored_groups_exclude: Option<u64>,
     pub bypass_ignore_groups: bool,
-    pub tag_id: Option<u64>,
-    pub loan_tag_id: Option<u64>,
-    pub force_category_id: Option<u64>,
+    pub tag_id: Option<TagId>,
+    pub loan_tag_id: Option<TagId>,
+    pub force_category_id: Option<CategoryId>,
     pub tags_to_create: Vec<String>,
     pub sync_window_start: Option<jiff::civil::Date>,
-    pub backdated_tag_id: Option<u64>,
-    pub updated_tag_id: Option<u64>,
+    pub backdated_tag_id: Option<TagId>,
+    pub updated_tag_id: Option<TagId>,
 }
 
 fn resolve_category_for_expense(
     expense: &Expense,
-    force_category_id: Option<u64>,
-    resolved_categories: &HashMap<String, u64>,
+    force_category_id: Option<CategoryId>,
+    resolved_categories: &HashMap<String, CategoryId>,
     sw_category_id_to_path: &HashMap<u32, String>,
-) -> Option<u64> {
+) -> Option<CategoryId> {
     if force_category_id.is_some() {
         force_category_id
     } else if expense.parsed.payment {
@@ -53,13 +57,13 @@ pub(super) fn apply_lpp_delta_engine(
     existing_lm: &Transaction,
     target_amount: Decimal,
     expense: &Expense,
-    lm_by_id: &HashMap<u64, Transaction>,
+    lm_by_id: &HashMap<TransactionId, Transaction>,
     updates: &mut Vec<UpdateObject>,
     inserts: &mut Vec<InsertObject>,
     _config: &crate::config::Config,
-    target_accounts: &HashMap<Currency, u64>,
-    backdated_tag_id: Option<u64>,
-    updated_tag_id: Option<u64>,
+    target_accounts: &HashMap<Currency, ManualAccountId>,
+    backdated_tag_id: Option<TagId>,
+    updated_tag_id: Option<TagId>,
     _original_date: jiff::civil::Date,
     payee_str: &str,
     sync_window_start: Option<jiff::civil::Date>,
@@ -565,27 +569,27 @@ mod tests {
 
     struct TestEnv {
         pub config: crate::config::Config,
-        pub target_accounts: HashMap<Currency, u64>,
+        pub target_accounts: HashMap<Currency, ManualAccountId>,
         pub group_map: HashMap<u64, String>,
         pub lm_map: HashMap<ExternalId, Transaction>,
         pub sw_category_id_to_path: HashMap<u32, String>,
-        pub resolved_categories: HashMap<String, u64>,
+        pub resolved_categories: HashMap<String, CategoryId>,
         pub ignored_groups_exclude: Option<u64>,
         pub bypass_ignore_groups: bool,
-        pub tag_id: Option<u64>,
-        pub loan_tag_id: Option<u64>,
-        pub force_category_id: Option<u64>,
+        pub tag_id: Option<TagId>,
+        pub loan_tag_id: Option<TagId>,
+        pub force_category_id: Option<CategoryId>,
         pub tags_to_create: Vec<String>,
         pub sync_window_start: Option<jiff::civil::Date>,
-        pub backdated_tag_id: Option<u64>,
-        pub updated_tag_id: Option<u64>,
+        pub backdated_tag_id: Option<TagId>,
+        pub updated_tag_id: Option<TagId>,
     }
 
     impl TestEnv {
         fn new() -> Self {
             let config: crate::config::Config = toml::from_str(CONFIG_STR).unwrap();
             let mut target_accounts = HashMap::new();
-            target_accounts.insert(Currency::new("USD"), 999);
+            target_accounts.insert(Currency::new("USD"), ManualAccountId(999));
             Self {
                 config,
                 target_accounts,
@@ -639,7 +643,7 @@ mod tests {
         manual_account_id: u64,
     ) -> Transaction {
         Transaction {
-            id,
+            id: TransactionId(id),
             date,
             amount,
             currency: Currency::new(currency),
@@ -648,7 +652,7 @@ mod tests {
             original_name: Some(payee.to_string()),
             notes: notes.map(|s| s.to_string()),
             external_id,
-            manual_account_id: Some(manual_account_id),
+            manual_account_id: Some(ManualAccountId(manual_account_id)),
             plaid_account_id: None,
             tag_ids: Vec::new(),
             status: crate::api::lunch_money::schema::TransactionStatus::Unreviewed,
@@ -706,8 +710,8 @@ mod tests {
 
         // Case 1: with loan_tag_id configured
         let mut env1 = TestEnv::new();
-        env1.tag_id = Some(444);
-        env1.loan_tag_id = Some(555);
+        env1.tag_id = Some(TagId(444));
+        env1.loan_tag_id = Some(TagId(555));
         let plan1 = env1.run(expenses.clone()).unwrap();
 
         assert_eq!(plan1.inserts.len(), 2);
@@ -717,18 +721,18 @@ mod tests {
             .iter()
             .find(|tx| tx.amount == Decimal::new(5000, 2))
             .unwrap();
-        assert_eq!(tx1.tag_ids, Some(vec![444, 555]));
+        assert_eq!(tx1.tag_ids, Some(vec![TagId(444), TagId(555)]));
         // Negative net balance only gets main tag
         let tx2 = plan1
             .inserts
             .iter()
             .find(|tx| tx.amount == Decimal::new(-2000, 2))
             .unwrap();
-        assert_eq!(tx2.tag_ids, Some(vec![444]));
+        assert_eq!(tx2.tag_ids, Some(vec![TagId(444)]));
 
         // Case 2: without loan_tag_id configured
         let mut env2 = TestEnv::new();
-        env2.tag_id = Some(444);
+        env2.tag_id = Some(TagId(444));
         let plan2 = env2.run(expenses).unwrap();
 
         assert_eq!(plan2.inserts.len(), 2);
@@ -738,7 +742,7 @@ mod tests {
             .iter()
             .find(|tx| tx.amount == Decimal::new(5000, 2))
             .unwrap();
-        assert_eq!(tx1_no_loan.tag_ids, Some(vec![444]));
+        assert_eq!(tx1_no_loan.tag_ids, Some(vec![TagId(444)]));
     }
 
     #[test]
@@ -763,12 +767,12 @@ mod tests {
         .unwrap();
 
         let mut env = TestEnv::new();
-        env.force_category_id = Some(1010);
+        env.force_category_id = Some(CategoryId(1010));
         let plan = env.run(expenses).unwrap();
 
         let inserts = plan.inserts;
         assert_eq!(inserts.len(), 1);
-        assert_eq!(inserts[0].category_id, Some(1010));
+        assert_eq!(inserts[0].category_id, Some(CategoryId(1010)));
     }
 
     #[test]
@@ -1000,8 +1004,8 @@ mod tests {
         let mut env_a = TestEnv::new();
         env_a.lm_map.insert(ExternalId::Splitwise(1), tx_a);
         env_a.sync_window_start = Some(jiff::civil::date(2026, 6, 1));
-        env_a.backdated_tag_id = Some(888);
-        env_a.updated_tag_id = Some(777);
+        env_a.backdated_tag_id = Some(TagId(888));
+        env_a.updated_tag_id = Some(TagId(777));
         let plan = env_a.run(expenses.clone()).unwrap();
 
         assert_eq!(plan.inserts.len(), 1);
@@ -1010,7 +1014,7 @@ mod tests {
             plan.inserts[0].external_id,
             ExternalId::SplitwiseDelta(1, 0)
         );
-        assert_eq!(plan.inserts[0].tag_ids, Some(vec![888]));
+        assert_eq!(plan.inserts[0].tag_ids, Some(vec![TagId(888)]));
         assert_eq!(
             plan.inserts[0].notes,
             "(Original Transaction: 2026-05-01) Lunch outside window"
@@ -1018,7 +1022,7 @@ mod tests {
 
         // Case B: There is an existing delta transaction outside LPP (dated 2026-05-15, which is before 2026-06-01).
         let orig_metadata_with_delta = LunchMoneyTxMetadata::Import {
-            delta_transaction_ids: vec![20],
+            delta_transaction_ids: vec![TransactionId(20)],
             original: original_expense.clone().into(),
         };
 
@@ -1042,8 +1046,8 @@ mod tests {
             None,
             Some(ExternalId::SplitwiseDelta(1, 0)),
             Some(LunchMoneyTxMetadata::Delta {
-                original_transaction_id: 10,
-                delta_transaction_ids: vec![20],
+                original_transaction_id: TransactionId(10),
+                delta_transaction_ids: vec![TransactionId(20)],
                 splitwise_id: 1,
             }),
             999,
@@ -1055,8 +1059,8 @@ mod tests {
             .lm_map
             .insert(ExternalId::SplitwiseDelta(1, 0), tx_b_delta);
         env_b.sync_window_start = Some(jiff::civil::date(2026, 6, 1));
-        env_b.backdated_tag_id = Some(888);
-        env_b.updated_tag_id = Some(777);
+        env_b.backdated_tag_id = Some(TagId(888));
+        env_b.updated_tag_id = Some(TagId(777));
         let plan = env_b.run(expenses.clone()).unwrap();
 
         assert_eq!(plan.inserts.len(), 1);
@@ -1072,7 +1076,7 @@ mod tests {
 
         // Case C: There is an existing delta transaction inside LPP (dated 2026-06-05, which is after 2026-06-01).
         let orig_metadata_with_lpp_delta = LunchMoneyTxMetadata::Import {
-            delta_transaction_ids: vec![20],
+            delta_transaction_ids: vec![TransactionId(20)],
             original: original_expense.clone().into(),
         };
 
@@ -1096,8 +1100,8 @@ mod tests {
             None,
             Some(ExternalId::SplitwiseDelta(1, 0)),
             Some(LunchMoneyTxMetadata::Delta {
-                original_transaction_id: 10,
-                delta_transaction_ids: vec![20],
+                original_transaction_id: TransactionId(10),
+                delta_transaction_ids: vec![TransactionId(20)],
                 splitwise_id: 1,
             }),
             999,
@@ -1109,19 +1113,27 @@ mod tests {
             .lm_map
             .insert(ExternalId::SplitwiseDelta(1, 0), tx_c_delta);
         env_c.sync_window_start = Some(jiff::civil::date(2026, 6, 1));
-        env_c.backdated_tag_id = Some(888);
-        env_c.updated_tag_id = Some(777);
+        env_c.backdated_tag_id = Some(TagId(888));
+        env_c.updated_tag_id = Some(TagId(777));
         let plan = env_c.run(expenses.clone()).unwrap();
 
         assert_eq!(plan.inserts.len(), 0);
         // It updates the delta transaction (ID 20) and adds the updated tag to the original transaction (ID 10)
         assert_eq!(plan.updates.len(), 2);
 
-        let u_delta = plan.updates.iter().find(|u| u.id == 20).unwrap();
+        let u_delta = plan
+            .updates
+            .iter()
+            .find(|u| u.id == TransactionId(20))
+            .unwrap();
         assert_eq!(u_delta.amount, Decimal::new(-500, 2)); // -5.00 delta
 
-        let u_orig = plan.updates.iter().find(|u| u.id == 10).unwrap();
-        assert_eq!(u_orig.additional_tag_ids, Some(vec![777]));
+        let u_orig = plan
+            .updates
+            .iter()
+            .find(|u| u.id == TransactionId(10))
+            .unwrap();
+        assert_eq!(u_orig.additional_tag_ids, Some(vec![TagId(777)]));
         assert_eq!(u_orig.notes, "");
 
         // Case D: The backdated expense was already imported, and its Lunch Money transaction date is inside the sync window.
@@ -1145,13 +1157,13 @@ mod tests {
         let mut env_d = TestEnv::new();
         env_d.lm_map.insert(ExternalId::Splitwise(1), tx_d);
         env_d.sync_window_start = Some(jiff::civil::date(2026, 6, 1));
-        env_d.backdated_tag_id = Some(888);
-        env_d.updated_tag_id = Some(777);
+        env_d.backdated_tag_id = Some(TagId(888));
+        env_d.updated_tag_id = Some(TagId(777));
         let plan = env_d.run(expenses).unwrap();
 
         assert_eq!(plan.inserts.len(), 0);
         assert_eq!(plan.updates.len(), 1);
-        assert_eq!(plan.updates[0].id, 10);
+        assert_eq!(plan.updates[0].id, TransactionId(10));
         assert_eq!(plan.updates[0].amount, Decimal::new(-1500, 2)); // -15.00
     }
 
@@ -1199,23 +1211,24 @@ mod tests {
         env.config
             .lunch_money
             .custom_accounts
-            .insert(Currency::new("CAD"), 888);
-        env.target_accounts.insert(Currency::new("CAD"), 888);
+            .insert(Currency::new("CAD"), ManualAccountId(888));
+        env.target_accounts
+            .insert(Currency::new("CAD"), ManualAccountId(888));
         env.lm_map.insert(ExternalId::Splitwise(1), tx);
         env.sync_window_start = Some(jiff::civil::date(2026, 6, 1));
-        env.backdated_tag_id = Some(888);
-        env.updated_tag_id = Some(777);
+        env.backdated_tag_id = Some(TagId(888));
+        env.updated_tag_id = Some(TagId(777));
         let plan = env.run(expenses).unwrap();
 
         // Check that the old transaction is deleted
         assert_eq!(plan.deletes.len(), 1);
-        assert_eq!(plan.deletes[0].id, 10);
+        assert_eq!(plan.deletes[0].id, TransactionId(10));
         assert_eq!(plan.deletes[0].currency.as_str(), "USD");
 
         // Check that a new transaction is inserted in the CAD account
         assert_eq!(plan.inserts.len(), 1);
         assert_eq!(plan.inserts[0].currency.as_str(), "CAD");
-        assert_eq!(plan.inserts[0].manual_account_id, 888);
+        assert_eq!(plan.inserts[0].manual_account_id, ManualAccountId(888));
         assert_eq!(plan.inserts[0].amount, Decimal::new(-1500, 2));
 
         // Updates should be empty
@@ -1268,12 +1281,13 @@ mod tests {
         env.config
             .lunch_money
             .custom_accounts
-            .insert(Currency::new("CAD"), 888);
-        env.target_accounts.insert(Currency::new("CAD"), 888);
+            .insert(Currency::new("CAD"), ManualAccountId(888));
+        env.target_accounts
+            .insert(Currency::new("CAD"), ManualAccountId(888));
         env.lm_map.insert(ExternalId::Splitwise(1), tx);
         env.sync_window_start = Some(jiff::civil::date(2026, 6, 8));
-        env.backdated_tag_id = Some(888);
-        env.updated_tag_id = Some(777);
+        env.backdated_tag_id = Some(TagId(888));
+        env.updated_tag_id = Some(TagId(777));
         let plan = env.run(expenses).unwrap();
 
         // Since original transaction was USD (outside window) and currency changed to CAD:
@@ -1292,20 +1306,20 @@ mod tests {
             .find(|i| i.currency.as_str() == "CAD")
             .unwrap();
 
-        assert_eq!(delta_ins.manual_account_id, 999);
+        assert_eq!(delta_ins.manual_account_id, ManualAccountId(999));
         assert_eq!(delta_ins.amount, Decimal::new(1500, 2)); // +15.00 to cancel out -15.00 USD
         assert_eq!(
             delta_ins.notes,
             "(Original Transaction: 2026-06-01) Lunch outside window"
         );
 
-        assert_eq!(new_ins.manual_account_id, 888);
+        assert_eq!(new_ins.manual_account_id, ManualAccountId(888));
         assert_eq!(new_ins.amount, Decimal::new(-1500, 2)); // -15.00 CAD
 
         // Verify that the original USD transaction (ID 10) is updated to clear its external_id
         assert_eq!(plan.updates.len(), 1);
         let upd = &plan.updates[0];
-        assert_eq!(upd.id, 10);
+        assert_eq!(upd.id, TransactionId(10));
         assert_eq!(upd.external_id, Some(None));
     }
 
@@ -1334,7 +1348,7 @@ mod tests {
         let mut original_expense_usd = original_expense.clone();
         original_expense_usd.currency_code = Currency::new("USD");
         let orig_metadata = LunchMoneyTxMetadata::Import {
-            delta_transaction_ids: vec![20],
+            delta_transaction_ids: vec![TransactionId(20)],
             original: original_expense_usd.into(),
         };
 
@@ -1361,8 +1375,8 @@ mod tests {
             Some("(Original Transaction: 10) Lunch outside window"),
             Some(ExternalId::SplitwiseDelta(1, 0)),
             Some(LunchMoneyTxMetadata::Delta {
-                original_transaction_id: 10,
-                delta_transaction_ids: vec![20],
+                original_transaction_id: TransactionId(10),
+                delta_transaction_ids: vec![TransactionId(20)],
                 splitwise_id: 1,
             }),
             999,
@@ -1372,32 +1386,42 @@ mod tests {
         env.config
             .lunch_money
             .custom_accounts
-            .insert(Currency::new("CAD"), 888);
-        env.target_accounts.insert(Currency::new("CAD"), 888);
+            .insert(Currency::new("CAD"), ManualAccountId(888));
+        env.target_accounts
+            .insert(Currency::new("CAD"), ManualAccountId(888));
         env.lm_map.insert(ExternalId::Splitwise(1), tx_orig);
         env.lm_map
             .insert(ExternalId::SplitwiseDelta(1, 0), tx_delta);
         env.sync_window_start = Some(jiff::civil::date(2026, 6, 8));
-        env.backdated_tag_id = Some(888);
-        env.updated_tag_id = Some(777);
+        env.backdated_tag_id = Some(TagId(888));
+        env.updated_tag_id = Some(TagId(777));
         let plan = env.run(expenses).unwrap();
 
         // CAD insert for the new CAD expense
         assert_eq!(plan.inserts.len(), 1);
         let new_ins = &plan.inserts[0];
         assert_eq!(new_ins.currency.as_str(), "CAD");
-        assert_eq!(new_ins.manual_account_id, 888);
+        assert_eq!(new_ins.manual_account_id, ManualAccountId(888));
         assert_eq!(new_ins.amount, Decimal::new(-1500, 2));
 
         // Updates
         assert_eq!(plan.updates.len(), 2);
 
-        let delta_upd = plan.updates.iter().find(|u| u.id == 20).unwrap();
+        let delta_upd = plan
+            .updates
+            .iter()
+            .find(|u| u.id == TransactionId(20))
+            .unwrap();
         assert_eq!(delta_upd.amount, Decimal::new(1500, 2));
 
-        let orig_upd = plan.updates.iter().find(|u| u.id == 10).unwrap();
+        let orig_upd = plan
+            .updates
+            .iter()
+            .find(|u| u.id == TransactionId(10))
+            .unwrap();
+        assert_eq!(orig_upd.id, TransactionId(10));
         assert_eq!(orig_upd.external_id, Some(None));
-        assert_eq!(orig_upd.additional_tag_ids, Some(vec![777]));
+        assert_eq!(orig_upd.additional_tag_ids, Some(vec![TagId(777)]));
         assert_eq!(orig_upd.notes, "Lunch outside window");
     }
 }
