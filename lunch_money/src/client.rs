@@ -1,4 +1,24 @@
+use crate::categories::CategoriesResponse;
+use crate::categories::Category;
+use crate::core::ids::ManualAccountId;
+use crate::core::ids::TransactionId;
+use crate::manual_accounts::ManualAccount;
+use crate::manual_accounts::ManualAccountsResponse;
+use crate::manual_accounts::UpdateManualAccountObject;
+use crate::tags::CreateTagPayload;
+use crate::tags::Tag;
+use crate::tags::TagsResponse;
+use crate::transactions::DeletePayload;
+use crate::transactions::InsertObject;
+use crate::transactions::InsertPayload;
+use crate::transactions::InsertTransactionsResponse;
+use crate::transactions::Transaction;
+use crate::transactions::TransactionsResponse;
+use crate::transactions::UpdateObject;
+use crate::transactions::UpdatePayload;
 use anyhow::Context;
+
+pub use crate::transactions::TransactionQuery;
 
 /// A client for the Lunch Money API.
 ///
@@ -87,8 +107,8 @@ impl Client {
     }
 
     /// Fetches all manual accounts associated with the user's account.
-    pub async fn fetch_manual_accounts(&self) -> anyhow::Result<Vec<crate::ManualAccount>> {
-        let res: crate::ManualAccountsResponse = self
+    pub async fn fetch_manual_accounts(&self) -> anyhow::Result<Vec<ManualAccount>> {
+        let res: ManualAccountsResponse = self
             .fetch("manual_accounts", &[] as &[(&str, &str)])
             .await?;
         Ok(res.manual_accounts)
@@ -98,20 +118,20 @@ impl Client {
     pub async fn fetch_transactions<T, E>(
         &self,
         query: &TransactionQuery,
-    ) -> anyhow::Result<Vec<crate::Transaction<T, E>>>
+    ) -> anyhow::Result<Vec<Transaction<T, E>>>
     where
         T: serde::de::DeserializeOwned,
         E: serde::de::DeserializeOwned,
     {
-        let res: crate::TransactionsResponse<T, E> = self.fetch("transactions", query).await?;
+        let res: TransactionsResponse<T, E> = self.fetch("transactions", query).await?;
         Ok(res.transactions)
     }
 
     /// Fetches a single transaction by its unique ID. Returns `None` if the transaction is not found.
     pub async fn fetch_transaction_by_id<T, E>(
         &self,
-        id: crate::TransactionId,
-    ) -> anyhow::Result<Option<crate::Transaction<T, E>>>
+        id: TransactionId,
+    ) -> anyhow::Result<Option<Transaction<T, E>>>
     where
         T: serde::de::DeserializeOwned,
         E: serde::de::DeserializeOwned,
@@ -144,38 +164,31 @@ impl Client {
         }
 
         let parsed = res
-            .json::<crate::Transaction<T, E>>()
+            .json::<Transaction<T, E>>()
             .await
             .context("Failed parsing Lunch Money JSON")?;
         Ok(Some(parsed))
     }
 
     /// Fetches all categories for the user, optionally with formatting (e.g. flat or nested).
-    pub async fn fetch_categories(
-        &self,
-        format: Option<&str>,
-    ) -> anyhow::Result<Vec<crate::Category>> {
+    pub async fn fetch_categories(&self, format: Option<&str>) -> anyhow::Result<Vec<Category>> {
         let q = format.map(|f| vec![("format", f)]).unwrap_or_default();
-        let res: crate::CategoriesResponse = self.fetch("categories", &q).await?;
+        let res: CategoriesResponse = self.fetch("categories", &q).await?;
         Ok(res.categories)
     }
 
     /// Fetches all tags associated with the user's account.
-    pub async fn fetch_tags(&self) -> anyhow::Result<Vec<crate::Tag>> {
-        let res: crate::TagsResponse = self.fetch("tags", &[] as &[(&str, &str)]).await?;
+    pub async fn fetch_tags(&self) -> anyhow::Result<Vec<Tag>> {
+        let res: TagsResponse = self.fetch("tags", &[] as &[(&str, &str)]).await?;
         Ok(res.tags)
     }
 
     /// Creates a new tag with the specified name and optional description.
-    pub async fn create_tag(
-        &self,
-        name: &str,
-        description: Option<&str>,
-    ) -> anyhow::Result<crate::Tag> {
+    pub async fn create_tag(&self, name: &str, description: Option<&str>) -> anyhow::Result<Tag> {
         self.exec_with_response(
             reqwest::Method::POST,
             "tags",
-            &crate::CreateTagPayload {
+            &CreateTagPayload {
                 name: name.to_string(),
                 description: description.map(|s| s.to_string()),
             },
@@ -186,8 +199,8 @@ impl Client {
     /// Inserts a list of new transactions.
     pub async fn insert_transactions<T, E, U, V>(
         &self,
-        txs: &[crate::InsertObject<T, E>],
-    ) -> anyhow::Result<crate::InsertTransactionsResponse<U, V>>
+        txs: &[InsertObject<T, E>],
+    ) -> anyhow::Result<InsertTransactionsResponse<U, V>>
     where
         T: serde::Serialize + Clone,
         E: serde::Serialize + Clone,
@@ -197,7 +210,7 @@ impl Client {
         self.exec_with_response(
             reqwest::Method::POST,
             "transactions",
-            &crate::InsertPayload {
+            &InsertPayload {
                 transactions: txs.to_vec(),
             },
         )
@@ -205,10 +218,7 @@ impl Client {
     }
 
     /// Updates a list of existing transactions.
-    pub async fn update_transactions<T, E>(
-        &self,
-        txs: &[crate::UpdateObject<T, E>],
-    ) -> anyhow::Result<()>
+    pub async fn update_transactions<T, E>(&self, txs: &[UpdateObject<T, E>]) -> anyhow::Result<()>
     where
         T: serde::Serialize + Clone,
         E: serde::Serialize + Clone,
@@ -216,7 +226,7 @@ impl Client {
         self.exec(
             reqwest::Method::PUT,
             "transactions",
-            &crate::UpdatePayload {
+            &UpdatePayload {
                 transactions: txs.to_vec(),
             },
         )
@@ -224,11 +234,11 @@ impl Client {
     }
 
     /// Deletes transactions by their IDs.
-    pub async fn delete_transactions(&self, ids: &[crate::TransactionId]) -> anyhow::Result<()> {
+    pub async fn delete_transactions(&self, ids: &[TransactionId]) -> anyhow::Result<()> {
         self.exec(
             reqwest::Method::DELETE,
             "transactions",
-            &crate::DeletePayload { ids: ids.to_vec() },
+            &DeletePayload { ids: ids.to_vec() },
         )
         .await
     }
@@ -236,43 +246,14 @@ impl Client {
     /// Updates the balance of a manual account.
     pub async fn update_manual_account(
         &self,
-        id: crate::ManualAccountId,
+        id: ManualAccountId,
         balance: rust_decimal::Decimal,
     ) -> anyhow::Result<()> {
         self.exec(
             reqwest::Method::PUT,
             &format!("manual_accounts/{}", id),
-            &crate::UpdateManualAccountObject { balance },
+            &UpdateManualAccountObject { balance },
         )
         .await
     }
-}
-
-/// Query parameters for fetching transactions.
-#[derive(serde::Serialize, Debug, Clone)]
-pub struct TransactionQuery {
-    /// Start date in ISO 8601 format (YYYY-MM-DD).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_date: Option<String>,
-    /// End date in ISO 8601 format (YYYY-MM-DD).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_date: Option<String>,
-    /// Unique identifier for the manual account.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub manual_account_id: Option<crate::ManualAccountId>,
-    /// Maximum number of transactions to return.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub limit: Option<u32>,
-    /// If true, include transactions that are children of a group.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub include_group_children: Option<bool>,
-    /// If true, include parent transactions of splits.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub include_split_parents: Option<bool>,
-    /// If true, include custom metadata in the response.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub include_metadata: Option<bool>,
-    /// Filter transactions by tag ID.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tag_id: Option<crate::TagId>,
 }
