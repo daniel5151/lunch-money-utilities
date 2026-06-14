@@ -3,10 +3,14 @@ name = "lunch_money"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+client = ["dep:anyhow", "dep:reqwest"]
+
 [dependencies]
-anyhow = "1.0"
+anyhow = { version = "1.0", optional = true }
 jiff = { version = "0.2", features = ["serde"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls-no-provider", "http2"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls-no-provider", "http2"], optional = true }
 rust_decimal = { version = "1.33", features = ["serde", "serde-with-str"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

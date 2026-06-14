@@ -12,14 +12,14 @@
 
 use crate::api::ExternalId;
 use crate::metadata::LunchMoneyTxMetadata;
-use lunch_money::schema::Currency;
-use lunch_money::schema::ManualAccountId;
-use lunch_money::schema::TagId;
-use lunch_money::schema::TransactionId;
+use lunch_money::Currency;
+use lunch_money::ManualAccountId;
+use lunch_money::TagId;
+use lunch_money::TransactionId;
 use rust_decimal::Decimal;
 
 #[derive(Clone)]
-pub struct Client(lunch_money::Client);
+pub struct Client(lunch_money::client::Client);
 
 #[derive(serde::Serialize, Debug, Clone)]
 pub struct TransactionQuery {
@@ -37,7 +37,7 @@ pub struct TransactionQuery {
 
 impl Client {
     pub fn new(http: reqwest::Client, api_key: String) -> Self {
-        Self(lunch_money::Client::new(http, api_key))
+        Self(lunch_money::client::Client::new(http, api_key))
     }
 
     pub async fn fetch_manual_accounts(&self) -> anyhow::Result<Vec<schema::ManualAccount>> {
@@ -48,7 +48,7 @@ impl Client {
         &self,
         query: &TransactionQuery,
     ) -> anyhow::Result<Vec<schema::Transaction>> {
-        let lib_query = lunch_money::TransactionQuery {
+        let lib_query = lunch_money::client::TransactionQuery {
             start_date: Some(query.start_date.clone()),
             end_date: Some(query.end_date.clone()),
             manual_account_id: Some(query.manual_account_id),
@@ -91,9 +91,9 @@ impl Client {
         &self,
         txs: &[schema::InsertObject],
     ) -> anyhow::Result<schema::InsertTransactionsResponse> {
-        let lib_txs: Vec<lunch_money::schema::InsertObject<LunchMoneyTxMetadata, ExternalId>> = txs
+        let lib_txs: Vec<lunch_money::InsertObject<LunchMoneyTxMetadata, ExternalId>> = txs
             .iter()
-            .map(|tx| lunch_money::schema::InsertObject {
+            .map(|tx| lunch_money::InsertObject {
                 date: tx.date,
                 amount: tx.amount,
                 currency: Some(tx.currency.clone()),
@@ -114,9 +114,9 @@ impl Client {
     }
 
     pub async fn update_transactions(&self, txs: &[schema::UpdateObject]) -> anyhow::Result<()> {
-        let lib_txs: Vec<lunch_money::schema::UpdateObject<LunchMoneyTxMetadata, ExternalId>> = txs
+        let lib_txs: Vec<lunch_money::UpdateObject<LunchMoneyTxMetadata, ExternalId>> = txs
             .iter()
-            .map(|tx| lunch_money::schema::UpdateObject {
+            .map(|tx| lunch_money::UpdateObject {
                 id: tx.id,
                 date: Some(tx.date),
                 amount: Some(tx.amount),
@@ -152,24 +152,23 @@ impl Client {
 pub mod schema {
     use super::*;
 
-    pub type Transaction = lunch_money::schema::Transaction<MaybeLunchMoneyTxMetadata, ExternalId>;
+    pub type Transaction = lunch_money::Transaction<MaybeLunchMoneyTxMetadata, ExternalId>;
     pub type InsertTransactionsResponse =
-        lunch_money::schema::InsertTransactionsResponse<MaybeLunchMoneyTxMetadata, ExternalId>;
+        lunch_money::InsertTransactionsResponse<MaybeLunchMoneyTxMetadata, ExternalId>;
 
     pub use crate::metadata::LunchMoneyTxMetadata;
     pub use crate::metadata::MaybeLunchMoneyTxMetadata;
 
-    pub use lunch_money::schema::AccountStatus;
-    pub use lunch_money::schema::AccountType;
-    pub use lunch_money::schema::Category;
-    pub use lunch_money::schema::ManualAccount;
-    pub use lunch_money::schema::Tag;
-    pub use lunch_money::schema::TransactionStatus;
-
-    pub use lunch_money::schema::CategoryId;
-    pub use lunch_money::schema::ManualAccountId;
-    pub use lunch_money::schema::TagId;
-    pub use lunch_money::schema::TransactionId;
+    pub use lunch_money::AccountStatus;
+    pub use lunch_money::AccountType;
+    pub use lunch_money::Category;
+    pub use lunch_money::CategoryId;
+    pub use lunch_money::ManualAccount;
+    pub use lunch_money::ManualAccountId;
+    pub use lunch_money::Tag;
+    pub use lunch_money::TagId;
+    pub use lunch_money::TransactionId;
+    pub use lunch_money::TransactionStatus;
 
     #[derive(serde::Serialize, Clone, Debug)]
     pub struct InsertObject {
