@@ -86,7 +86,7 @@ pub(super) fn apply_lpp_delta_engine(
 
     // 2. Fetch all delta transactions in the list from our in-memory map
     let mut delta_txs = Vec::new();
-    for &d_id in delta_transaction_ids {
+    for &d_id in delta_transaction_ids.iter() {
         if let Some(d_tx) = lm_by_id.get(&d_id) {
             delta_txs.push(d_tx.clone());
         }

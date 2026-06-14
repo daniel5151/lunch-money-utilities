@@ -151,8 +151,8 @@ pub(crate) async fn run_sync_balances(
             wtr.serialize(CsvRow {
                 operation: op,
                 account_id,
-                account_name: &name,
-                currency: &curr,
+                account_name: name.as_str(),
+                currency: curr.as_str(),
                 old_balance: old_bal,
                 new_balance: new_bal,
             })
