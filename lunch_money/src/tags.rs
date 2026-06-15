@@ -44,6 +44,15 @@ pub mod schemas {
         /// Description of the tag (up to 200 characters).
         #[serde(skip_serializing_if = "Option::is_none")]
         pub description: Option<String>,
+        /// The text color of the tag.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub text_color: Option<String>,
+        /// The background color of the tag.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub background_color: Option<String>,
+        /// If true, the tag is archived.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub archived: Option<bool>,
     }
 
     /// Request payload for updating an existing tag.

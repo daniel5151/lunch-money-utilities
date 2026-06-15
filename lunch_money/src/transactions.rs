@@ -40,6 +40,9 @@ pub mod query_params {
         /// Filter transactions updated after this timestamp (ISO 8601 date or date-time).
         #[serde(skip_serializing_if = "Option::is_none")]
         pub updated_since: Option<String>,
+        /// Filter transactions created after this timestamp (ISO 8601 date or date-time).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub created_since: Option<String>,
         /// Filter by Plaid account ID, or set to `PlaidAccountId(0)` to omit Plaid transactions.
         #[serde(skip_serializing_if = "Option::is_none")]
         pub plaid_account_id: Option<PlaidAccountId>,
@@ -175,7 +178,8 @@ pub mod schemas {
         /// The date and time of when the transaction was last updated.
         pub updated_at: jiff::Timestamp,
         /// Denotes whether this transaction is the parent of a split.
-        pub is_split_parent: bool,
+        #[serde(default)]
+        pub is_split_parent: Option<bool>,
         /// A transaction ID if this is a split transaction.
         pub split_parent_id: Option<TransactionId>,
         /// Denotes whether this transaction represents a group of transactions.
@@ -281,7 +285,7 @@ pub mod schemas {
     }
 
     /// Object representing a transaction to be inserted.
-    #[derive(bon::Builder, Serialize, Clone, Debug)]
+    #[derive(bon::Builder, Serialize, Deserialize, Clone, Debug)]
     pub struct InsertObject<M = serde_json::Value, E = String> {
         /// Date of the transaction.
         pub date: jiff::civil::Date,
@@ -392,18 +396,20 @@ pub mod schemas {
         /// List of successfully inserted transaction objects.
         pub transactions: Vec<Transaction<M, E>>,
         /// List of transactions that were skipped because they duplicate existing external IDs.
-        pub skipped_duplicates: Vec<SkippedExistingExternalIdObject>,
+        pub skipped_duplicates: Vec<SkippedExistingExternalIdObject<M, E>>,
     }
 
     /// Object describing a transaction that was skipped during insertion.
     #[derive(Deserialize, Clone, Debug)]
-    pub struct SkippedExistingExternalIdObject {
+    pub struct SkippedExistingExternalIdObject<M = serde_json::Value, E = String> {
         /// The reason the transaction was skipped (e.g. duplicate_external_id).
         pub reason: String,
         /// The index of the skipped transaction in the original request.
         pub request_transactions_index: usize,
         /// The ID of the existing transaction that this duplicate matched.
         pub existing_transaction_id: TransactionId,
+        /// The original transaction that was skipped.
+        pub request_transaction: Option<InsertObject<M, E>>,
     }
 
     /// Request payload for deleting transactions.

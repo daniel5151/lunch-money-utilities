@@ -215,6 +215,8 @@ pub mod schemas {
         pub created_at: jiff::Timestamp,
         /// ID of the parent category group.
         pub group_id: Option<CategoryId>,
+        /// Whether this category is a group containing other categories (always false for ChildCategory).
+        pub is_group: bool,
         /// Whether this category is archived.
         pub archived: bool,
         /// The date and time of when the category was last archived.

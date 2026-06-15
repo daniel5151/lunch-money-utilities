@@ -198,9 +198,18 @@ impl Client {
             &CreateTagPayload {
                 name: name.to_string(),
                 description: description.map(|s| s.to_string()),
+                text_color: None,
+                background_color: None,
+                archived: None,
             },
         )
         .await
+    }
+
+    /// Creates a new tag with the specified payload.
+    pub async fn create_tag_with_payload(&self, payload: &CreateTagPayload) -> anyhow::Result<Tag> {
+        self.exec_with_response(reqwest::Method::POST, "tags", payload)
+            .await
     }
 
     /// Inserts a list of new transactions.
