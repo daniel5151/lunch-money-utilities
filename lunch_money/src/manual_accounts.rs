@@ -17,7 +17,7 @@ pub mod schemas {
         Timestamp(jiff::Timestamp),
     }
 
-    impl<'de> serde::Deserialize<'de> for BalanceAsOf {
+    impl<'de> Deserialize<'de> for BalanceAsOf {
         fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
         where
             D: serde::Deserializer<'de>,
@@ -36,7 +36,7 @@ pub mod schemas {
         }
     }
 
-    impl serde::Serialize for BalanceAsOf {
+    impl Serialize for BalanceAsOf {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: serde::Serializer,

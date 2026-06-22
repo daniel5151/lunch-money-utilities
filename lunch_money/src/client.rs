@@ -361,7 +361,7 @@ impl Client {
     pub async fn create_category(
         &self,
         payload: &crate::categories::schemas::CreateCategoryPayload,
-    ) -> anyhow::Result<crate::categories::schemas::Category> {
+    ) -> anyhow::Result<Category> {
         self.exec_with_response(reqwest::Method::POST, "categories", payload)
             .await
     }
@@ -370,7 +370,7 @@ impl Client {
     pub async fn fetch_category_by_id(
         &self,
         id: CategoryId,
-    ) -> anyhow::Result<crate::categories::schemas::Category> {
+    ) -> anyhow::Result<Category> {
         self.fetch(&format!("categories/{}", id), &[] as &[(&str, &str)])
             .await
     }
@@ -380,7 +380,7 @@ impl Client {
         &self,
         id: CategoryId,
         payload: &crate::categories::schemas::UpdateCategoryPayload,
-    ) -> anyhow::Result<crate::categories::schemas::Category> {
+    ) -> anyhow::Result<Category> {
         self.exec_with_response(reqwest::Method::PUT, &format!("categories/{}", id), payload)
             .await
     }
@@ -425,7 +425,7 @@ impl Client {
     pub async fn create_manual_account<E, M>(
         &self,
         payload: &crate::manual_accounts::schemas::CreateManualAccountPayload<E, M>,
-    ) -> anyhow::Result<crate::manual_accounts::schemas::ManualAccount<E, M>>
+    ) -> anyhow::Result<ManualAccount<E, M>>
     where
         E: serde::Serialize + serde::de::DeserializeOwned + Clone,
         M: serde::Serialize + serde::de::DeserializeOwned + Clone,
@@ -438,7 +438,7 @@ impl Client {
     pub async fn fetch_manual_account_by_id<E, M>(
         &self,
         id: ManualAccountId,
-    ) -> anyhow::Result<crate::manual_accounts::schemas::ManualAccount<E, M>>
+    ) -> anyhow::Result<ManualAccount<E, M>>
     where
         E: serde::de::DeserializeOwned,
         M: serde::de::DeserializeOwned,
@@ -484,7 +484,7 @@ impl Client {
         &self,
         id: ManualAccountId,
         payload: &crate::manual_accounts::schemas::UpdateManualAccountPayload<E, M>,
-    ) -> anyhow::Result<crate::manual_accounts::schemas::ManualAccount<E, M>>
+    ) -> anyhow::Result<ManualAccount<E, M>>
     where
         E: serde::Serialize + serde::de::DeserializeOwned + Clone,
         M: serde::Serialize + serde::de::DeserializeOwned + Clone,
@@ -547,8 +547,8 @@ impl Client {
         &self,
         id: TransactionId,
         update_balance: Option<bool>,
-        tx: &crate::transactions::schemas::UpdateObject<T, E>,
-    ) -> anyhow::Result<crate::transactions::schemas::Transaction<T, E>>
+        tx: &UpdateObject<T, E>,
+    ) -> anyhow::Result<Transaction<T, E>>
     where
         T: serde::Serialize + serde::de::DeserializeOwned + Clone,
         E: serde::Serialize + serde::de::DeserializeOwned + Clone,
@@ -586,7 +586,7 @@ impl Client {
     pub async fn create_transaction_group<T, E>(
         &self,
         payload: &crate::transactions::schemas::CreateTransactionGroupPayload,
-    ) -> anyhow::Result<crate::transactions::schemas::Transaction<T, E>>
+    ) -> anyhow::Result<Transaction<T, E>>
     where
         T: serde::de::DeserializeOwned,
         E: serde::de::DeserializeOwned,
@@ -609,7 +609,7 @@ impl Client {
         &self,
         id: TransactionId,
         payload: &crate::transactions::schemas::SplitTransactionPayload,
-    ) -> anyhow::Result<crate::transactions::schemas::Transaction<T, E>>
+    ) -> anyhow::Result<Transaction<T, E>>
     where
         T: serde::de::DeserializeOwned,
         E: serde::de::DeserializeOwned,
@@ -694,7 +694,7 @@ impl Client {
     // --- Tags Additional Endpoints ---
 
     /// Fetches details of a single tag by its ID.
-    pub async fn fetch_tag_by_id(&self, id: TagId) -> anyhow::Result<crate::tags::schemas::Tag> {
+    pub async fn fetch_tag_by_id(&self, id: TagId) -> anyhow::Result<Tag> {
         self.fetch(&format!("tags/{}", id), &[] as &[(&str, &str)])
             .await
     }
@@ -704,7 +704,7 @@ impl Client {
         &self,
         id: TagId,
         payload: &crate::tags::schemas::UpdateTagPayload,
-    ) -> anyhow::Result<crate::tags::schemas::Tag> {
+    ) -> anyhow::Result<Tag> {
         self.exec_with_response(reqwest::Method::PUT, &format!("tags/{}", id), payload)
             .await
     }
