@@ -1,17 +1,21 @@
 [package]
 name = "lunch_money"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [features]
 default = []
 client = ["dep:anyhow", "dep:reqwest"]
 
 [dependencies]
-anyhow = { version = "1.0", optional = true }
-bon = "3"
-jiff = { version = "0.2", features = ["serde"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls-no-provider", "http2", "multipart"], optional = true }
-rust_decimal = { version = "1.33", features = ["serde", "serde-with-str"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+anyhow = { workspace = true, optional = true }
+bon.workspace = true
+jiff.workspace = true
+# Refines the shared reqwest with `multipart`, required by the client.
+reqwest = { workspace = true, optional = true, features = ["multipart"] }
+rust_decimal.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

@@ -34,7 +34,7 @@ jobs:
         id: prep
         run: |
           # Extract version from Cargo.toml
-          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="splitwise-lunchmoney") | .version')
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "binary=target/x86_64-unknown-linux-musl/release/splitwise-lunchmoney-x86_64-unknown-linux-musl" >> $GITHUB_OUTPUT
           echo "dwp=target/x86_64-unknown-linux-musl/release/splitwise-lunchmoney-x86_64-unknown-linux-musl.dwp" >> $GITHUB_OUTPUT
