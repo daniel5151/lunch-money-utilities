@@ -1,0 +1,30 @@
+# `lunchmoney-utils-rs`
+
+Assorted [Lunch Money](https://lunchmoney.app/) utilities.
+
+> [!WARNING]
+>
+> This repo is nearly 100% free range Gemini Flash 3.5 / Opus 4.8 vibe code.
+>
+> While The Prompter (Daniel Prilik) _has_ been auditing code as it's generated,
+> and trying his darndest to make sure obvious slop gets refactored and
+> tightened up... you may wish to audit the code in this repo yourself before
+> deploying any of these projects.
+>
+> That said, The Prompter _is_ actively using this code with his personal
+> Lunch Money account... so hey, it's Probably Fine™️
+
+## Crates
+
+| Crate                                           | Path                    | Description                                                                                                                                    |
+| ----------------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`lunch_money`](lunch_money/)                   | `lunch_money/`          | Lib: Client for interacting with the Lunch Money v2 API                                                                                        |
+| [`splitwise-lunchmoney`](splitwise_lunchmoney/) | `splitwise_lunchmoney/` | Bin: syncs Splitwise transactions and outstanding balances into Lunch Money manual accounts. See its [README](splitwise_lunchmoney/README.md). |
+
+Expect more utilities to appear over time...
+
+## License
+
+Everything is MIT. See [LICENSE](LICENSE).
+
+Have fun!
