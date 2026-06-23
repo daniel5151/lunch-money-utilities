@@ -6,6 +6,24 @@ use regex::Regex;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::LazyLock;
+
+/// `pdf-extract` frequently glues an earnings row's period *start date* onto the
+/// final description token (e.g. `Restricted Stock Units11/15/2025`) with no
+/// separating space. Left as-is, the glued token still contains `/`, which trips
+/// the date-range detection in [`parse_earnings_line`] and silently truncates the
+/// real last word off the description. Splitting the date back out before
+/// tokenizing repairs the description without relying on brittle positional
+/// assumptions.
+static GLUED_DATE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"([^\s/])(\d{2}/\d{2}/\d{4})").unwrap());
+
+/// Insert a space between a non-whitespace, non-`/` character and a glued
+/// `MM/DD/YYYY` date so the date becomes its own token. Safe to run on every
+/// line: rows that already separate the date are left unchanged.
+fn deglue_dates(line: &str) -> std::borrow::Cow<'_, str> {
+    GLUED_DATE_RE.replace_all(line, "$1 $2")
+}
 
 #[derive(Debug, Clone, Default)]
 #[expect(dead_code)]
@@ -38,12 +56,18 @@ enum ParseState {
     PostTaxDeductions,
 }
 
-pub fn clean_decimal(val: &str) -> Decimal {
+/// Parse a payslip money token (e.g. `40,224.36`, `1,234.50-`) into a
+/// [`Decimal`]. Workday renders credits with a *trailing* minus sign, which
+/// [`Decimal::from_str`] does not accept, so it is normalised to a leading sign
+/// first. A token that still fails to parse is surfaced as an error rather than
+/// silently collapsing to `0.00`, which would let a botched extraction sail
+/// through reconciliation (see audit finding #7).
+pub fn clean_decimal(val: &str) -> Result<Decimal> {
     let mut clean = val.replace(',', "").trim().to_string();
     if clean.ends_with('-') {
         clean = format!("-{}", &clean[..clean.len() - 1]);
     }
-    Decimal::from_str(&clean).unwrap_or(Decimal::ZERO)
+    Decimal::from_str(&clean).with_context(|| format!("malformed decimal amount: {val:?}"))
 }
 
 pub fn parse_date_str(s: &str) -> Result<Date> {
@@ -57,23 +81,24 @@ pub fn parse_date_str(s: &str) -> Result<Date> {
     Date::new(year, month, day).context("Failed to build Jiff Date")
 }
 
-pub fn parse_earnings_line(line: &str) -> Option<RowData> {
-    let line = line.trim();
+pub fn parse_earnings_line(line: &str) -> Result<Option<RowData>> {
+    let deglued = deglue_dates(line);
+    let line = deglued.trim();
     if line.is_empty()
         || line.starts_with("Description")
         || line.starts_with("Total")
         || line.starts_with("Earnings")
     {
-        return None;
+        return Ok(None);
     }
 
     let tokens: Vec<&str> = line.split_whitespace().collect();
     if tokens.len() < 5 {
-        return None;
+        return Ok(None);
     }
 
     let amount_str = tokens[tokens.len() - 3];
-    let amount = clean_decimal(amount_str);
+    let amount = clean_decimal(amount_str).with_context(|| format!("earnings line {line:?}"))?;
 
     let mut date_str = String::new();
     let mut desc_end = tokens.len() - 5;
@@ -95,14 +120,14 @@ pub fn parse_earnings_line(line: &str) -> Option<RowData> {
     let mut values = HashMap::new();
     values.insert("Amount".to_string(), amount);
 
-    Some(RowData {
+    Ok(Some(RowData {
         description,
         dates: date_str,
         values,
-    })
+    }))
 }
 
-pub fn parse_deduction_tax_line(line: &str) -> Option<RowData> {
+pub fn parse_deduction_tax_line(line: &str) -> Result<Option<RowData>> {
     let line = line.trim();
     if line.is_empty()
         || line.starts_with("Description")
@@ -112,12 +137,12 @@ pub fn parse_deduction_tax_line(line: &str) -> Option<RowData> {
         || line.starts_with("Employee Taxes")
         || line.starts_with("Earnings")
     {
-        return None;
+        return Ok(None);
     }
 
     let tokens: Vec<&str> = line.split_whitespace().collect();
     if tokens.len() < 2 {
-        return None;
+        return Ok(None);
     }
 
     let last_is_num = tokens
@@ -146,22 +171,25 @@ pub fn parse_deduction_tax_line(line: &str) -> Option<RowData> {
     let (description, amount) = if second_last_is_num && last_is_num {
         let amount_str = tokens[tokens.len() - 2];
         let desc = tokens[..tokens.len() - 2].join(" ");
-        (desc, clean_decimal(amount_str))
+        (
+            desc,
+            clean_decimal(amount_str).with_context(|| format!("deduction/tax line {line:?}"))?,
+        )
     } else if last_is_num {
         let desc = tokens[..tokens.len() - 1].join(" ");
         (desc, Decimal::ZERO)
     } else {
-        return None;
+        return Ok(None);
     };
 
     let mut values = HashMap::new();
     values.insert("Amount".to_string(), amount);
 
-    Some(RowData {
+    Ok(Some(RowData {
         description,
         dates: String::new(),
         values,
-    })
+    }))
 }
 
 pub fn parse_page_tables(page_text: &str, page_num: usize) -> Result<ParsedPage> {
@@ -209,7 +237,8 @@ pub fn parse_page_tables(page_text: &str, page_num: usize) -> Result<ParsedPage>
         if line_strip.starts_with("Current") && !line_strip.contains("Hours Worked") {
             let parts: Vec<&str> = line_strip.split_whitespace().collect();
             if let Some(last_part) = parts.last() {
-                net_pay = clean_decimal(last_part);
+                net_pay = clean_decimal(last_part)
+                    .with_context(|| format!("page {page_num}: net pay line {line_strip:?}"))?;
             }
         }
     }
@@ -250,22 +279,22 @@ pub fn parse_page_tables(page_text: &str, page_num: usize) -> Result<ParsedPage>
 
         match state {
             ParseState::Earnings => {
-                if let Some(row) = parse_earnings_line(line) {
+                if let Some(row) = parse_earnings_line(line)? {
                     earnings.push(row);
                 }
             }
             ParseState::EmployeeTaxes => {
-                if let Some(row) = parse_deduction_tax_line(line) {
+                if let Some(row) = parse_deduction_tax_line(line)? {
                     employee_taxes.push(row);
                 }
             }
             ParseState::PreTaxDeductions => {
-                if let Some(row) = parse_deduction_tax_line(line) {
+                if let Some(row) = parse_deduction_tax_line(line)? {
                     pre_tax_deductions.push(row);
                 }
             }
             ParseState::PostTaxDeductions => {
-                if let Some(row) = parse_deduction_tax_line(line) {
+                if let Some(row) = parse_deduction_tax_line(line)? {
                     post_tax_deductions.push(row);
                 }
             }
