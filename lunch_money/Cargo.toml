@@ -5,7 +5,7 @@ edition.workspace = true
 
 [features]
 default = []
-client = ["dep:anyhow", "dep:reqwest"]
+client = ["dep:anyhow", "dep:reqwest", "dep:tokio"]
 
 [dependencies]
 anyhow = { workspace = true, optional = true }
@@ -16,6 +16,8 @@ reqwest = { workspace = true, optional = true, features = ["multipart"] }
 rust_decimal.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tokio = { workspace = true, optional = true, features = ["time"] }
 
 [lints]
 workspace = true
+

@@ -37,7 +37,11 @@ pub struct TransactionQuery {
 
 impl Client {
     pub fn new(http: reqwest::Client, api_key: String) -> Self {
-        Self(lunch_money::client::Client::new(http, api_key))
+        Self(lunch_money::client::Client::new(
+            http,
+            api_key,
+            lunch_money::client::TooManyRequestsPolicy::Fail,
+        ))
     }
 
     pub async fn fetch_manual_accounts(&self) -> anyhow::Result<Vec<schema::ManualAccount>> {

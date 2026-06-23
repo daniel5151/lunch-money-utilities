@@ -77,7 +77,7 @@ pub mod schemas {
         /// Account subtype.
         pub subtype: Option<String>,
         /// Mask digits (last 3-4 digits).
-        pub mask: String,
+        pub mask: Option<String>,
         /// Name of institution holding the account.
         pub institution_name: String,
         /// Current status of the account.

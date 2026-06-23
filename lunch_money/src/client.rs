@@ -24,19 +24,92 @@ use crate::transactions::schemas::UpdateObject;
 use crate::transactions::schemas::UpdatePayload;
 use anyhow::Context;
 
+/// Policy for handling HTTP 429 Too Many Requests rate limits.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum TooManyRequestsPolicy {
+    /// Return the error immediately (fail fast).
+    #[default]
+    Fail,
+    /// Retry the request after a delay.
+    Retry {
+        /// The maximum number of retry attempts.
+        max_retries: u32,
+        /// The initial backoff delay.
+        initial_delay: std::time::Duration,
+    },
+}
+
 /// A client for the Lunch Money API.
 ///
-/// Holds the HTTP client and developer API key used to make authenticated requests.
+/// Holds the HTTP client, developer API key, and the 429 retry policy.
 #[derive(Clone)]
 pub struct Client {
     http: reqwest::Client,
     api_key: String,
+    rate_limit_policy: TooManyRequestsPolicy,
 }
 
 impl Client {
-    /// Creates a new `Client` with the given HTTP client and API key.
-    pub fn new(http: reqwest::Client, api_key: String) -> Self {
-        Self { http, api_key }
+    /// Creates a new `Client` with the given HTTP client, API key, and 429 rate limit policy.
+    pub fn new(
+        http: reqwest::Client,
+        api_key: String,
+        rate_limit_policy: TooManyRequestsPolicy,
+    ) -> Self {
+        Self {
+            http,
+            api_key,
+            rate_limit_policy,
+        }
+    }
+
+    async fn execute(&self, builder: reqwest::RequestBuilder) -> anyhow::Result<reqwest::Response> {
+        let mut attempts = 0;
+        loop {
+            let req_builder = match builder.try_clone() {
+                Some(b) => b,
+                None => {
+                    return builder.send().await.context("Lunch Money HTTP call failed");
+                }
+            };
+
+            let res = req_builder
+                .send()
+                .await
+                .context("Lunch Money HTTP call failed")?;
+
+            if res.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                if let TooManyRequestsPolicy::Retry {
+                    max_retries,
+                    initial_delay,
+                } = self.rate_limit_policy
+                {
+                    if attempts < max_retries {
+                        attempts += 1;
+                        let delay = if let Some(retry_after) =
+                            res.headers().get(reqwest::header::RETRY_AFTER)
+                        {
+                            if let Ok(s) = retry_after.to_str() {
+                                if let Ok(seconds) = s.parse::<u64>() {
+                                    std::time::Duration::from_secs(seconds)
+                                } else {
+                                    initial_delay * 2_u32.pow(attempts - 1)
+                                }
+                            } else {
+                                initial_delay * 2_u32.pow(attempts - 1)
+                            }
+                        } else {
+                            initial_delay * 2_u32.pow(attempts - 1)
+                        };
+
+                        tokio::time::sleep(delay).await;
+                        continue;
+                    }
+                }
+            }
+
+            return Ok(res);
+        }
     }
 
     async fn fetch<T: serde::de::DeserializeOwned, Q: serde::Serialize + ?Sized>(
@@ -45,14 +118,12 @@ impl Client {
         query: &Q,
     ) -> anyhow::Result<T> {
         let url = format!("https://api.lunchmoney.dev/v2/{}", endpoint);
-        let res = self
+        let builder = self
             .http
             .get(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .query(query)
-            .send()
-            .await
-            .context("Lunch Money HTTP call failed")?;
+            .query(query);
+        let res = self.execute(builder).await?;
 
         if !res.status().is_success() {
             let status = res.status();
@@ -69,14 +140,12 @@ impl Client {
         payload: &P,
     ) -> anyhow::Result<()> {
         let url = format!("https://api.lunchmoney.dev/v2/{}", endpoint);
-        let res = self
+        let builder = self
             .http
             .request(method, &url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(payload)
-            .send()
-            .await
-            .context("Lunch Money HTTP call failed")?;
+            .json(payload);
+        let res = self.execute(builder).await?;
 
         if !res.status().is_success() {
             let status = res.status();
@@ -93,14 +162,12 @@ impl Client {
         payload: &P,
     ) -> anyhow::Result<T> {
         let url = format!("https://api.lunchmoney.dev/v2/{}", endpoint);
-        let res = self
+        let builder = self
             .http
             .request(method, &url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(payload)
-            .send()
-            .await
-            .context("Lunch Money HTTP call failed")?;
+            .json(payload);
+        let res = self.execute(builder).await?;
 
         if !res.status().is_success() {
             let status = res.status();
@@ -142,13 +209,11 @@ impl Client {
         E: serde::de::DeserializeOwned,
     {
         let url = format!("https://api.lunchmoney.dev/v2/transactions/{}", id);
-        let res = self
+        let builder = self
             .http
             .get(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .send()
-            .await
-            .context("Lunch Money HTTP call failed")?;
+            .header("Authorization", format!("Bearer {}", self.api_key));
+        let res = self.execute(builder).await?;
 
         if res.status() == reqwest::StatusCode::NOT_FOUND {
             let body = res.text().await.unwrap_or_default();
@@ -275,13 +340,11 @@ impl Client {
 
     async fn exec_empty(&self, method: reqwest::Method, endpoint: &str) -> anyhow::Result<()> {
         let url = format!("https://api.lunchmoney.dev/v2/{}", endpoint);
-        let res = self
+        let builder = self
             .http
             .request(method, &url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .send()
-            .await
-            .context("Lunch Money HTTP call failed")?;
+            .header("Authorization", format!("Bearer {}", self.api_key));
+        let res = self.execute(builder).await?;
 
         if !res.status().is_success() {
             let status = res.status();
@@ -338,14 +401,12 @@ impl Client {
             ("category_id", category_id.to_string()),
             ("start_date", start_date.to_string()),
         ];
-        let res = self
+        let builder = self
             .http
             .delete(url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .query(&query)
-            .send()
-            .await
-            .context("Lunch Money HTTP call failed")?;
+            .query(&query);
+        let res = self.execute(builder).await?;
 
         if !res.status().is_success() {
             let status = res.status();
@@ -367,10 +428,7 @@ impl Client {
     }
 
     /// Fetches a single category by its ID.
-    pub async fn fetch_category_by_id(
-        &self,
-        id: CategoryId,
-    ) -> anyhow::Result<Category> {
+    pub async fn fetch_category_by_id(&self, id: CategoryId) -> anyhow::Result<Category> {
         self.fetch(&format!("categories/{}", id), &[] as &[(&str, &str)])
             .await
     }
@@ -393,14 +451,12 @@ impl Client {
     ) -> anyhow::Result<crate::categories::schemas::DeleteCategoryResult> {
         let url = format!("https://api.lunchmoney.dev/v2/categories/{}", id);
         let q = force.map(|f| vec![("force", f)]).unwrap_or_default();
-        let res = self
+        let builder = self
             .http
             .delete(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .query(&q)
-            .send()
-            .await
-            .context("Lunch Money HTTP call failed")?;
+            .query(&q);
+        let res = self.execute(builder).await?;
 
         if res.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY {
             let deps = res
@@ -462,14 +518,12 @@ impl Client {
         if let Some(dbh) = delete_balance_history {
             q.push(("delete_balance_history", dbh.to_string()));
         }
-        let res = self
+        let builder = self
             .http
             .delete(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .query(&q)
-            .send()
-            .await
-            .context("Lunch Money HTTP call failed")?;
+            .query(&q);
+        let res = self.execute(builder).await?;
 
         if !res.status().is_success() {
             let status = res.status();
@@ -523,14 +577,12 @@ impl Client {
         query: &crate::plaid_accounts::query_params::TriggerPlaidFetchQuery,
     ) -> anyhow::Result<()> {
         let url = "https://api.lunchmoney.dev/v2/plaid_accounts/fetch";
-        let res = self
+        let builder = self
             .http
             .post(url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .query(query)
-            .send()
-            .await
-            .context("Lunch Money HTTP call failed")?;
+            .query(query);
+        let res = self.execute(builder).await?;
 
         if !res.status().is_success() {
             let status = res.status();
@@ -558,15 +610,13 @@ impl Client {
         if let Some(ub) = update_balance {
             q.push(("update_balance", ub));
         }
-        let res = self
+        let builder = self
             .http
             .put(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
             .query(&q)
-            .json(tx)
-            .send()
-            .await
-            .context("Lunch Money HTTP call failed")?;
+            .json(tx);
+        let res = self.execute(builder).await?;
 
         if !res.status().is_success() {
             let status = res.status();
@@ -653,14 +703,12 @@ impl Client {
             form = form.text("notes", n.to_string());
         }
 
-        let res = self
+        let builder = self
             .http
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .multipart(form)
-            .send()
-            .await
-            .context("Lunch Money HTTP call failed")?;
+            .multipart(form);
+        let res = self.execute(builder).await?;
 
         if !res.status().is_success() {
             let status = res.status();
@@ -717,14 +765,12 @@ impl Client {
     ) -> anyhow::Result<crate::tags::schemas::DeleteTagResult> {
         let url = format!("https://api.lunchmoney.dev/v2/tags/{}", id);
         let q = force.map(|f| vec![("force", f)]).unwrap_or_default();
-        let res = self
+        let builder = self
             .http
             .delete(&url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .query(&q)
-            .send()
-            .await
-            .context("Lunch Money HTTP call failed")?;
+            .query(&q);
+        let res = self.execute(builder).await?;
 
         if res.status() == reqwest::StatusCode::UNPROCESSABLE_ENTITY {
             let deps = res
