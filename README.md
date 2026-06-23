@@ -1,6 +1,10 @@
-# `lunchmoney-utils-rs`
+# Prilik's Lunch Money Utilities
 
 Assorted [Lunch Money](https://lunchmoney.app/) utilities.
+
+Some are pretty generic (e.g: `splitwise-lunchmoney`), others are a bit more
+specialized (e.g: `lm-payslip-importer`), but given that they all share a common
+foundation... it makes sense to keep 'em all under one roof.
 
 > [!WARNING]
 >
@@ -16,11 +20,11 @@ Assorted [Lunch Money](https://lunchmoney.app/) utilities.
 
 ## Crates
 
-| Crate                                           | Path                    | Description                                                                                                                                    |
-| ----------------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`lunch_money`](lunch_money/)                   | `lunch_money/`          | Lib: Client for interacting with the Lunch Money v2 API                                                                                        |
-| [`splitwise-lunchmoney`](splitwise_lunchmoney/) | `splitwise_lunchmoney/` | Bin: syncs Splitwise transactions and outstanding balances into Lunch Money manual accounts. See its [README](splitwise_lunchmoney/README.md). |
-| [`lm-payslip-importer`](lm_payslip_importer/) | `lm_payslip_importer/` | Bin: Imports direct deposits and RSU vests from payslips (primarily tested with Workday, but designed to be generic) into granular transaction lines in Lunch Money. See its [README](lm_payslip_importer/README.md). |
+| Crate                                           | Path                    | Description                                                                                                                                                                                                           |
+| ----------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`lunch_money`](lunch_money/)                   | `lunch_money/`          | Lib: Client for interacting with the Lunch Money v2 API                                                                                                                                                               |
+| [`splitwise-lunchmoney`](splitwise_lunchmoney/) | `splitwise_lunchmoney/` | Bin: syncs Splitwise transactions and outstanding balances into Lunch Money manual accounts. See its [README](splitwise_lunchmoney/README.md).                                                                        |
+| [`lm-payslip-importer`](lm_payslip_importer/)   | `lm_payslip_importer/`  | Bin: Imports direct deposits and RSU vests from payslips (primarily tested with Workday, but designed to be generic) into granular transaction lines in Lunch Money. See its [README](lm_payslip_importer/README.md). |
 
 Expect more utilities to appear over time...
 
