@@ -21,8 +21,8 @@ pub struct ImputedIncomeConfig {
 #[serde(deny_unknown_fields)]
 pub struct LunchMoneyConfig {
     pub api_key: Option<String>,
-    pub net_zero_account: Option<String>,
-    pub rsu_account: Option<String>,
+    pub net_zero_account: String,
+    pub rsu_account: String,
 }
 
 #[derive(Deserialize, Clone)]
