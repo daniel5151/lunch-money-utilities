@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "lunch_money",
     "splitwise_lunchmoney",
+    "lm_payslip_importer",
 ]
 default-members = [
     "splitwise_lunchmoney",
@@ -15,6 +16,8 @@ edition = "2024"
 [workspace.dependencies]
 # Internal crates
 lunch_money = { path = "lunch_money" }
+
+regex = "1.10"
 
 # Shared third-party dependencies. Member crates opt in via
 # `dep.workspace = true` and may refine features locally.
