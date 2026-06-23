@@ -236,6 +236,86 @@ pub(crate) async fn run_import(
 
     let mut matched_tx_ids = HashSet::new();
 
+    let mut min_date = parsed_pages[0].check_date;
+    let mut max_date = parsed_pages[0].check_date;
+    for page in &parsed_pages {
+        if page.check_date < min_date {
+            min_date = page.check_date;
+        }
+        if page.check_date > max_date {
+            max_date = page.check_date;
+        }
+    }
+
+    let start_date = min_date
+        .checked_sub(jiff::Span::new().days(3))
+        .map_err(|e| anyhow!("Failed to subtract days: {}", e))?;
+    let end_date = max_date
+        .checked_add(jiff::Span::new().days(3))
+        .map_err(|e| anyhow!("Failed to add days: {}", e))?;
+
+    let checking_txs = if let Some(ref client_ref) = client {
+        if let Some(ref checking_acct) = resolved_net_zero_acct {
+            let query = match checking_acct {
+                ResolvedAccount::Plaid(id) => TransactionQuery::builder()
+                    .start_date(start_date.to_string())
+                    .end_date(end_date.to_string())
+                    .limit(1000)
+                    .plaid_account_id(*id)
+                    .build(),
+                ResolvedAccount::Manual(id) => TransactionQuery::builder()
+                    .start_date(start_date.to_string())
+                    .end_date(end_date.to_string())
+                    .limit(1000)
+                    .manual_account_id(*id)
+                    .build(),
+            };
+
+            println! { "Fetching transactions for net-zero account '{}' between {} and {}...", config.lunch_money.net_zero_account, start_date, end_date };
+            let tx_response = client_ref
+                .fetch_transactions::<serde_json::Value, String>(&query)
+                .await
+                .context("Failed to fetch checking transactions")?;
+            println! { "Fetched {} checking transactions.", tx_response.transactions.len() };
+            tx_response.transactions
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    let rsu_txs = if let Some(ref client_ref) = client {
+        if let Some(ref rsu_acct) = resolved_rsu_acct {
+            let query = match rsu_acct {
+                ResolvedAccount::Plaid(id) => TransactionQuery::builder()
+                    .start_date(start_date.to_string())
+                    .end_date(end_date.to_string())
+                    .limit(1000)
+                    .plaid_account_id(*id)
+                    .build(),
+                ResolvedAccount::Manual(id) => TransactionQuery::builder()
+                    .start_date(start_date.to_string())
+                    .end_date(end_date.to_string())
+                    .limit(1000)
+                    .manual_account_id(*id)
+                    .build(),
+            };
+
+            println! { "Fetching transactions for RSU account '{}' between {} and {}...", config.lunch_money.rsu_account, start_date, end_date };
+            let tx_response = client_ref
+                .fetch_transactions::<serde_json::Value, String>(&query)
+                .await
+                .context("Failed to fetch RSU transactions")?;
+            println! { "Fetched {} RSU transactions.", tx_response.transactions.len() };
+            tx_response.transactions
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
     for payslip in &parsed_pages {
         let check_date_str = payslip.check_date.to_string();
         let net_pay = payslip.net_pay;
@@ -275,7 +355,7 @@ pub(crate) async fn run_import(
                     tax_components.push(SplitComponent {
                         description: format!(
                             "{} - {}",
-                            config.workday.rsu_vest_payee, tax.description
+                            config.lunch_money.payslip_payee, tax.description
                         ),
                         amount,
                         category_id: cat_id,
@@ -292,7 +372,7 @@ pub(crate) async fn run_import(
             let mut rsu_components = vec![SplitComponent {
                 description: format!(
                     "{} - {}",
-                    config.workday.rsu_vest_payee, rsu_earn.description
+                    config.lunch_money.payslip_payee, rsu_earn.description
                 ),
                 amount: -rsu_amount,
                 category_id: rsu_cat_id,
@@ -300,14 +380,67 @@ pub(crate) async fn run_import(
             }];
             rsu_components.extend(tax_components);
 
+            // Match RSU vest to auto-imported Plaid transaction(s)
+            let matched_plaid_rsu_txs = if let Some(ref rsu_acct) = resolved_rsu_acct {
+                let start_window = payslip
+                    .check_date
+                    .checked_sub(jiff::Span::new().days(3))
+                    .map_err(|e| anyhow!("Failed to subtract days: {}", e))?;
+                let end_window = payslip
+                    .check_date
+                    .checked_add(jiff::Span::new().days(3))
+                    .map_err(|e| anyhow!("Failed to add days: {}", e))?;
+
+                rsu_txs
+                    .iter()
+                    .filter(|tx| {
+                        let matches_acct = match rsu_acct {
+                            ResolvedAccount::Plaid(id) => tx.plaid_account_id == Some(*id),
+                            ResolvedAccount::Manual(id) => tx.manual_account_id == Some(*id),
+                        };
+                        matches_acct
+                            && tx.date >= start_window
+                            && tx.date <= end_window
+                            && tx.amount.is_zero()
+                            && tx.payee.eq_ignore_ascii_case(&config.lunch_money.rsu_payee_match)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+
+            let mut synthetic_tx_date = payslip.check_date;
+            if !matched_plaid_rsu_txs.is_empty() {
+                synthetic_tx_date = matched_plaid_rsu_txs[0].date;
+                let matched_ids: Vec<String> = matched_plaid_rsu_txs
+                    .iter()
+                    .map(|tx| tx.id.to_string())
+                    .collect();
+                println! {
+                    "  {STYLE_SUCCESS}✅ Matched RSU vest to auto-imported Plaid transaction(s): {}{STYLE_SUCCESS:#}",
+                    matched_ids.join(", ")
+                };
+            }
+
             if cli.dry_run {
                 println! {
                     "  {STYLE_INFO}ℹ️ [Dry Run] RSU Vest Detected. Creating synthetic transaction in account '{}'.{STYLE_INFO:#}",
                     &config.lunch_money.rsu_account
                 };
+                if !matched_plaid_rsu_txs.is_empty() {
+                    let matched_ids: Vec<String> = matched_plaid_rsu_txs
+                        .iter()
+                        .map(|tx| format!("#{}", tx.id))
+                        .collect();
+                    println! {
+                        "  {STYLE_INFO}ℹ️ [Dry Run] Aligned date to matched Plaid transaction date ({}) and will reference companion Plaid transaction(s) in notes: {}{STYLE_INFO:#}",
+                        synthetic_tx_date, matched_ids.join(", ")
+                    };
+                }
                 println! {
                     "\n  {STYLE_HEADER}Plan: Create transaction (Date: {}, Amount: {}, Payee: {}){STYLE_HEADER:#}",
-                    payslip.check_date, parent_amount, config.workday.rsu_vest_payee
+                    synthetic_tx_date, parent_amount, config.lunch_money.payslip_payee
                 };
                 for comp in &rsu_components {
                     let sign_style = if comp.amount.is_sign_negative() {
@@ -328,11 +461,24 @@ pub(crate) async fn run_import(
                             &config.lunch_money.rsu_account
                         };
 
+                        let notes = if !matched_plaid_rsu_txs.is_empty() {
+                            let companion_ids: Vec<String> = matched_plaid_rsu_txs
+                                .iter()
+                                .map(|tx| format!("#{}", tx.id))
+                                .collect();
+                            format!(
+                                "Synthetic compensation transaction for RSU vest split. Companion to auto-imported vest transaction(s): {}.",
+                                companion_ids.join(", ")
+                            )
+                        } else {
+                            "Synthetic transaction for RSU vest split".to_string()
+                        };
+
                         let insert_tx = insert_transaction(
-                            payslip.check_date,
+                            synthetic_tx_date,
                             parent_amount,
-                            config.workday.rsu_vest_payee.clone(),
-                            "Synthetic transaction for RSU vest split".to_string(),
+                            config.lunch_money.payslip_payee.clone(),
+                            notes,
                             rsu_cat_id,
                             rsu_acct,
                         )?;
@@ -392,6 +538,8 @@ pub(crate) async fn run_import(
                                 };
                             }
                         }
+
+
                     } else {
                         println! {
                             "  {STYLE_ERROR}❌ RSU account not resolved in configuration.{STYLE_ERROR:#}"
@@ -409,50 +557,32 @@ pub(crate) async fn run_import(
         let mut tx_id = TransactionId::from(0);
         let mut tx_date = payslip.check_date;
         let mut tx_amount = -payslip.net_pay;
-        let mut tx_payee = config.workday.direct_deposit_payee.clone();
+        let mut tx_payee = config.lunch_money.payslip_payee.clone();
 
         if let Some(ref client_ref) = client {
-            // Query transactions in a 6-day window around this check date (check_date - 3 days to check_date + 3 days)
-            let start_date = payslip
+            let start_window = payslip
                 .check_date
                 .checked_sub(jiff::Span::new().days(3))
                 .map_err(|e| anyhow!("Failed to subtract days: {}", e))?;
-            let end_date = payslip
+            let end_window = payslip
                 .check_date
                 .checked_add(jiff::Span::new().days(3))
                 .map_err(|e| anyhow!("Failed to add days: {}", e))?;
 
-            let query = TransactionQuery::builder()
-                .start_date(start_date.to_string())
-                .end_date(end_date.to_string())
-                .limit(100)
-                .build();
-
-            let tx_response = client_ref
-                .fetch_transactions::<serde_json::Value, String>(&query)
-                .await
-                .context("Failed to fetch Lunch Money transactions for check date window")?;
-
             let mut best_match = None;
-            for tx in &tx_response.transactions {
+            for tx in &checking_txs {
                 if matched_tx_ids.contains(&tx.id) {
                     continue;
                 }
 
-                // Match only transactions where the payee contains the configured payee_match substring (case-insensitive)
-                if !tx
-                    .payee
-                    .to_lowercase()
-                    .contains(&config.workday.payee_match.to_lowercase())
-                {
+                if tx.date < start_window || tx.date > end_window {
                     continue;
                 }
 
                 // In Lunch Money, credit amounts are negative
                 let tx_amount_abs = tx.amount.abs();
-                let diff_days = tx.date.until(payslip.check_date).unwrap().get_days().abs();
 
-                if (tx_amount_abs - net_pay).abs() < Decimal::new(1, 2) && diff_days <= 3 {
+                if (tx_amount_abs - net_pay).abs() < Decimal::new(1, 2) {
                     best_match = Some(tx);
                     break;
                 }
@@ -482,7 +612,7 @@ pub(crate) async fn run_import(
                         tx_id = TransactionId(0);
                         tx_date = payslip.check_date;
                         tx_amount = Decimal::ZERO;
-                        tx_payee = config.workday.direct_deposit_payee.clone();
+                        tx_payee = config.lunch_money.payslip_payee.clone();
                     } else {
                         let acct = match resolved_net_zero_acct {
                             Some(acct) => acct,
@@ -503,7 +633,7 @@ pub(crate) async fn run_import(
                         let insert_tx = insert_transaction_for_zero_pay(
                             payslip.check_date,
                             &acct,
-                            config.workday.direct_deposit_payee.clone(),
+                            config.lunch_money.payslip_payee.clone(),
                         )?;
                         let insert_resp = client_ref
                             .insert_transactions::<serde_json::Value, String, serde_json::Value, String>(&[insert_tx])
@@ -564,7 +694,7 @@ pub(crate) async fn run_import(
             if !amount.is_zero() {
                 let (cat_name, cat_id) = map_category(&earn.description, &resolved_cats)?;
                 components.push(SplitComponent {
-                    description: format!("{} - {}", tx_payee, earn.description),
+                    description: format!("{} - {}", config.lunch_money.payslip_payee, earn.description),
                     amount: -amount,
                     category_id: cat_id,
                     category_name: cat_name.clone(),
@@ -572,7 +702,7 @@ pub(crate) async fn run_import(
 
                 if is_imputed_income(&earn.description) {
                     components.push(SplitComponent {
-                        description: format!("{} - {} Offset", tx_payee, earn.description),
+                        description: format!("{} - {} Offset", config.lunch_money.payslip_payee, earn.description),
                         amount,
                         category_id: cat_id,
                         category_name: cat_name,
@@ -587,7 +717,7 @@ pub(crate) async fn run_import(
             if !amount.is_zero() {
                 let (cat_name, cat_id) = map_category(&ded.description, &resolved_cats)?;
                 components.push(SplitComponent {
-                    description: format!("{} - {}", tx_payee, ded.description),
+                    description: format!("{} - {}", config.lunch_money.payslip_payee, ded.description),
                     amount,
                     category_id: cat_id,
                     category_name: cat_name.clone(),
@@ -595,7 +725,7 @@ pub(crate) async fn run_import(
 
                 if is_imputed_income(&ded.description) {
                     components.push(SplitComponent {
-                        description: format!("{} - {} Offset", tx_payee, ded.description),
+                        description: format!("{} - {} Offset", config.lunch_money.payslip_payee, ded.description),
                         amount: -amount,
                         category_id: cat_id,
                         category_name: cat_name,
@@ -610,7 +740,7 @@ pub(crate) async fn run_import(
             if !amount.is_zero() {
                 let (cat_name, cat_id) = map_category(&tax.description, &resolved_cats)?;
                 components.push(SplitComponent {
-                    description: format!("{} - {}", tx_payee, tax.description),
+                    description: format!("{} - {}", config.lunch_money.payslip_payee, tax.description),
                     amount,
                     category_id: cat_id,
                     category_name: cat_name.clone(),
@@ -618,7 +748,7 @@ pub(crate) async fn run_import(
 
                 if is_imputed_income(&tax.description) {
                     components.push(SplitComponent {
-                        description: format!("{} - {} Offset", tx_payee, tax.description),
+                        description: format!("{} - {} Offset", config.lunch_money.payslip_payee, tax.description),
                         amount: -amount,
                         category_id: cat_id,
                         category_name: cat_name,
@@ -633,7 +763,7 @@ pub(crate) async fn run_import(
             if !amount.is_zero() {
                 let (cat_name, cat_id) = map_category(&ded.description, &resolved_cats)?;
                 components.push(SplitComponent {
-                    description: format!("{} - {}", tx_payee, ded.description),
+                    description: format!("{} - {}", config.lunch_money.payslip_payee, ded.description),
                     amount,
                     category_id: cat_id,
                     category_name: cat_name.clone(),
@@ -641,7 +771,7 @@ pub(crate) async fn run_import(
 
                 if is_imputed_income(&ded.description) {
                     components.push(SplitComponent {
-                        description: format!("{} - {} Offset", tx_payee, ded.description),
+                        description: format!("{} - {} Offset", config.lunch_money.payslip_payee, ded.description),
                         amount: -amount,
                         category_id: cat_id,
                         category_name: cat_name,
@@ -700,18 +830,22 @@ pub(crate) async fn run_import(
                 "  Splitting transaction ID {} in Lunch Money...",
                 tx_id
             };
-            match client
-                .as_ref()
-                .unwrap()
-                .split_transaction::<serde_json::Value, String>(tx_id, &payload)
-                .await
-            {
-                Ok(_) => {
-                    println! { "  {STYLE_SUCCESS}✅ Successfully split transaction ID {}!{STYLE_SUCCESS:#}", tx_id };
+            if let Some(ref client_ref) = client {
+                match client_ref
+                    .split_transaction::<serde_json::Value, String>(tx_id, &payload)
+                    .await
+                {
+                    Ok(_) => {
+                        println! { "  {STYLE_SUCCESS}✅ Successfully split transaction ID {}!{STYLE_SUCCESS:#}", tx_id };
+                    }
+                    Err(e) => {
+                        eprintln! { "  {STYLE_ERROR}❌ Error splitting transaction ID {}: {}{STYLE_ERROR:#}", tx_id, e };
+                    }
                 }
-                Err(e) => {
-                    eprintln! { "  {STYLE_ERROR}❌ Error splitting transaction ID {}: {}{STYLE_ERROR:#}", tx_id, e };
-                }
+            } else {
+                println! {
+                    "  {STYLE_ERROR}❌ Cannot split transaction: Lunch Money API key not set.{STYLE_ERROR:#}"
+                };
             }
         }
     }

@@ -26,7 +26,7 @@ The code may eventually support numerous payslip formats, but at the moment, it'
 
 - **Direct Deposit Matching**:
   - Queries Lunch Money transactions within a 6-day window around the check date (`check_date - 3 days` to `check_date + 3 days`).
-  - Matches transactions where the payee contains the configured `payee_match` (case-insensitive, e.g. "Workday" or "Meta") and the net amount matches the payslip's Net Pay exactly (within 1 cent).
+  - Matches transactions where the net amount matches the payslip's Net Pay exactly (within 1 cent).
 - **Synthetic Transactions**:
   - For zero-dollar checks or RSU vests where there isn't a corresponding bank transaction, the tool inserts a synthetic parent transaction on the check date before splitting it.
 - **Imputed Income Handling**:
@@ -89,14 +89,8 @@ api_key = "..."
 net_zero_account = "Bank of America Checking"
 # Manual account used to track RSU vests
 rsu_account = "Equity Awards"
-
-[workday]
-# Substring used to match existing payslip direct deposit transactions in Lunch Money (case-insensitive)
-payee_match = "Meta"
 # Payee for newly created direct deposit / net-zero transactions
-direct_deposit_payee = "Meta Direct Deposit"
-# Payee for newly created RSU vest transactions
-rsu_vest_payee = "Meta RSU Vest"
+payslip_payee = "Meta Payslip"
 
 [mapping]
 # Maps payslip line descriptions to Lunch Money category names (or category IDs)
@@ -138,6 +132,50 @@ If a payslip contains `*Imp GTL` of `$50.00`, two split lines are created:
 1. `Meta Direct Deposit - *Imp GTL` with an amount of `-$50.00` (Credit/Earnings).
 2. `Meta Direct Deposit - *Imp GTL Offset` with an amount of `$50.00` (Debit/Deduction).
 Both lines are assigned to the category resolved for `*Imp GTL` in `[mapping]`. They cancel each other out mathematically, keeping the net transaction amount intact.
+
+---
+
+## 📈 RSU Vest & Sale Accounting Lifecycle
+
+When your brokerage account receives shares from stock vests, Plaid syncs these events as `$0.00` transactions in your brokerage transaction ledger because no cash was exchanged. However, this leaves your budget blind to your true W-2 gross income and tax withholding history.
+
+`lm-payslip-importer` solves this by injecting a synthetic parent transaction alongside the `$0.00` Plaid transaction. For this system to function cleanly without double-counting your budget or miscalculating your net worth, you should configure your Lunch Money categories as follows.
+
+### Recommended Category Setup
+
+1. **`Stock Vest`** (nested under the **Transfers** group):
+   * Mark this category as a **Transfer** (excluded from income/expenses).
+   * The auto-imported `$0.00` Plaid transaction should be assigned to this category.
+2. **`Stock Sale`** (nested under the **Transfers** group):
+   * Mark this category as a **Transfer** (excluded from income/expenses).
+   * Any future transactions representing the sale of these shares (converting stock to cash) should be assigned here.
+3. **`Salary`** (nested under the **Income** group):
+   * Include gross earnings from stock vests in this category so it counts towards your W-2 income.
+4. **`Taxes`** (nested under the **Expenses** group):
+   * Tax withholdings from the vest split should be mapped to your standard tax expense categories.
+
+### Real-World Walkthrough (Example)
+
+Consider a vesting event where you receive gross stock value of **`$10,000.00`**, but **`$4,000.00`** is withheld for taxes, resulting in net shares worth **`$6,000.00`** deposited into your brokerage account.
+
+#### 1. At Vest (Income & Taxes Recognized)
+* Plaid imports a transaction representing the share deposit:
+  * **Payee**: `$META Vest` (Amount: `$0.00`, Category: `Stock Vest` / Transfer).
+* The importer identifies this event, matches the `$0.00` transaction, and injects a **synthetic parent transaction** into your Schwab account for the net value:
+  * **Payee**: `Meta RSU Vest` (Amount: `-$6,000.00` / credit).
+* The importer automatically splits the synthetic parent into:
+  * **`-$10,000.00`** under **`Salary`** (Gross W-2 income recorded).
+  * **`+$4,000.00`** under **`Taxes`** (Tax withholding expenses recorded).
+* **Result**: Your W-2 income increases by `$10,000.00`, your tax expenses increase by `$4,000.00`, and your net worth/budget shows a correct net gain of `$6,000.00`.
+
+#### 2. At Sale (Asset-to-Cash Conversion)
+Later, you decide to liquidate that stock:
+* Plaid imports a transaction when the stock is sold:
+  * **Payee**: `$META Sell` (Amount: `-$6,000.00` / credit to Schwab, Category: `Stock Sale` / Transfer).
+* You transfer that cash to your checking account:
+  * **Schwab ledger**: `+$6,000.00` (debit, Category: `Payment, Transfer` / Transfer).
+  * **Checking ledger**: `-$6,000.00` (credit, Category: `Payment, Transfer` / Transfer).
+* **Result**: The sale inflow (`-$6,000.00`) and transfer outflow (`+$6,000.00`) in Schwab cancel each other out. The transfer inflow in your checking account (`-$6,000.00`) is recognized. **No new income is recorded** during the sale because it was already fully accounted for at the vest!
 
 ---
 

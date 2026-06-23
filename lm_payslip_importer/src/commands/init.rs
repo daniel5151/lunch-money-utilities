@@ -226,15 +226,11 @@ api_key = "{lunch_money_api_key}"
 net_zero_account = "{net_zero_name}"
 rsu_account = "{rsu_name}"
 
-[workday]
-# Substring used to match existing payslip direct deposit transactions in Lunch Money (case-insensitive)
-payee_match = "Workday"
-
 # Payee for newly created direct deposit / net-zero transactions
-direct_deposit_payee = "Workday Direct Deposit"
+payslip_payee = "Meta Payslip"
 
-# Payee for newly created RSU vest transactions
-rsu_vest_payee = "Workday RSU Vest"
+# Payee name for auto-imported RSU vest events in Lunch Money (case-insensitive direct comparison)
+rsu_payee_match = "$META RSU Vest"
 
 [mapping]
 # Map payslip item names to Lunch Money category names or IDs.
