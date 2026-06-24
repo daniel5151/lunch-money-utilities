@@ -58,12 +58,9 @@ fn confirm_operation() -> Decision {
     const SKIP: &str = "Skip — leave this one and continue";
     const STOP: &str = "Stop — cancel and perform no further operations";
 
-    match inquire::Select::new(
-        "Proceed with the operation above?",
-        vec![YES, SKIP, STOP],
-    )
-    .with_help_message("Review the proposed operation above, then choose")
-    .prompt()
+    match inquire::Select::new("Proceed with the operation above?", vec![YES, SKIP, STOP])
+        .with_help_message("Review the proposed operation above, then choose")
+        .prompt()
     {
         Ok(YES) => Decision::Yes,
         Ok(SKIP) => Decision::Skip,
@@ -414,7 +411,9 @@ pub(crate) async fn run_import(
                             && tx.date >= start_window
                             && tx.date <= end_window
                             && tx.amount.is_zero()
-                            && tx.payee.eq_ignore_ascii_case(&config.lunch_money.rsu_payee_match)
+                            && tx
+                                .payee
+                                .eq_ignore_ascii_case(&config.lunch_money.rsu_payee_match)
                     })
                     .cloned()
                     .collect::<Vec<_>>()
@@ -543,7 +542,7 @@ pub(crate) async fn run_import(
                             new_tx.id, new_tx.date, new_tx.payee
                         };
 
-                        let child_txs: Vec<SplitTransactionObject> = rsu_components
+                        let mut child_txs: Vec<SplitTransactionObject> = rsu_components
                             .iter()
                             .map(|comp| {
                                 SplitTransactionObject::builder()
@@ -555,6 +554,8 @@ pub(crate) async fn run_import(
                                     .build()
                             })
                             .collect();
+
+                        optimize_split_ordering(&mut child_txs, new_tx.amount);
 
                         let payload = SplitTransactionPayload {
                             child_transactions: child_txs,
@@ -581,8 +582,6 @@ pub(crate) async fn run_import(
                                 };
                             }
                         }
-
-
                     } else {
                         println! {
                             "  {STYLE_ERROR}❌ RSU account not resolved in configuration.{STYLE_ERROR:#}"
@@ -790,7 +789,10 @@ pub(crate) async fn run_import(
             if !amount.is_zero() {
                 let (cat_name, cat_id) = map_category(&earn.description, &resolved_cats)?;
                 components.push(SplitComponent {
-                    description: format!("{} - {}", config.lunch_money.payslip_payee, earn.description),
+                    description: format!(
+                        "{} - {}",
+                        config.lunch_money.payslip_payee, earn.description
+                    ),
                     amount: -amount,
                     category_id: cat_id,
                     category_name: cat_name.clone(),
@@ -798,7 +800,10 @@ pub(crate) async fn run_import(
 
                 if is_imputed_income(&earn.description) {
                     components.push(SplitComponent {
-                        description: format!("{} - {} Offset", config.lunch_money.payslip_payee, earn.description),
+                        description: format!(
+                            "{} - {} Offset",
+                            config.lunch_money.payslip_payee, earn.description
+                        ),
                         amount,
                         category_id: cat_id,
                         category_name: cat_name,
@@ -813,7 +818,10 @@ pub(crate) async fn run_import(
             if !amount.is_zero() {
                 let (cat_name, cat_id) = map_category(&ded.description, &resolved_cats)?;
                 components.push(SplitComponent {
-                    description: format!("{} - {}", config.lunch_money.payslip_payee, ded.description),
+                    description: format!(
+                        "{} - {}",
+                        config.lunch_money.payslip_payee, ded.description
+                    ),
                     amount,
                     category_id: cat_id,
                     category_name: cat_name.clone(),
@@ -821,7 +829,10 @@ pub(crate) async fn run_import(
 
                 if is_imputed_income(&ded.description) {
                     components.push(SplitComponent {
-                        description: format!("{} - {} Offset", config.lunch_money.payslip_payee, ded.description),
+                        description: format!(
+                            "{} - {} Offset",
+                            config.lunch_money.payslip_payee, ded.description
+                        ),
                         amount: -amount,
                         category_id: cat_id,
                         category_name: cat_name,
@@ -836,7 +847,10 @@ pub(crate) async fn run_import(
             if !amount.is_zero() {
                 let (cat_name, cat_id) = map_category(&tax.description, &resolved_cats)?;
                 components.push(SplitComponent {
-                    description: format!("{} - {}", config.lunch_money.payslip_payee, tax.description),
+                    description: format!(
+                        "{} - {}",
+                        config.lunch_money.payslip_payee, tax.description
+                    ),
                     amount,
                     category_id: cat_id,
                     category_name: cat_name.clone(),
@@ -844,7 +858,10 @@ pub(crate) async fn run_import(
 
                 if is_imputed_income(&tax.description) {
                     components.push(SplitComponent {
-                        description: format!("{} - {} Offset", config.lunch_money.payslip_payee, tax.description),
+                        description: format!(
+                            "{} - {} Offset",
+                            config.lunch_money.payslip_payee, tax.description
+                        ),
                         amount: -amount,
                         category_id: cat_id,
                         category_name: cat_name,
@@ -859,7 +876,10 @@ pub(crate) async fn run_import(
             if !amount.is_zero() {
                 let (cat_name, cat_id) = map_category(&ded.description, &resolved_cats)?;
                 components.push(SplitComponent {
-                    description: format!("{} - {}", config.lunch_money.payslip_payee, ded.description),
+                    description: format!(
+                        "{} - {}",
+                        config.lunch_money.payslip_payee, ded.description
+                    ),
                     amount,
                     category_id: cat_id,
                     category_name: cat_name.clone(),
@@ -867,7 +887,10 @@ pub(crate) async fn run_import(
 
                 if is_imputed_income(&ded.description) {
                     components.push(SplitComponent {
-                        description: format!("{} - {} Offset", config.lunch_money.payslip_payee, ded.description),
+                        description: format!(
+                            "{} - {} Offset",
+                            config.lunch_money.payslip_payee, ded.description
+                        ),
                         amount: -amount,
                         category_id: cat_id,
                         category_name: cat_name,
@@ -889,7 +912,7 @@ pub(crate) async fn run_import(
             );
         }
 
-        let child_txs: Vec<SplitTransactionObject> = components
+        let mut child_txs: Vec<SplitTransactionObject> = components
             .iter()
             .map(|comp| {
                 SplitTransactionObject::builder()
@@ -901,6 +924,8 @@ pub(crate) async fn run_import(
                     .build()
             })
             .collect();
+
+        optimize_split_ordering(&mut child_txs, tx_amount);
 
         let payload = SplitTransactionPayload {
             child_transactions: child_txs,
@@ -1329,4 +1354,44 @@ fn insert_transaction_for_zero_pay(
         .maybe_manual_account_id(manual_id)
         .maybe_tag_ids(tag_id.map(|id| vec![id]))
         .build())
+}
+
+/// Reorders child split transactions in-place so that their f64 floating-point sum
+/// matches the parent target amount exactly. This works around strict float validations
+/// in Lunch Money's API which do not account for IEEE-754 precision issues under arbitrary addition order.
+fn optimize_split_ordering(child_txs: &mut [SplitTransactionObject], target_decimal: Decimal) {
+    use rust_decimal::prelude::ToPrimitive;
+
+    let target = target_decimal.to_f64().unwrap_or(0.0);
+
+    // Check if the current ordering already sums to target
+    let current_sum: f64 = child_txs
+        .iter()
+        .map(|c| c.amount.to_f64().unwrap_or(0.0))
+        .sum();
+    if current_sum == target {
+        return;
+    }
+
+    let mut seed = 0x123456789abcdef0u64;
+
+    for _ in 0..100_000 {
+        // xorshift64 shuffle
+        let n = child_txs.len();
+        for i in (1..n).rev() {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            let j = (seed as usize) % (i + 1);
+            child_txs.swap(i, j);
+        }
+
+        let sum: f64 = child_txs
+            .iter()
+            .map(|c| c.amount.to_f64().unwrap_or(0.0))
+            .sum();
+        if sum == target {
+            return;
+        }
+    }
 }
