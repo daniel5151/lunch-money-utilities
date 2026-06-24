@@ -61,8 +61,8 @@ pub struct ParsedPage {
 pub enum PayslipKind {
     /// Workday-generated payslips (e.g. Meta). Plain-text extraction.
     Workday,
-    /// Microsoft Corporation earnings statements. Positioned-glyph extraction
-    /// to reconstruct the CURRENT vs YEAR-TO-DATE columnar layout.
+    /// Microsoft Corporation earnings statements ("Official Copy"). Inline
+    /// CURRENT vs YEAR-TO-DATE layout, bucketed by printed sign.
     Microsoft,
 }
 
@@ -156,4 +156,56 @@ pub fn parse_date_str(s: &str) -> Result<Date> {
     let day = parts[1].parse::<i8>()?;
     let year = parts[2].parse::<i16>()?;
     Date::new(year, month, day).context("Failed to build Jiff Date")
+}
+
+#[cfg(test)]
+mod recon_tests {
+    //! Reconciliation tests over a real corpus. The corpus is private payroll
+    //! data that does not live in the repo, so each test reads its path from an
+    //! environment variable and is a no-op when that variable is unset:
+    //!
+    //! * `LM_MSFT_PDF` — the multi-page "Official Copy" Microsoft PDF.
+    //!
+    //! Every parsed page must satisfy `earnings − taxes − pre_tax − post_tax ==
+    //! net_pay` to within a cent, which is the same invariant the importer
+    //! enforces before writing transactions.
+
+    use super::*;
+    use rust_decimal::Decimal;
+
+    fn sum(rows: &[RowData]) -> Decimal {
+        rows.iter().map(|r| r.amount()).sum()
+    }
+
+    fn assert_page_reconciles(p: &ParsedPage, ctx: &str) {
+        let recon = sum(&p.earnings)
+            - sum(&p.employee_taxes)
+            - sum(&p.pre_tax_deductions)
+            - sum(&p.post_tax_deductions);
+        let diff = (recon - p.net_pay).abs();
+        assert!(
+            diff <= Decimal::new(1, 2),
+            "{ctx} page {}: reconstructed {recon} != net {} (diff {})",
+            p.page_num,
+            p.net_pay,
+            recon - p.net_pay
+        );
+    }
+
+    #[test]
+    fn microsoft_official_copy_reconciles() {
+        let Ok(path) = std::env::var("LM_MSFT_PDF") else {
+            eprintln!("LM_MSFT_PDF unset; skipping");
+            return;
+        };
+        let path = std::path::Path::new(&path);
+        let kind = detect_kind(path).unwrap();
+        assert_eq!(kind, Some(PayslipKind::Microsoft), "detect_kind mismatch");
+        let pages = microsoft::parse_pdf(path).expect("microsoft parse");
+        assert!(!pages.is_empty(), "no pages parsed");
+        for p in &pages {
+            assert_page_reconciles(p, "microsoft");
+        }
+        eprintln!("microsoft: {} pages reconciled", pages.len());
+    }
 }
