@@ -31,7 +31,7 @@ The code may eventually support numerous payslip formats, but at the moment, it'
   - For zero-dollar checks or RSU vests where there isn't a corresponding bank transaction, the tool inserts a synthetic parent transaction on the check date before splitting it.
 - **Imputed Income Handling**:
   - Imputed income represents non-cash compensation that increases taxable income.
-  - Any description starting with an asterisk `*` (e.g., `*Imp GTL`) or matching a case-insensitive entry in the `exceptions` list of `[imputed_income]` is recognized as imputed income.
+  - Any description starting with an asterisk `*` (e.g., `*Imp GTL`) or exactly matching (case-insensitive) an entry in the `exceptions` list of `[imputed_income]` is recognized as imputed income.
   - To prevent altering the transaction's net cash flow, two split lines are generated: the main benefit line and a matching "Offset" line with the opposite sign.
 - **RSU Vest Processing**:
   - Identifies pages containing "restricted stock" in the earnings section.
@@ -42,7 +42,7 @@ The code may eventually support numerous payslip formats, but at the moment, it'
 
 ## 🔧 Commands & Subcommands
 
-The CLI entrypoint and subcommand dispatching are implemented in [main.rs](./src/main.rs).
+The CLI entrypoint and subcommand dispatching are implemented in [main.rs](./src/main.rs), with the argument definitions in [cli.rs](./src/cli.rs) and the subcommand implementations under [src/commands/](./src/commands/).
 
 ### 1. Configuration Wizard (`init`)
 
@@ -52,12 +52,12 @@ Run the setup wizard to create your config file. Pass one or more payslip PDFs t
 cargo run --package lm-payslip-importer -- init [PDF_PATHS...]
 ```
 
-This commands executes [run_init](./src/init.rs#L28) in [init.rs](./src/init.rs):
+This command executes [run_init](./src/commands/init.rs#L28) in [init.rs](./src/commands/init.rs):
 1. Prompts for your Lunch Money developer API key.
 2. Connects to the Lunch Money API and fetches your active manual and Plaid accounts, as well as categories.
 3. Asks you to select a "Net Zero Account" and an "RSU Account".
-4. Parses the provided PDFs to gather all unique earnings, taxes, and deduction descriptions.
-5. Interactive selection guides you to map each extracted line item to a Lunch Money category.
+4. Parses the provided PDFs to gather the unique earnings, taxes, and deduction descriptions that appeared with a non-zero current amount (YTD-only rows are skipped).
+5. Optionally prints a copy-pasteable LLM prompt to help you map each extracted line item to a Lunch Money category.
 6. Writes the finished configuration to `lm_payslip_importer.toml`.
 
 Options:
@@ -65,7 +65,7 @@ Options:
 
 ### 2. Parse and Import Payslips (`import`)
 
-Processes a payslip PDF (e.g. Workday) and synchronizes the splits/transactions to Lunch Money. This logic is handled by [run_import](./src/main.rs#L451) in [main.rs](./src/main.rs).
+Processes a payslip PDF (e.g. Workday) and synchronizes the splits/transactions to Lunch Money. This logic is handled by [run_import](./src/commands/import.rs#L39) in [import.rs](./src/commands/import.rs).
 
 ```bash
 cargo run --package lm-payslip-importer -- import <PAYSLIP_PDF> [FLAGS]
@@ -79,7 +79,7 @@ Flags:
 
 ## ⚙️ Configuration File (`lm_payslip_importer.toml`)
 
-The configuration structure is defined by [Config](./src/config.rs#L4-L12) in [config.rs](./src/config.rs). Below is an annotated example matching [lm_payslip_importer.toml](..toml):
+The configuration structure is defined by [Config](./src/config.rs#L5-L10) in [config.rs](./src/config.rs). Below is an annotated example of `lm_payslip_importer.toml`:
 
 ```toml
 [lunch_money]
@@ -91,13 +91,18 @@ net_zero_account = "Bank of America Checking"
 rsu_account = "Equity Awards"
 # Payee for newly created direct deposit / net-zero transactions
 payslip_payee = "Meta Payslip"
+# Payee of the auto-imported $0.00 RSU vest transaction to match against
+# (case-insensitive). This is the payee Workday/Plaid assigns to the vest event.
+rsu_payee_match = "$META Vest"
 
 [mapping]
-# Maps payslip line descriptions to Lunch Money category names (or category IDs)
+# Maps payslip line descriptions to Lunch Money category names (or category IDs).
+# Use the full, un-truncated description exactly as the parser emits it.
 "Salary" = "Salary"
-"Performance" = "Salary"
-"Restricted Stock" = "Salary"
-"One-Time Sign-On" = "Salary"
+"Performance Bonus" = "Salary"
+"Restricted Stock Units" = "Salary"
+"One-Time Sign-On Payment" = "Salary"
+"*Imp GTL" = "Salary"
 "Medical FSA" = "Medical Insurance"
 "Pretax Dental" = "Medical Insurance"
 "Pretax Medical" = "Medical Insurance"
@@ -109,10 +114,11 @@ payslip_payee = "Meta Payslip"
 "401k Salary" = "Payment, Transfer"
 
 [imputed_income]
-# Additional descriptions (lowercase/substring matched) that represent imputed income exceptions.
-# (Note: any description starting with an asterisk '*' is automatically treated as imputed income).
+# Full descriptions (exact, case-insensitive match) that represent imputed
+# income exceptions. Any description starting with an asterisk '*' is always
+# treated as imputed income regardless of this list.
 exceptions = [
-    "relocation tax",
+    "Relocation Tax Ben",
 ]
 ```
 
@@ -120,7 +126,7 @@ exceptions = [
 
 ## 🔍 How Import Calculations are Handled
 
-The importer parses the text tables inside [parse_page_tables](./src/main.rs#L248) and returns a [ParsedPage](./src/main.rs#L93-L105).
+The importer parses the text tables inside [parse_page_tables](./src/payslip.rs#L196) and returns a [ParsedPage](./src/payslip.rs#L38-L49).
 
 When importing and splitting, the net total of the transaction must match the Lunch Money target transaction's amount. The signs are aligned as follows:
 - **Earnings (Credits)**: Mapped as negative split amounts (credit/inflow in Lunch Money).
@@ -129,8 +135,8 @@ When importing and splitting, the net total of the transaction must match the Lu
 
 ### Imputed Income Offsetting example
 If a payslip contains `*Imp GTL` of `$50.00`, two split lines are created:
-1. `Meta Direct Deposit - *Imp GTL` with an amount of `-$50.00` (Credit/Earnings).
-2. `Meta Direct Deposit - *Imp GTL Offset` with an amount of `$50.00` (Debit/Deduction).
+1. `Meta Payslip - *Imp GTL` with an amount of `-$50.00` (Credit/Earnings).
+2. `Meta Payslip - *Imp GTL Offset` with an amount of `$50.00` (Debit/Deduction).
 Both lines are assigned to the category resolved for `*Imp GTL` in `[mapping]`. They cancel each other out mathematically, keeping the net transaction amount intact.
 
 ---
@@ -161,8 +167,8 @@ Consider a vesting event where you receive gross stock value of **`$10,000.00`**
 #### 1. At Vest (Income & Taxes Recognized)
 * Plaid imports a transaction representing the share deposit:
   * **Payee**: `$META Vest` (Amount: `$0.00`, Category: `Stock Vest` / Transfer).
-* The importer identifies this event, matches the `$0.00` transaction, and injects a **synthetic parent transaction** into your Schwab account for the net value:
-  * **Payee**: `Meta RSU Vest` (Amount: `-$6,000.00` / credit).
+* The importer identifies this event, matches the `$0.00` transaction, and injects a **synthetic parent transaction** into your RSU account for the net value:
+  * **Payee**: `Meta Payslip` (the configured `payslip_payee`) (Amount: `-$6,000.00` / credit).
 * The importer automatically splits the synthetic parent into:
   * **`-$10,000.00`** under **`Salary`** (Gross W-2 income recorded).
   * **`+$4,000.00`** under **`Taxes`** (Tax withholding expenses recorded).
@@ -181,7 +187,10 @@ Later, you decide to liquidate that stock:
 
 ## 🛠️ Code Structure
 
-- [main.rs](./src/main.rs): Command-line argument parsing with [Cli](./src/main.rs#L37-L45) / [Commands](./src/main.rs#L47-L53), PDF page text extraction, table token parsing, Lunch Money transaction query/matching, and import execution logic.
-- [config.rs](./src/config.rs): Handles loading the `lm_payslip_importer.toml` configuration (with backwards-compatible loading of `workday_payslip_splitter.toml`) and defines structural config structs.
-- [init.rs](./src/init.rs): The interactive configuration setup wizard executed via [run_init](./src/init.rs#L28).
+- [main.rs](./src/main.rs): Binary entrypoint; parses CLI args and dispatches to the subcommand implementations.
+- [cli.rs](./src/cli.rs): Command-line argument definitions ([Cli](./src/cli.rs#L34-L37) / [Commands](./src/cli.rs#L40-L45) / [ImportArgs](./src/cli.rs#L48) / [InitArgs](./src/cli.rs#L67)).
+- [payslip.rs](./src/payslip.rs): PDF page text extraction ([convert_pdf_to_pages](./src/payslip.rs#L319)), table token parsing ([parse_page_tables](./src/payslip.rs#L196)), and the [ParsedPage](./src/payslip.rs#L38-L49) / `RowData` data model.
+- [commands/import.rs](./src/commands/import.rs): Lunch Money transaction query/matching, pre-flight validation, and import execution logic ([run_import](./src/commands/import.rs#L39)).
+- [commands/init.rs](./src/commands/init.rs): The interactive configuration setup wizard ([run_init](./src/commands/init.rs#L28)).
+- [config.rs](./src/config.rs): Handles loading the `lm_payslip_importer.toml` configuration (with backwards-compatible loading of `workday_payslip_splitter.toml`) and defines the config structs.
 - [style.rs](./src/style.rs): Constants for stylized shell logs (e.g., `STYLE_HEADER`, `STYLE_SUCCESS`, `STYLE_WARNING`, `STYLE_ERROR`).
