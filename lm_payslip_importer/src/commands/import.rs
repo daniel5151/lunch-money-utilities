@@ -276,6 +276,71 @@ pub(crate) async fn run_import(
                 .copied()
                 .unwrap_or(Decimal::ZERO);
 
+            // Guard (#3): the RSU branch short-circuits the regular earnings
+            // flow, so any *other* earning with a non-zero current amount would
+            // be silently dropped and its taxes misattributed to the vest. Meta
+            // issues vests as standalone $0-net pages, so assert that invariant
+            // and fail loudly rather than mis-splitting a combined run.
+            let other_earnings: Vec<&str> = payslip
+                .earnings
+                .iter()
+                .filter(|e| !std::ptr::eq(*e, rsu_earn))
+                .filter(|e| {
+                    !e.values
+                        .get("Amount")
+                        .copied()
+                        .unwrap_or(Decimal::ZERO)
+                        .is_zero()
+                })
+                .map(|e| e.description.as_str())
+                .collect();
+            if !other_earnings.is_empty() {
+                anyhow::bail!(
+                    "Page {}: RSU vest page also has non-zero earnings [{}]. Combined vest+earnings runs are not supported (the RSU path would drop these and misattribute taxes). Split this page manually.",
+                    payslip.page_num,
+                    other_earnings.join(", ")
+                );
+            }
+
+            // Guard (#2a): RSU vests settle to $0 cash — the page's Employee
+            // Taxes are exactly cancelled by the RSU Tax Offset post-tax
+            // deduction. The synthetic transaction deliberately rebuilds gross
+            // comp (gross stock − taxes) and excludes deductions, so assert the
+            // deductions genuinely net the taxes out before relying on that.
+            let taxes_total: Decimal = payslip
+                .employee_taxes
+                .iter()
+                .map(|t| t.values.get("Amount").copied().unwrap_or(Decimal::ZERO))
+                .sum();
+            let deductions_total: Decimal = payslip
+                .pre_tax_deductions
+                .iter()
+                .chain(payslip.post_tax_deductions.iter())
+                .map(|d| d.values.get("Amount").copied().unwrap_or(Decimal::ZERO))
+                .sum();
+            let settlement = taxes_total + deductions_total;
+            if settlement.abs() >= Decimal::new(1, 2) {
+                anyhow::bail!(
+                    "Page {}: RSU vest does not settle to $0 — employee taxes ({}) and deductions ({}) do not cancel (residual {}). Expected the RSU Tax Offset to zero out withholdings; refusing to import a mis-parsed vest.",
+                    payslip.page_num,
+                    taxes_total,
+                    deductions_total,
+                    settlement
+                );
+            }
+
+            // Guard (#2b): independently confirm the page reports $0 net pay.
+            // net_pay is read from the summary row, not from the reconstruction,
+            // so this is a real check rather than the tautological
+            // sum-of-components balance the split would otherwise "pass".
+            if !payslip.net_pay.is_zero() {
+                anyhow::bail!(
+                    "Page {}: RSU vest page reports non-zero net pay ({}). Expected a $0 settlement; refusing to import.",
+                    payslip.page_num,
+                    payslip.net_pay
+                );
+            }
+
             // Calculate total taxes and gather tax split components
             let mut tax_components = Vec::new();
             for tax in &payslip.employee_taxes {
