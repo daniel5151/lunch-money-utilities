@@ -37,6 +37,40 @@ pub struct SplitComponent {
     pub category_name: String,
 }
 
+/// Outcome of an interactive confirmation prompt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Decision {
+    /// Perform the proposed operation.
+    Yes,
+    /// Skip this operation and move on to the next one.
+    Skip,
+    /// Abort the whole import; perform no further operations.
+    Stop,
+}
+
+/// Ask the user whether to perform the just-printed operation. Presented only
+/// in interactive mode, and always *after* the proposed operation has been
+/// printed (a-la dry run) so the user can review it before deciding. A
+/// cancelled prompt (Esc / Ctrl-C) is treated as Stop, so bailing out of the
+/// menu never silently performs a mutation.
+fn confirm_operation() -> Decision {
+    const YES: &str = "Yes — perform this operation";
+    const SKIP: &str = "Skip — leave this one and continue";
+    const STOP: &str = "Stop — cancel and perform no further operations";
+
+    match inquire::Select::new(
+        "Proceed with the operation above?",
+        vec![YES, SKIP, STOP],
+    )
+    .with_help_message("Review the proposed operation above, then choose")
+    .prompt()
+    {
+        Ok(YES) => Decision::Yes,
+        Ok(SKIP) => Decision::Skip,
+        _ => Decision::Stop,
+    }
+}
+
 pub(crate) async fn run_import(
     config: crate::config::Config,
     cli: crate::cli::ImportArgs,
@@ -386,9 +420,10 @@ pub(crate) async fn run_import(
                 };
             }
 
-            if cli.dry_run {
+            if cli.dry_run || cli.interactive {
+                let plan_tag = if cli.dry_run { "[Dry Run] " } else { "" };
                 println! {
-                    "  {STYLE_INFO}ℹ️ [Dry Run] RSU Vest Detected. Creating synthetic transaction in account '{}'.{STYLE_INFO:#}",
+                    "  {STYLE_INFO}ℹ️ {plan_tag}RSU Vest Detected. Creating synthetic transaction in account '{}'.{STYLE_INFO:#}",
                     &config.lunch_money.rsu_account
                 };
                 if !matched_plaid_rsu_txs.is_empty() {
@@ -397,7 +432,7 @@ pub(crate) async fn run_import(
                         .map(|tx| format!("#{}", tx.id))
                         .collect();
                     println! {
-                        "  {STYLE_INFO}ℹ️ [Dry Run] Aligned date to matched Plaid transaction date ({}) and will reference companion Plaid transaction(s) in notes: {}{STYLE_INFO:#}",
+                        "  {STYLE_INFO}ℹ️ {plan_tag}Aligned date to matched Plaid transaction date ({}) and will reference companion Plaid transaction(s) in notes: {}{STYLE_INFO:#}",
                         synthetic_tx_date, matched_ids.join(", ")
                     };
                 }
@@ -416,7 +451,35 @@ pub(crate) async fn run_import(
                         comp.amount, comp.category_name, comp.description
                     };
                 }
-            } else {
+            }
+
+            // A plain dry run (no interactive prompt) just prints the plan and
+            // moves on. With --interactive we still run the prompt so the flow
+            // can be exercised, but a confirmed "Yes" is a no-op under dry run.
+            if cli.dry_run && !cli.interactive {
+                continue;
+            }
+
+            if cli.interactive {
+                match confirm_operation() {
+                    Decision::Yes => {
+                        if cli.dry_run {
+                            println! { "  {STYLE_INFO}ℹ️ [Dry Run] Confirmed — no changes made.{STYLE_INFO:#}" };
+                            continue;
+                        }
+                    }
+                    Decision::Skip => {
+                        println! { "  {STYLE_WARNING}⏭️  Skipped this operation.{STYLE_WARNING:#}" };
+                        continue;
+                    }
+                    Decision::Stop => {
+                        println! { "  {STYLE_WARNING}🛑 Stopping; no further operations will be performed.{STYLE_WARNING:#}" };
+                        return Ok(());
+                    }
+                }
+            }
+
+            {
                 if let Some(ref client_ref) = client {
                     if let Some(ref rsu_acct) = resolved_rsu_acct {
                         println! {
@@ -524,6 +587,13 @@ pub(crate) async fn run_import(
         let mut tx_amount = -payslip.net_pay;
         let mut tx_payee = config.lunch_money.payslip_payee.clone();
 
+        // In interactive mode, creating the synthetic zero-pay parent is
+        // deferred until after the split plan has been printed and confirmed,
+        // so the user reviews the whole operation before any new transaction is
+        // made. When set, holds the resolved account and parent category to
+        // create with once the user approves at the confirmation gate below.
+        let mut pending_zero_pay: Option<(ResolvedAccount, CategoryId)> = None;
+
         if let Some(ref client_ref) = client {
             let start_window = payslip
                 .check_date
@@ -590,11 +660,6 @@ pub(crate) async fn run_import(
                             }
                         };
 
-                        println! {
-                            "  {STYLE_INFO}ℹ️ No match found. Creating synthetic $0.00 transaction for Page {} in account '{}'...{STYLE_INFO:#}",
-                            payslip.page_num, account_name
-                        };
-
                         // Categorize the synthetic parent with the page's
                         // primary earning category (largest-magnitude current
                         // earning), mirroring the RSU helper so the parent is
@@ -621,35 +686,55 @@ pub(crate) async fn run_import(
                             })
                             .unwrap_or(CategoryId(0));
 
-                        let insert_tx = insert_transaction_for_zero_pay(
-                            payslip.check_date,
-                            &acct,
-                            config.lunch_money.payslip_payee.clone(),
-                            parent_cat_id,
-                            resolved_tag_id,
-                        )?;
-                        let insert_resp = client_ref
-                            .insert_transactions::<serde_json::Value, String, serde_json::Value, String>(&[insert_tx])
-                            .await
-                            .context("Failed to insert synthetic zero-dollar transaction")?;
-
-                        if insert_resp.transactions.is_empty() {
+                        if cli.interactive {
+                            // Defer creation until the split plan is printed and
+                            // confirmed below, so the user reviews the whole
+                            // operation before any transaction is created.
                             println! {
-                                "  {STYLE_ERROR}❌ Failed to create synthetic zero-dollar transaction: no transactions returned in response.{STYLE_ERROR:#}"
+                                "  {STYLE_INFO}ℹ️ No match found. Would create synthetic $0.00 transaction for Page {} in account '{}' (pending confirmation).{STYLE_INFO:#}",
+                                payslip.page_num, account_name
                             };
-                            continue;
+                            pending_zero_pay = Some((acct, parent_cat_id));
+                            tx_id = TransactionId(0);
+                            tx_date = payslip.check_date;
+                            tx_amount = Decimal::ZERO;
+                            tx_payee = config.lunch_money.payslip_payee.clone();
+                        } else {
+                            println! {
+                                "  {STYLE_INFO}ℹ️ No match found. Creating synthetic $0.00 transaction for Page {} in account '{}'...{STYLE_INFO:#}",
+                                payslip.page_num, account_name
+                            };
+
+                            let insert_tx = insert_transaction_for_zero_pay(
+                                payslip.check_date,
+                                &acct,
+                                config.lunch_money.payslip_payee.clone(),
+                                parent_cat_id,
+                                resolved_tag_id,
+                            )?;
+                            let insert_resp = client_ref
+                                .insert_transactions::<serde_json::Value, String, serde_json::Value, String>(&[insert_tx])
+                                .await
+                                .context("Failed to insert synthetic zero-dollar transaction")?;
+
+                            if insert_resp.transactions.is_empty() {
+                                println! {
+                                    "  {STYLE_ERROR}❌ Failed to create synthetic zero-dollar transaction: no transactions returned in response.{STYLE_ERROR:#}"
+                                };
+                                continue;
+                            }
+
+                            let new_tx = &insert_resp.transactions[0];
+                            println! {
+                                "  {STYLE_SUCCESS}✅ Created synthetic zero-dollar transaction: ID = {}, Date = {}, Payee = \"{}\"{STYLE_SUCCESS:#}",
+                                new_tx.id, new_tx.date, new_tx.payee
+                            };
+
+                            tx_id = new_tx.id;
+                            tx_date = new_tx.date;
+                            tx_amount = new_tx.amount;
+                            tx_payee = new_tx.payee.clone();
                         }
-
-                        let new_tx = &insert_resp.transactions[0];
-                        println! {
-                            "  {STYLE_SUCCESS}✅ Created synthetic zero-dollar transaction: ID = {}, Date = {}, Payee = \"{}\"{STYLE_SUCCESS:#}",
-                            new_tx.id, new_tx.date, new_tx.payee
-                        };
-
-                        tx_id = new_tx.id;
-                        tx_date = new_tx.date;
-                        tx_amount = new_tx.amount;
-                        tx_payee = new_tx.payee.clone();
                     }
                 } else {
                     println! {
@@ -806,11 +891,18 @@ pub(crate) async fn run_import(
             child_transactions: child_txs,
         };
 
-        if cli.dry_run {
-            println! {
-                "\n  {STYLE_HEADER}Plan: Split transaction ID {} (Date: {}, Amount: {}, Payee: {}){STYLE_HEADER:#}",
-                tx_id, tx_date, tx_amount, tx_payee
-            };
+        if cli.dry_run || cli.interactive {
+            if pending_zero_pay.is_some() {
+                println! {
+                    "\n  {STYLE_HEADER}Plan: Create synthetic $0.00 transaction (Date: {}, Payee: {}), then split it{STYLE_HEADER:#}",
+                    tx_date, tx_payee
+                };
+            } else {
+                println! {
+                    "\n  {STYLE_HEADER}Plan: Split transaction ID {} (Date: {}, Amount: {}, Payee: {}){STYLE_HEADER:#}",
+                    tx_id, tx_date, tx_amount, tx_payee
+                };
+            }
             for comp in &components {
                 let sign_style = if comp.amount.is_sign_negative() {
                     STYLE_SUCCESS
@@ -822,7 +914,76 @@ pub(crate) async fn run_import(
                     comp.amount, comp.category_name, comp.description
                 };
             }
-        } else {
+        }
+
+        // A plain dry run (no interactive prompt) just prints the plan and
+        // moves on. With --interactive we still run the prompt so the flow
+        // can be exercised, but a confirmed "Yes" is a no-op under dry run.
+        if cli.dry_run && !cli.interactive {
+            continue;
+        }
+
+        if cli.interactive {
+            match confirm_operation() {
+                Decision::Yes => {
+                    if cli.dry_run {
+                        println! { "  {STYLE_INFO}ℹ️ [Dry Run] Confirmed — no changes made.{STYLE_INFO:#}" };
+                        continue;
+                    }
+                }
+                Decision::Skip => {
+                    println! { "  {STYLE_WARNING}⏭️  Skipped this operation.{STYLE_WARNING:#}" };
+                    continue;
+                }
+                Decision::Stop => {
+                    println! { "  {STYLE_WARNING}🛑 Stopping; no further operations will be performed.{STYLE_WARNING:#}" };
+                    return Ok(());
+                }
+            }
+        }
+
+        {
+            // Materialize a deferred zero-pay parent (interactive mode defers
+            // its creation until the operation is confirmed). On any failure,
+            // skip this page rather than splitting a transaction that does not
+            // exist.
+            if let Some((acct, parent_cat_id)) = pending_zero_pay {
+                if let Some(ref client_ref) = client {
+                    println! {
+                        "  {STYLE_INFO}ℹ️ Creating synthetic $0.00 transaction for Page {} in account '{}'...{STYLE_INFO:#}",
+                        payslip.page_num, &config.lunch_money.net_zero_account
+                    };
+                    let insert_tx = insert_transaction_for_zero_pay(
+                        payslip.check_date,
+                        &acct,
+                        config.lunch_money.payslip_payee.clone(),
+                        parent_cat_id,
+                        resolved_tag_id,
+                    )?;
+                    let insert_resp = client_ref
+                        .insert_transactions::<serde_json::Value, String, serde_json::Value, String>(&[insert_tx])
+                        .await
+                        .context("Failed to insert synthetic zero-dollar transaction")?;
+
+                    if insert_resp.transactions.is_empty() {
+                        println! {
+                            "  {STYLE_ERROR}❌ Failed to create synthetic zero-dollar transaction: no transactions returned in response.{STYLE_ERROR:#}"
+                        };
+                        continue;
+                    }
+
+                    let new_tx = &insert_resp.transactions[0];
+                    println! {
+                        "  {STYLE_SUCCESS}✅ Created synthetic zero-dollar transaction: ID = {}, Date = {}, Payee = \"{}\"{STYLE_SUCCESS:#}",
+                        new_tx.id, new_tx.date, new_tx.payee
+                    };
+
+                    // Only tx_id is consumed by the split below; the plan has
+                    // already been printed, so the other fields need no update.
+                    tx_id = new_tx.id;
+                }
+            }
+
             println! {
                 "  Splitting transaction ID {} in Lunch Money...",
                 tx_id

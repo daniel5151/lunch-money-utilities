@@ -56,6 +56,12 @@ pub struct ImportArgs {
     pub dry_run: bool,
 
     #[arg(
+        long,
+        help = "Prompt for confirmation (yes/skip/stop) before each operation, after printing what it would do. Ignored under --dry-run."
+    )]
+    pub interactive: bool,
+
+    #[arg(
         long = "page",
         help = "Specific page number(s) to process. If omitted, all pages are processed. Can be passed multiple times.",
         action = clap::ArgAction::Append
