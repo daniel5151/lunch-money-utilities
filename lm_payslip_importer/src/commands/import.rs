@@ -560,10 +560,37 @@ pub(crate) async fn run_import(
                             payslip.page_num, account_name
                         };
 
+                        // Categorize the synthetic parent with the page's
+                        // primary earning category (largest-magnitude current
+                        // earning), mirroring the RSU helper so the parent is
+                        // never left uncategorized if a child split fails.
+                        let parent_cat_id = payslip
+                            .earnings
+                            .iter()
+                            .filter(|e| {
+                                !e.values
+                                    .get("Amount")
+                                    .copied()
+                                    .unwrap_or(Decimal::ZERO)
+                                    .is_zero()
+                            })
+                            .max_by_key(|e| {
+                                e.values
+                                    .get("Amount")
+                                    .copied()
+                                    .unwrap_or(Decimal::ZERO)
+                                    .abs()
+                            })
+                            .and_then(|e| {
+                                lookup_category(&e.description, &resolved_cats).map(|(_, id)| id)
+                            })
+                            .unwrap_or(CategoryId(0));
+
                         let insert_tx = insert_transaction_for_zero_pay(
                             payslip.check_date,
                             &acct,
                             config.lunch_money.payslip_payee.clone(),
+                            parent_cat_id,
                         )?;
                         let insert_resp = client_ref
                             .insert_transactions::<serde_json::Value, String, serde_json::Value, String>(&[insert_tx])
@@ -1064,6 +1091,7 @@ fn insert_transaction_for_zero_pay(
     date: Date,
     resolved_acct: &ResolvedAccount,
     payee: String,
+    category_id: CategoryId,
 ) -> Result<InsertObject> {
     let plaid_id = match resolved_acct {
         ResolvedAccount::Plaid(id) => Some(*id),
@@ -1080,6 +1108,7 @@ fn insert_transaction_for_zero_pay(
         .payee(payee)
         .notes("Synthetic zero-dollar transaction for relocation/imputed tax split".to_string())
         .status(TransactionStatus::Reviewed)
+        .maybe_category_id(Some(category_id))
         .maybe_plaid_account_id(plaid_id)
         .maybe_manual_account_id(manual_id)
         .build())
