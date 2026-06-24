@@ -130,6 +130,11 @@ pub(crate) async fn run_import(
         map
     };
 
+    // Pre-flight: validate every page (category mappings + RSU structure)
+    // before any mutation, so a problem on a late page can't leave earlier
+    // pages half-imported (audit #5). Reports all problems at once.
+    preflight_validate(&parsed_pages, &resolved_cats)?;
+
     let resolved_net_zero_acct = if let Some(ref client_ref) = client {
         let acct_name = &config.lunch_money.net_zero_account;
         println! { "Resolving Lunch Money account name '{}'...", acct_name };
@@ -256,17 +261,8 @@ pub(crate) async fn run_import(
         };
 
         // Detect if this is an RSU vest page
-        let rsu_earn = payslip
-            .earnings
-            .iter()
-            .find(|earn| earn.description.to_lowercase().contains("restricted stock"));
-
-        let is_rsu_vest = if let Some(earn) = rsu_earn {
-            let amount = earn.values.get("Amount").copied().unwrap_or(Decimal::ZERO);
-            !amount.is_zero()
-        } else {
-            false
-        };
+        let rsu_earn = rsu_vest_earning(payslip);
+        let is_rsu_vest = rsu_earn.is_some();
 
         if is_rsu_vest {
             let rsu_earn = rsu_earn.unwrap();
@@ -276,70 +272,9 @@ pub(crate) async fn run_import(
                 .copied()
                 .unwrap_or(Decimal::ZERO);
 
-            // Guard (#3): the RSU branch short-circuits the regular earnings
-            // flow, so any *other* earning with a non-zero current amount would
-            // be silently dropped and its taxes misattributed to the vest. Meta
-            // issues vests as standalone $0-net pages, so assert that invariant
-            // and fail loudly rather than mis-splitting a combined run.
-            let other_earnings: Vec<&str> = payslip
-                .earnings
-                .iter()
-                .filter(|e| !std::ptr::eq(*e, rsu_earn))
-                .filter(|e| {
-                    !e.values
-                        .get("Amount")
-                        .copied()
-                        .unwrap_or(Decimal::ZERO)
-                        .is_zero()
-                })
-                .map(|e| e.description.as_str())
-                .collect();
-            if !other_earnings.is_empty() {
-                anyhow::bail!(
-                    "Page {}: RSU vest page also has non-zero earnings [{}]. Combined vest+earnings runs are not supported (the RSU path would drop these and misattribute taxes). Split this page manually.",
-                    payslip.page_num,
-                    other_earnings.join(", ")
-                );
-            }
-
-            // Guard (#2a): RSU vests settle to $0 cash — the page's Employee
-            // Taxes are exactly cancelled by the RSU Tax Offset post-tax
-            // deduction. The synthetic transaction deliberately rebuilds gross
-            // comp (gross stock − taxes) and excludes deductions, so assert the
-            // deductions genuinely net the taxes out before relying on that.
-            let taxes_total: Decimal = payslip
-                .employee_taxes
-                .iter()
-                .map(|t| t.values.get("Amount").copied().unwrap_or(Decimal::ZERO))
-                .sum();
-            let deductions_total: Decimal = payslip
-                .pre_tax_deductions
-                .iter()
-                .chain(payslip.post_tax_deductions.iter())
-                .map(|d| d.values.get("Amount").copied().unwrap_or(Decimal::ZERO))
-                .sum();
-            let settlement = taxes_total + deductions_total;
-            if settlement.abs() >= Decimal::new(1, 2) {
-                anyhow::bail!(
-                    "Page {}: RSU vest does not settle to $0 — employee taxes ({}) and deductions ({}) do not cancel (residual {}). Expected the RSU Tax Offset to zero out withholdings; refusing to import a mis-parsed vest.",
-                    payslip.page_num,
-                    taxes_total,
-                    deductions_total,
-                    settlement
-                );
-            }
-
-            // Guard (#2b): independently confirm the page reports $0 net pay.
-            // net_pay is read from the summary row, not from the reconstruction,
-            // so this is a real check rather than the tautological
-            // sum-of-components balance the split would otherwise "pass".
-            if !payslip.net_pay.is_zero() {
-                anyhow::bail!(
-                    "Page {}: RSU vest page reports non-zero net pay ({}). Expected a $0 settlement; refusing to import.",
-                    payslip.page_num,
-                    payslip.net_pay
-                );
-            }
+            // Structural invariants for this page were already verified in
+            // pre-flight (see preflight_validate / check_rsu_structure), which
+            // runs before any mutation, so we can reconstruct safely here.
 
             // Calculate total taxes and gather tax split components
             let mut tax_components = Vec::new();
@@ -851,26 +786,181 @@ pub(crate) async fn run_import(
     Ok(())
 }
 
-fn map_category(
+/// Returns the earnings row representing a non-zero restricted-stock vest on
+/// this page, if any. Used to classify a page as an RSU vest both in pre-flight
+/// validation and in the import loop, so the two never diverge.
+fn rsu_vest_earning(payslip: &crate::payslip::ParsedPage) -> Option<&crate::payslip::RowData> {
+    payslip
+        .earnings
+        .iter()
+        .find(|earn| earn.description.to_lowercase().contains("restricted stock"))
+        .filter(|earn| {
+            !earn
+                .values
+                .get("Amount")
+                .copied()
+                .unwrap_or(Decimal::ZERO)
+                .is_zero()
+        })
+}
+
+/// Verify the structural invariants an RSU vest page must satisfy before we
+/// reconstruct it as gross comp minus taxes. Pushes a human-readable problem
+/// onto `problems` for each violation rather than bailing, so pre-flight can
+/// report every issue across the whole PDF at once.
+fn check_rsu_structure(
+    payslip: &crate::payslip::ParsedPage,
+    rsu_earn: &crate::payslip::RowData,
+    problems: &mut Vec<String>,
+) {
+    // The RSU path short-circuits the regular earnings loop, so any other
+    // earning with a non-zero current amount would be silently dropped and its
+    // taxes misattributed to the vest.
+    let other_earnings: Vec<&str> = payslip
+        .earnings
+        .iter()
+        .filter(|e| !std::ptr::eq(*e, rsu_earn))
+        .filter(|e| {
+            !e.values
+                .get("Amount")
+                .copied()
+                .unwrap_or(Decimal::ZERO)
+                .is_zero()
+        })
+        .map(|e| e.description.as_str())
+        .collect();
+    if !other_earnings.is_empty() {
+        problems.push(format!(
+            "Page {}: RSU vest page also has non-zero earnings [{}]. Combined vest+earnings runs are not supported (the RSU path would drop these and misattribute taxes). Split this page manually.",
+            payslip.page_num,
+            other_earnings.join(", ")
+        ));
+    }
+
+    // RSU vests settle to $0 cash: employee taxes are exactly cancelled by the
+    // RSU Tax Offset post-tax deduction. The reconstruction excludes deductions,
+    // so confirm the deductions genuinely net out the taxes.
+    let taxes_total: Decimal = payslip
+        .employee_taxes
+        .iter()
+        .map(|t| t.values.get("Amount").copied().unwrap_or(Decimal::ZERO))
+        .sum();
+    let deductions_total: Decimal = payslip
+        .pre_tax_deductions
+        .iter()
+        .chain(payslip.post_tax_deductions.iter())
+        .map(|d| d.values.get("Amount").copied().unwrap_or(Decimal::ZERO))
+        .sum();
+    let settlement = taxes_total + deductions_total;
+    if settlement.abs() >= Decimal::new(1, 2) {
+        problems.push(format!(
+            "Page {}: RSU vest does not settle to $0 — employee taxes ({}) and deductions ({}) do not cancel (residual {}). Expected the RSU Tax Offset to zero out withholdings; refusing to import a mis-parsed vest.",
+            payslip.page_num, taxes_total, deductions_total, settlement
+        ));
+    }
+
+    // Independently confirm the summary row reports $0 net pay (this figure is
+    // not used by the reconstruction, so it is a real check).
+    if !payslip.net_pay.is_zero() {
+        problems.push(format!(
+            "Page {}: RSU vest page reports non-zero net pay ({}). Expected a $0 settlement; refusing to import.",
+            payslip.page_num, payslip.net_pay
+        ));
+    }
+}
+
+/// Validate every page before any Lunch Money mutation occurs, so a problem on
+/// a late page can never leave an earlier page half-imported (audit #5). Every
+/// distinct line item must resolve to a category, and every RSU vest page must
+/// satisfy its structural invariants. All problems are collected and reported
+/// together rather than failing on the first one.
+fn preflight_validate(
+    parsed_pages: &[crate::payslip::ParsedPage],
+    resolved_cats: &HashMap<String, (String, CategoryId)>,
+) -> Result<()> {
+    let mut problems = Vec::new();
+    let mut unmapped: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+
+    for payslip in parsed_pages {
+        let rsu_earn = rsu_vest_earning(payslip);
+        if let Some(rsu_earn) = rsu_earn {
+            check_rsu_structure(payslip, rsu_earn, &mut problems);
+        }
+
+        // Every non-zero line item that would become a split component must
+        // resolve to a category. On an RSU page only the vest line and the
+        // employee taxes are emitted; on a regular page all four sections are.
+        let mut items: Vec<&crate::payslip::RowData> = Vec::new();
+        if let Some(rsu_earn) = rsu_earn {
+            items.push(rsu_earn);
+            items.extend(payslip.employee_taxes.iter());
+        } else {
+            items.extend(payslip.earnings.iter());
+            items.extend(payslip.pre_tax_deductions.iter());
+            items.extend(payslip.employee_taxes.iter());
+            items.extend(payslip.post_tax_deductions.iter());
+        }
+
+        for item in items {
+            let amount = item.values.get("Amount").copied().unwrap_or(Decimal::ZERO);
+            if amount.is_zero() {
+                continue;
+            }
+            if lookup_category(&item.description, resolved_cats).is_none() {
+                unmapped.insert(item.description.clone());
+            }
+        }
+    }
+
+    for desc in &unmapped {
+        problems.push(format!(
+            "No Lunch Money category mapping found for payslip item '{desc}'. Add it to the [mapping] section of lm_payslip_importer.toml."
+        ));
+    }
+
+    if !problems.is_empty() {
+        let mut msg = format!(
+            "Pre-flight validation found {} problem(s); no transactions were imported:\n",
+            problems.len()
+        );
+        for p in &problems {
+            msg.push_str(&format!("  • {p}\n"));
+        }
+        anyhow::bail!("{}", msg.trim_end());
+    }
+
+    Ok(())
+}
+
+fn lookup_category(
     desc: &str,
     resolved_mapping: &HashMap<String, (String, CategoryId)>,
-) -> Result<(String, CategoryId)> {
+) -> Option<(String, CategoryId)> {
     if let Some(val) = resolved_mapping.get(desc) {
-        return Ok(val.clone());
+        return Some(val.clone());
     }
 
     // Try case-insensitive lookup as fallback
     let desc_lower = desc.to_lowercase();
     for (k, v) in resolved_mapping {
         if k.to_lowercase() == desc_lower {
-            return Ok(v.clone());
+            return Some(v.clone());
         }
     }
 
-    anyhow::bail!(
-        "No Lunch Money category mapping found for payslip item '{}'. Please add it to the [mapping] section of lm_payslip_importer.toml.",
-        desc
-    )
+    None
+}
+
+fn map_category(
+    desc: &str,
+    resolved_mapping: &HashMap<String, (String, CategoryId)>,
+) -> Result<(String, CategoryId)> {
+    lookup_category(desc, resolved_mapping).ok_or_else(|| {
+        anyhow!(
+            "No Lunch Money category mapping found for payslip item '{}'. Please add it to the [mapping] section of lm_payslip_importer.toml.",
+            desc
+        )
+    })
 }
 
 /// Resolve a configured account name to a Plaid or manual account id, matching

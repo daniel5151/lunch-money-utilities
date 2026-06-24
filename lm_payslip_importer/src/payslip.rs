@@ -26,9 +26,9 @@ fn deglue_dates(line: &str) -> std::borrow::Cow<'_, str> {
 }
 
 #[derive(Debug, Clone, Default)]
-#[expect(dead_code)]
 pub struct RowData {
     pub description: String,
+    #[expect(dead_code)]
     pub dates: String,
     pub values: HashMap<String, Decimal>,
 }
