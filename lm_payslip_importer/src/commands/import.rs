@@ -438,7 +438,7 @@ pub(crate) async fn run_import(
                                     .amount(comp.amount)
                                     .maybe_payee(Some(comp.description.clone()))
                                     .maybe_category_id(Some(comp.category_id))
-                                    .maybe_notes(Some(String::new()))
+                                    .maybe_notes(Some(" ".to_string()))
                                     .build()
                             })
                             .collect();
@@ -760,7 +760,7 @@ pub(crate) async fn run_import(
                     .amount(comp.amount)
                     .maybe_payee(Some(comp.description.clone()))
                     .maybe_category_id(Some(comp.category_id))
-                    .maybe_notes(Some(String::new()))
+                    .maybe_notes(Some(" ".to_string()))
                     .build()
             })
             .collect();
