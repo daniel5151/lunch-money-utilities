@@ -220,45 +220,44 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
         for pdf_path in &args.pdfs {
             println! {};
             println! { "{STYLE_INFO}📄 Parsing payslip PDF to seed mappings: {}{STYLE_INFO:#}", pdf_path.display() };
-            let pages = match crate::payslip::convert_pdf_to_pages(pdf_path) {
-                Ok(p) => p,
+            // Detect which payroll provider produced this PDF so seeding works
+            // for any supported backend, not just Workday. Fall back to Workday
+            // if the fingerprint is inconclusive (the historical default).
+            let kind = match crate::payslip::detect_kind(pdf_path) {
+                Ok(Some(k)) => k,
+                Ok(None) => crate::payslip::PayslipKind::Workday,
                 Err(e) => {
-                    eprintln! { "{STYLE_ERROR}❌ Failed to extract pages from {}: {}{STYLE_ERROR:#}", pdf_path.display(), e };
+                    eprintln! { "{STYLE_ERROR}❌ Failed to detect payslip provider for {}: {}{STYLE_ERROR:#}", pdf_path.display(), e };
                     continue;
                 }
             };
-            for (i, page_text) in pages.iter().enumerate() {
-                let page_num = i + 1;
-                let page_text = page_text.trim();
-                if page_text.is_empty() {
+            let pages = match crate::payslip::parse_pdf(pdf_path, kind) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln! { "{STYLE_ERROR}❌ Failed to parse {}: {}{STYLE_ERROR:#}", pdf_path.display(), e };
                     continue;
                 }
-                if let Ok(parsed) = crate::payslip::parse_page_tables(page_text, page_num) {
-                    // Only seed items that actually appeared with a non-zero
-                    // *current* amount. YTD-only rows (zero current) would
-                    // otherwise pollute the mapping list with items the user
-                    // never needs to categorize (audit #10).
-                    let mut collect = |rows: Vec<crate::payslip::RowData>| {
-                        for item in rows {
-                            let amount = item
-                                .values
-                                .get("Amount")
-                                .copied()
-                                .unwrap_or(rust_decimal::Decimal::ZERO);
-                            if amount.is_zero() {
-                                continue;
-                            }
-                            let desc = item.description.trim().to_string();
-                            if !desc.is_empty() {
-                                unique_items.insert(desc);
-                            }
+            };
+            for parsed in pages {
+                // Only seed items that actually appeared with a non-zero
+                // *current* amount. YTD-only rows (zero current) would
+                // otherwise pollute the mapping list with items the user
+                // never needs to categorize (audit #10).
+                let mut collect = |rows: Vec<crate::payslip::RowData>| {
+                    for item in rows {
+                        if item.amount().is_zero() {
+                            continue;
                         }
-                    };
-                    collect(parsed.earnings);
-                    collect(parsed.employee_taxes);
-                    collect(parsed.pre_tax_deductions);
-                    collect(parsed.post_tax_deductions);
-                }
+                        let desc = item.description.trim().to_string();
+                        if !desc.is_empty() {
+                            unique_items.insert(desc);
+                        }
+                    }
+                };
+                collect(parsed.earnings);
+                collect(parsed.employee_taxes);
+                collect(parsed.pre_tax_deductions);
+                collect(parsed.post_tax_deductions);
             }
         }
         let mut items: Vec<String> = unique_items.into_iter().collect();

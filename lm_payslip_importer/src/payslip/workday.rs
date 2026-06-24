@@ -1,3 +1,14 @@
+//! Workday payslip backend (e.g. Meta).
+//!
+//! Workday PDFs extract cleanly as plain text with `pdf-extract`'s
+//! `extract_text_by_pages`, so this backend works line-by-line: a small state
+//! machine walks the section headers ("Earnings", "Employee Taxes", "Pre Tax
+//! Deductions", "Post Tax Deductions") and parses each row from its tokens.
+
+use super::ParsedPage;
+use super::RowData;
+use super::clean_decimal;
+use super::parse_date_str;
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
@@ -5,7 +16,6 @@ use jiff::civil::Date;
 use regex::Regex;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::LazyLock;
 
 /// `pdf-extract` frequently glues an earnings row's period *start date* onto the
@@ -25,28 +35,6 @@ fn deglue_dates(line: &str) -> std::borrow::Cow<'_, str> {
     GLUED_DATE_RE.replace_all(line, "$1 $2")
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct RowData {
-    pub description: String,
-    #[expect(dead_code)]
-    pub dates: String,
-    pub values: HashMap<String, Decimal>,
-}
-
-#[derive(Debug, Clone)]
-#[expect(dead_code)]
-pub struct ParsedPage {
-    pub page_num: usize,
-    pub check_date: Date,
-    pub period_begin: Date,
-    pub period_end: Date,
-    pub net_pay: Decimal,
-    pub earnings: Vec<RowData>,
-    pub employee_taxes: Vec<RowData>,
-    pub pre_tax_deductions: Vec<RowData>,
-    pub post_tax_deductions: Vec<RowData>,
-}
-
 #[derive(Debug, PartialEq, Eq)]
 enum ParseState {
     None,
@@ -54,31 +42,6 @@ enum ParseState {
     EmployeeTaxes,
     PreTaxDeductions,
     PostTaxDeductions,
-}
-
-/// Parse a payslip money token (e.g. `40,224.36`, `1,234.50-`) into a
-/// [`Decimal`]. Workday renders credits with a *trailing* minus sign, which
-/// [`Decimal::from_str`] does not accept, so it is normalised to a leading sign
-/// first. A token that still fails to parse is surfaced as an error rather than
-/// silently collapsing to `0.00`, which would let a botched extraction sail
-/// through reconciliation (see audit finding #7).
-pub fn clean_decimal(val: &str) -> Result<Decimal> {
-    let mut clean = val.replace(',', "").trim().to_string();
-    if clean.ends_with('-') {
-        clean = format!("-{}", &clean[..clean.len() - 1]);
-    }
-    Decimal::from_str(&clean).with_context(|| format!("malformed decimal amount: {val:?}"))
-}
-
-pub fn parse_date_str(s: &str) -> Result<Date> {
-    let parts: Vec<&str> = s.split('/').collect();
-    if parts.len() != 3 {
-        return Err(anyhow!("Invalid date format: {}", s));
-    }
-    let month = parts[0].parse::<i8>()?;
-    let day = parts[1].parse::<i8>()?;
-    let year = parts[2].parse::<i16>()?;
-    Date::new(year, month, day).context("Failed to build Jiff Date")
 }
 
 pub fn parse_earnings_line(line: &str) -> Result<Option<RowData>> {
@@ -315,6 +278,22 @@ pub fn parse_page_tables(page_text: &str, page_num: usize) -> Result<ParsedPage>
     })
 }
 
-pub fn convert_pdf_to_pages(pdf_path: &std::path::Path) -> Result<Vec<String>> {
-    pdf_extract::extract_text_by_pages(pdf_path).context("Failed to extract text from PDF")
+/// Parse every page of a Workday payslip PDF into [`ParsedPage`]s. Empty pages
+/// (blank trailing pages, separators) are skipped. This is the backend entry
+/// point dispatched to from [`super::parse_pdf`].
+pub fn parse_pdf(pdf_path: &std::path::Path) -> Result<Vec<ParsedPage>> {
+    let pages = pdf_extract::extract_text_by_pages(pdf_path)
+        .context("Failed to extract text from PDF")?;
+
+    let mut parsed = Vec::new();
+    for (i, page_text) in pages.iter().enumerate() {
+        let page_num = i + 1;
+        let page_text = page_text.trim();
+        if page_text.is_empty() {
+            continue;
+        }
+        parsed.push(parse_page_tables(page_text, page_num)?);
+    }
+    Ok(parsed)
 }
+

@@ -1,5 +1,3 @@
-use crate::payslip::convert_pdf_to_pages;
-use crate::payslip::parse_page_tables;
 use crate::style::*;
 use anstream::eprintln;
 use anstream::println;
@@ -86,32 +84,39 @@ pub(crate) async fn run_import(
     }
 
     println! { "{STYLE_HEADER}📄 Reading payslip PDF: {}{STYLE_HEADER:#}", cli.payslip_pdf.display() };
-    let pages = convert_pdf_to_pages(&cli.payslip_pdf)?;
+    // Detect which payroll provider produced this PDF and parse with the
+    // matching backend. Falls back to Workday when the fingerprint is
+    // inconclusive (the historical default for this importer).
+    let kind = crate::payslip::detect_kind(&cli.payslip_pdf)?
+        .unwrap_or(crate::payslip::PayslipKind::Workday);
+    println! { "  Detected payslip provider: {kind}" };
+    let all_pages = crate::payslip::parse_pdf(&cli.payslip_pdf, kind)?;
+    let total_pages = all_pages.len();
 
     for &p in &cli.pages {
-        if p == 0 || p > pages.len() {
+        if p == 0 || p > total_pages {
             anyhow::bail!(
                 "Requested page number {} is invalid. The PDF has {} pages.",
                 p,
-                pages.len()
+                total_pages
             );
         }
     }
 
     if let Some(from_page) = cli.from_page {
-        if from_page == 0 || from_page > pages.len() {
+        if from_page == 0 || from_page > total_pages {
             anyhow::bail!(
                 "Requested start page number {} is invalid. The PDF has {} pages.",
                 from_page,
-                pages.len()
+                total_pages
             );
         }
     }
 
     let mut parsed_pages = Vec::new();
 
-    for (i, page_text) in pages.iter().enumerate() {
-        let page_num = i + 1;
+    for parsed in all_pages {
+        let page_num = parsed.page_num;
         if !cli.pages.is_empty() && !cli.pages.contains(&page_num) {
             continue;
         }
@@ -120,11 +125,6 @@ pub(crate) async fn run_import(
                 continue;
             }
         }
-        let page_text = page_text.trim();
-        if page_text.is_empty() {
-            continue;
-        }
-        let parsed = parse_page_tables(page_text, page_num)?;
         parsed_pages.push(parsed);
     }
 
@@ -180,7 +180,7 @@ pub(crate) async fn run_import(
     // Pre-flight: validate every page (category mappings + RSU structure)
     // before any mutation, so a problem on a late page can't leave earlier
     // pages half-imported (audit #5). Reports all problems at once.
-    preflight_validate(&parsed_pages, &resolved_cats)?;
+    preflight_validate(&parsed_pages, &resolved_cats, kind)?;
 
     let resolved_net_zero_acct = if let Some(ref client_ref) = client {
         let acct_name = &config.lunch_money.net_zero_account;
@@ -339,8 +339,15 @@ pub(crate) async fn run_import(
             payslip.page_num, check_date_str, net_pay
         };
 
-        // Detect if this is an RSU vest page
-        let rsu_earn = rsu_vest_earning(payslip);
+        // Detect if this is an RSU vest page. Only Workday represents RSU vests
+        // as separate $0 paychecks needing gross-minus-taxes reconstruction;
+        // Microsoft folds stock comp inline as offsetting line items that
+        // already reconcile to net pay, so it never takes the RSU path.
+        let rsu_earn = if kind.uses_rsu_reconstruction() {
+            rsu_vest_earning(payslip)
+        } else {
+            None
+        };
         let is_rsu_vest = rsu_earn.is_some();
 
         if is_rsu_vest {
@@ -1142,12 +1149,20 @@ fn check_rsu_structure(
 fn preflight_validate(
     parsed_pages: &[crate::payslip::ParsedPage],
     resolved_cats: &HashMap<String, (String, CategoryId)>,
+    kind: crate::payslip::PayslipKind,
 ) -> Result<()> {
     let mut problems = Vec::new();
     let mut unmapped: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     for payslip in parsed_pages {
-        let rsu_earn = rsu_vest_earning(payslip);
+        // Only providers that encode RSU vests as separate $0 paychecks
+        // (Workday) take the gross-minus-taxes reconstruction path; others
+        // fold stock comp inline, so the RSU structural check never applies.
+        let rsu_earn = if kind.uses_rsu_reconstruction() {
+            rsu_vest_earning(payslip)
+        } else {
+            None
+        };
         if let Some(rsu_earn) = rsu_earn {
             check_rsu_structure(payslip, rsu_earn, &mut problems);
         }
