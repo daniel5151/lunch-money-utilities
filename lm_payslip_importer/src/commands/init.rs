@@ -175,30 +175,30 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
                     continue;
                 }
                 if let Ok(parsed) = crate::payslip::parse_page_tables(page_text, page_num) {
-                    for item in parsed.earnings {
-                        let desc = item.description.trim().to_string();
-                        if !desc.is_empty() {
-                            unique_items.insert(desc);
+                    // Only seed items that actually appeared with a non-zero
+                    // *current* amount. YTD-only rows (zero current) would
+                    // otherwise pollute the mapping list with items the user
+                    // never needs to categorize (audit #10).
+                    let mut collect = |rows: Vec<crate::payslip::RowData>| {
+                        for item in rows {
+                            let amount = item
+                                .values
+                                .get("Amount")
+                                .copied()
+                                .unwrap_or(rust_decimal::Decimal::ZERO);
+                            if amount.is_zero() {
+                                continue;
+                            }
+                            let desc = item.description.trim().to_string();
+                            if !desc.is_empty() {
+                                unique_items.insert(desc);
+                            }
                         }
-                    }
-                    for item in parsed.employee_taxes {
-                        let desc = item.description.trim().to_string();
-                        if !desc.is_empty() {
-                            unique_items.insert(desc);
-                        }
-                    }
-                    for item in parsed.pre_tax_deductions {
-                        let desc = item.description.trim().to_string();
-                        if !desc.is_empty() {
-                            unique_items.insert(desc);
-                        }
-                    }
-                    for item in parsed.post_tax_deductions {
-                        let desc = item.description.trim().to_string();
-                        if !desc.is_empty() {
-                            unique_items.insert(desc);
-                        }
-                    }
+                    };
+                    collect(parsed.earnings);
+                    collect(parsed.employee_taxes);
+                    collect(parsed.pre_tax_deductions);
+                    collect(parsed.post_tax_deductions);
                 }
             }
         }
@@ -230,7 +230,7 @@ rsu_account = "{rsu_name}"
 payslip_payee = "Meta Payslip"
 
 # Payee name for auto-imported RSU vest events in Lunch Money (case-insensitive direct comparison)
-rsu_payee_match = "$META RSU Vest"
+rsu_payee_match = "$META Vest"
 
 [mapping]
 # Map payslip item names to Lunch Money category names or IDs.
