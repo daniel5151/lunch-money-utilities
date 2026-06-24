@@ -73,7 +73,8 @@ cargo run --package lm-payslip-importer -- import <PAYSLIP_PDF> [FLAGS]
 
 Flags:
 - `--dry-run`: Do not modify anything in Lunch Money. Instead, output the visual plan detailing matched transactions, synthetic transactions to create, and split components.
-- `--page <PAGE>`: Specify a page number to process. If omitted, all pages are processed. Can be passed multiple times (e.g., `--page 1 --page 3`).
+- `--page <PAGE>`: Specify a page number to process. If omitted, all pages are processed. Can be passed multiple times (e.g., `--page 1 --page 3`). Conflicts with `--from-page`.
+- `--from-page <PAGE>`: Start processing imports from this page number (inclusive). Conflicts with `--page`.
 
 ---
 

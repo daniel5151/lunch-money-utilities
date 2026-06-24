@@ -67,6 +67,13 @@ pub struct ImportArgs {
         action = clap::ArgAction::Append
     )]
     pub pages: Vec<usize>,
+
+    #[arg(
+        long = "from-page",
+        help = "Start processing imports from this page number (inclusive). Conflicts with --page.",
+        conflicts_with = "pages"
+    )]
+    pub from_page: Option<usize>,
 }
 
 #[derive(Parser, Debug)]

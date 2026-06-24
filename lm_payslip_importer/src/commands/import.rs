@@ -101,12 +101,27 @@ pub(crate) async fn run_import(
         }
     }
 
+    if let Some(from_page) = cli.from_page {
+        if from_page == 0 || from_page > pages.len() {
+            anyhow::bail!(
+                "Requested start page number {} is invalid. The PDF has {} pages.",
+                from_page,
+                pages.len()
+            );
+        }
+    }
+
     let mut parsed_pages = Vec::new();
 
     for (i, page_text) in pages.iter().enumerate() {
         let page_num = i + 1;
         if !cli.pages.is_empty() && !cli.pages.contains(&page_num) {
             continue;
+        }
+        if let Some(from_page) = cli.from_page {
+            if page_num < from_page {
+                continue;
+            }
         }
         let page_text = page_text.trim();
         if page_text.is_empty() {
