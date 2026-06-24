@@ -133,51 +133,16 @@ pub(crate) async fn run_import(
     let resolved_net_zero_acct = if let Some(ref client_ref) = client {
         let acct_name = &config.lunch_money.net_zero_account;
         println! { "Resolving Lunch Money account name '{}'...", acct_name };
-        let plaid_accts = client_ref
-            .fetch_plaid_accounts()
-            .await
-            .context("Failed to fetch Plaid accounts")?;
-
-        let mut matched = None;
-        for acct in plaid_accts {
-            if acct.name.eq_ignore_ascii_case(acct_name)
-                || acct
-                    .display_name
-                    .as_ref()
-                    .map(|d| d.eq_ignore_ascii_case(acct_name))
-                    .unwrap_or(false)
-            {
-                matched = Some(ResolvedAccount::Plaid(acct.id));
-                break;
-            }
-        }
-
-        if matched.is_none() {
-            let manual_accts = client_ref
-                .fetch_manual_accounts()
-                .await
-                .context("Failed to fetch manual accounts")?;
-            for acct in manual_accts {
-                if acct.name.eq_ignore_ascii_case(acct_name)
-                    || acct
-                        .display_name
-                        .as_ref()
-                        .map(|d| d.eq_ignore_ascii_case(acct_name))
-                        .unwrap_or(false)
-                {
-                    matched = Some(ResolvedAccount::Manual(acct.id));
-                    break;
-                }
-            }
-        }
-
-        let matched = matched.ok_or_else(|| {
-            anyhow!(
-                "Configured net-zero account '{}' does not exist in Lunch Money.",
-                acct_name
-            )
-        })?;
-        Some(matched)
+        Some(
+            resolve_account(client_ref, acct_name)
+                .await?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Configured net-zero account '{}' does not exist in Lunch Money.",
+                        acct_name
+                    )
+                })?,
+        )
     } else {
         None
     };
@@ -185,51 +150,16 @@ pub(crate) async fn run_import(
     let resolved_rsu_acct = if let Some(ref client_ref) = client {
         let acct_name = &config.lunch_money.rsu_account;
         println! { "Resolving Lunch Money RSU account name '{}'...", acct_name };
-        let plaid_accts = client_ref
-            .fetch_plaid_accounts()
-            .await
-            .context("Failed to fetch Plaid accounts")?;
-
-        let mut matched = None;
-        for acct in plaid_accts {
-            if acct.name.eq_ignore_ascii_case(acct_name)
-                || acct
-                    .display_name
-                    .as_ref()
-                    .map(|d| d.eq_ignore_ascii_case(acct_name))
-                    .unwrap_or(false)
-            {
-                matched = Some(ResolvedAccount::Plaid(acct.id));
-                break;
-            }
-        }
-
-        if matched.is_none() {
-            let manual_accts = client_ref
-                .fetch_manual_accounts()
-                .await
-                .context("Failed to fetch manual accounts")?;
-            for acct in manual_accts {
-                if acct.name.eq_ignore_ascii_case(acct_name)
-                    || acct
-                        .display_name
-                        .as_ref()
-                        .map(|d| d.eq_ignore_ascii_case(acct_name))
-                        .unwrap_or(false)
-                {
-                    matched = Some(ResolvedAccount::Manual(acct.id));
-                    break;
-                }
-            }
-        }
-
-        let matched = matched.ok_or_else(|| {
-            anyhow!(
-                "Configured RSU account '{}' does not exist in Lunch Money.",
-                acct_name
-            )
-        })?;
-        Some(matched)
+        Some(
+            resolve_account(client_ref, acct_name)
+                .await?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Configured RSU account '{}' does not exist in Lunch Money.",
+                        acct_name
+                    )
+                })?,
+        )
     } else {
         None
     };
@@ -873,6 +803,45 @@ fn map_category(
         "No Lunch Money category mapping found for payslip item '{}'. Please add it to the [mapping] section of lm_payslip_importer.toml.",
         desc
     )
+}
+
+/// Resolve a configured account name to a Plaid or manual account id, matching
+/// case-insensitively against either the account name or its display name.
+/// Plaid accounts are checked first, then manual accounts. Returns `Ok(None)`
+/// when no account matches so callers can attach their own context.
+async fn resolve_account(
+    client: &LunchMoneyClient,
+    acct_name: &str,
+) -> Result<Option<ResolvedAccount>> {
+    let name_matches = |name: &str, display_name: &Option<String>| {
+        name.eq_ignore_ascii_case(acct_name)
+            || display_name
+                .as_ref()
+                .map(|d| d.eq_ignore_ascii_case(acct_name))
+                .unwrap_or(false)
+    };
+
+    let plaid_accts = client
+        .fetch_plaid_accounts()
+        .await
+        .context("Failed to fetch Plaid accounts")?;
+    for acct in plaid_accts {
+        if name_matches(&acct.name, &acct.display_name) {
+            return Ok(Some(ResolvedAccount::Plaid(acct.id)));
+        }
+    }
+
+    let manual_accts = client
+        .fetch_manual_accounts()
+        .await
+        .context("Failed to fetch manual accounts")?;
+    for acct in manual_accts {
+        if name_matches(&acct.name, &acct.display_name) {
+            return Ok(Some(ResolvedAccount::Manual(acct.id)));
+        }
+    }
+
+    Ok(None)
 }
 
 fn find_category(
