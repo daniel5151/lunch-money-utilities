@@ -604,18 +604,21 @@ pub(crate) async fn run_import(
 
         let mut components = Vec::new();
 
-        // Helper to check for imputed income components
+        // Helper to check for imputed income components. An item is imputed
+        // income if its description starts with '*', or if it exactly (modulo
+        // ASCII case) equals one of the configured exceptions. Exact matching —
+        // not substring — so e.g. an exception of "Relocation Tax Ben" does not
+        // also capture an unrelated "Relocation Tax Ben Adjustment" line.
         let is_imputed_income = |desc: &str| -> bool {
             let desc_trimmed = desc.trim();
             if desc_trimmed.starts_with('*') {
                 return true;
             }
-            let desc_lower = desc_trimmed.to_lowercase();
             config
                 .imputed_income
                 .exceptions
                 .iter()
-                .any(|exception| desc_lower.contains(&exception.to_lowercase()))
+                .any(|exception| desc_trimmed.eq_ignore_ascii_case(exception.trim()))
         };
 
         // 1. Earnings (credits - negative amount in Lunch Money)
