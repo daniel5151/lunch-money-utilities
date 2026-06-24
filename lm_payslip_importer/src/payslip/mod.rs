@@ -7,6 +7,7 @@
 //! ([`workday`], [`microsoft`]); everything shared — the data model, money/date
 //! parsing, and the [`PayslipKind`] dispatcher — lives here.
 
+pub mod adp_microsoft;
 pub mod microsoft;
 pub mod workday;
 
@@ -64,6 +65,9 @@ pub enum PayslipKind {
     /// Microsoft Corporation earnings statements ("Official Copy"). Inline
     /// CURRENT vs YEAR-TO-DATE layout, bucketed by printed sign.
     Microsoft,
+    /// ADP-generated Microsoft Corporation earnings statements. Two-physical-
+    /// column layout that `pdf-extract` interleaves; deinterleaved by indentation.
+    AdpMicrosoft,
 }
 
 impl PayslipKind {
@@ -72,6 +76,7 @@ impl PayslipKind {
         match self {
             PayslipKind::Workday => "workday",
             PayslipKind::Microsoft => "microsoft",
+            PayslipKind::AdpMicrosoft => "adp_microsoft",
         }
     }
 
@@ -96,8 +101,11 @@ impl FromStr for PayslipKind {
         match s.trim().to_lowercase().as_str() {
             "workday" => Ok(PayslipKind::Workday),
             "microsoft" | "msft" => Ok(PayslipKind::Microsoft),
+            "adp_microsoft" | "adp-microsoft" | "adp_msft" | "adp" => {
+                Ok(PayslipKind::AdpMicrosoft)
+            }
             other => Err(anyhow!(
-                "unknown payslip kind {other:?} (expected 'workday' or 'microsoft')"
+                "unknown payslip kind {other:?} (expected 'workday', 'microsoft', or 'adp_microsoft')"
             )),
         }
     }
@@ -111,6 +119,7 @@ pub fn parse_pdf(pdf_path: &std::path::Path, kind: PayslipKind) -> Result<Vec<Pa
     match kind {
         PayslipKind::Workday => workday::parse_pdf(pdf_path),
         PayslipKind::Microsoft => microsoft::parse_pdf(pdf_path),
+        PayslipKind::AdpMicrosoft => adp_microsoft::parse_pdf(pdf_path),
     }
 }
 
@@ -122,8 +131,19 @@ pub fn detect_kind(pdf_path: &std::path::Path) -> Result<Option<PayslipKind>> {
     let pages = pdf_extract::extract_text_by_pages(pdf_path)
         .context("Failed to extract text from PDF for provider detection")?;
     let head = pages.first().map(|s| s.as_str()).unwrap_or("");
+    let head = head.replace('\u{0}', "");
+    let head = head.as_str();
     let upper = head.to_uppercase();
     if upper.contains("MICROSOFT CORPORATION") {
+        // Two Microsoft formats share this string. The ADP-generated one carries
+        // the ADP footer / its distinctive "Period Beg/End:" header band; the
+        // in-house "Official Copy" does not.
+        if upper.contains("AUTOMATICDATA PROCESSING")
+            || upper.contains("AUTOMATIC DATA PROCESSING")
+            || head.contains("Period Beg/End")
+        {
+            return Ok(Some(PayslipKind::AdpMicrosoft));
+        }
         return Ok(Some(PayslipKind::Microsoft));
     }
     // Workday payslips carry the "Pay Period Begin ... Check Date" header band.
@@ -164,7 +184,8 @@ mod recon_tests {
     //! data that does not live in the repo, so each test reads its path from an
     //! environment variable and is a no-op when that variable is unset:
     //!
-    //! * `LM_MSFT_PDF` — the multi-page "Official Copy" Microsoft PDF.
+    //! * `LM_MSFT_PDF`     — the multi-page "Official Copy" Microsoft PDF.
+    //! * `LM_ADP_MSFT_DIR` — a directory of ADP-Microsoft `*.pdf` statements.
     //!
     //! Every parsed page must satisfy `earnings − taxes − pre_tax − post_tax ==
     //! net_pay` to within a cent, which is the same invariant the importer
@@ -207,5 +228,43 @@ mod recon_tests {
             assert_page_reconciles(p, "microsoft");
         }
         eprintln!("microsoft: {} pages reconciled", pages.len());
+    }
+
+    #[test]
+    fn adp_microsoft_corpus_reconciles() {
+        let Ok(dir) = std::env::var("LM_ADP_MSFT_DIR") else {
+            eprintln!("LM_ADP_MSFT_DIR unset; skipping");
+            return;
+        };
+        let mut files: Vec<_> = std::fs::read_dir(&dir)
+            .expect("read corpus dir")
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("pdf"))
+            .collect();
+        files.sort();
+        assert!(!files.is_empty(), "no PDFs in {dir}");
+
+        let mut total_pages = 0;
+        for f in &files {
+            let kind = detect_kind(f).unwrap();
+            assert_eq!(
+                kind,
+                Some(PayslipKind::AdpMicrosoft),
+                "detect_kind mismatch for {}",
+                f.display()
+            );
+            let pages = adp_microsoft::parse_pdf(f)
+                .unwrap_or_else(|e| panic!("parse {}: {e:#}", f.display()));
+            assert!(!pages.is_empty(), "no pages parsed from {}", f.display());
+            for p in &pages {
+                assert_page_reconciles(p, &f.display().to_string());
+            }
+            total_pages += pages.len();
+        }
+        eprintln!(
+            "adp_microsoft: {} files, {} statement pages reconciled",
+            files.len(),
+            total_pages
+        );
     }
 }

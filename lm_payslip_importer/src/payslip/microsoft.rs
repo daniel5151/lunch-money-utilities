@@ -1,6 +1,7 @@
 //! "Official Copy of Microsoft Corporation Earnings Statement" backend.
 //!
-//! Microsoft's in-house earnings statement. Each PDF page is one pay period.
+//! Microsoft's in-house earnings statement (as opposed to the ADP-generated one
+//! handled by [`super::adp_microsoft`]). Each PDF page is one pay period.
 //!
 //! ## Layout
 //!
