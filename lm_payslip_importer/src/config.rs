@@ -24,4 +24,6 @@ pub struct LunchMoneyConfig {
     pub rsu_account: String,
     pub payslip_payee: String,
     pub rsu_payee_match: String,
+    #[serde(default)]
+    pub tag: Option<String>,
 }

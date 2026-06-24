@@ -12,6 +12,7 @@ use lunch_money::client::TooManyRequestsPolicy;
 use lunch_money::core::CategoryId;
 use lunch_money::core::ManualAccountId;
 use lunch_money::core::PlaidAccountId;
+use lunch_money::core::TagId;
 use lunch_money::core::TransactionId;
 use lunch_money::transactions::query_params::TransactionQuery;
 use lunch_money::transactions::schemas::InsertObject;
@@ -165,6 +166,38 @@ pub(crate) async fn run_import(
                     )
                 })?,
         )
+    } else {
+        None
+    };
+
+    let resolved_tag_id = if let Some(ref tag_name) = config.lunch_money.tag {
+        if let Some(ref client_ref) = client {
+            println! { "Resolving Lunch Money tag '{}'...", tag_name };
+            let lm_tags = client_ref
+                .fetch_tags()
+                .await
+                .context("Failed to fetch Lunch Money tags")?;
+
+            let existing_tag = lm_tags
+                .iter()
+                .find(|t| t.name.eq_ignore_ascii_case(tag_name));
+
+            if let Some(tag) = existing_tag {
+                Some(tag.id)
+            } else if cli.dry_run {
+                println! { "Tag '{}' does not exist. Would create it in Lunch Money.", tag_name };
+                None
+            } else {
+                println! { "Tag '{}' does not exist. Creating it in Lunch Money...", tag_name };
+                let new_tag = client_ref
+                    .create_tag(tag_name, Some("Created by Lunch Money Payslip Importer"))
+                    .await
+                    .context("Failed to create missing tag")?;
+                Some(new_tag.id)
+            }
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -411,6 +444,7 @@ pub(crate) async fn run_import(
                             notes,
                             rsu_cat_id,
                             rsu_acct,
+                            resolved_tag_id,
                         )?;
 
                         let insert_resp = client_ref
@@ -439,6 +473,7 @@ pub(crate) async fn run_import(
                                     .maybe_payee(Some(comp.description.clone()))
                                     .maybe_category_id(Some(comp.category_id))
                                     .maybe_notes(Some(" ".to_string()))
+                                    .maybe_tag_ids(resolved_tag_id.map(|id| vec![id]))
                                     .build()
                             })
                             .collect();
@@ -591,6 +626,7 @@ pub(crate) async fn run_import(
                             &acct,
                             config.lunch_money.payslip_payee.clone(),
                             parent_cat_id,
+                            resolved_tag_id,
                         )?;
                         let insert_resp = client_ref
                             .insert_transactions::<serde_json::Value, String, serde_json::Value, String>(&[insert_tx])
@@ -761,6 +797,7 @@ pub(crate) async fn run_import(
                     .maybe_payee(Some(comp.description.clone()))
                     .maybe_category_id(Some(comp.category_id))
                     .maybe_notes(Some(" ".to_string()))
+                    .maybe_tag_ids(resolved_tag_id.map(|id| vec![id]))
                     .build()
             })
             .collect();
@@ -1065,6 +1102,7 @@ fn insert_transaction(
     notes: String,
     category_id: CategoryId,
     resolved_acct: &ResolvedAccount,
+    tag_id: Option<TagId>,
 ) -> Result<InsertObject> {
     let plaid_id = match resolved_acct {
         ResolvedAccount::Plaid(id) => Some(*id),
@@ -1084,6 +1122,7 @@ fn insert_transaction(
         .maybe_category_id(Some(category_id))
         .maybe_plaid_account_id(plaid_id)
         .maybe_manual_account_id(manual_id)
+        .maybe_tag_ids(tag_id.map(|id| vec![id]))
         .build())
 }
 
@@ -1092,6 +1131,7 @@ fn insert_transaction_for_zero_pay(
     resolved_acct: &ResolvedAccount,
     payee: String,
     category_id: CategoryId,
+    tag_id: Option<TagId>,
 ) -> Result<InsertObject> {
     let plaid_id = match resolved_acct {
         ResolvedAccount::Plaid(id) => Some(*id),
@@ -1111,5 +1151,6 @@ fn insert_transaction_for_zero_pay(
         .maybe_category_id(Some(category_id))
         .maybe_plaid_account_id(plaid_id)
         .maybe_manual_account_id(manual_id)
+        .maybe_tag_ids(tag_id.map(|id| vec![id]))
         .build())
 }

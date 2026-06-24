@@ -105,6 +105,11 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
         .await
         .context("Failed to fetch Lunch Money categories")?;
 
+    let lm_tags = lm_client
+        .fetch_tags()
+        .await
+        .context("Failed to fetch Lunch Money tags")?;
+
     let mut accounts = Vec::new();
     for acct in plaid_accts {
         if acct.status == lunch_money::plaid_accounts::schemas::PlaidAccountStatus::Active {
@@ -154,6 +159,60 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
         .display_name
         .clone()
         .unwrap_or(selected_rsu.name.clone());
+
+    println! {};
+    let use_tag = inquire::Confirm::new("Would you like to set an optional tag for transactions created by this importer?")
+        .with_default(false)
+        .prompt()
+        .context("Failed to get tag preference")?;
+
+    let tag_name = if use_tag {
+        let mut active_tags: Vec<String> = lm_tags
+            .iter()
+            .filter(|t| !t.archived)
+            .map(|t| t.name.clone())
+            .collect();
+        active_tags.sort();
+
+        let choice = if active_tags.is_empty() {
+            println! { "No active tags found in your Lunch Money account." };
+            inquire::Text::new("Enter new tag name to create:")
+                .prompt()
+                .context("Failed to get new tag name")?
+        } else {
+            let mut options = active_tags;
+            options.push("<Create new tag / Custom tag...>".to_string());
+            let select_choice = inquire::Select::new("Select Tag:", options)
+                .prompt()
+                .context("Failed to select tag")?;
+
+            if select_choice == "<Create new tag / Custom tag...>" {
+                inquire::Text::new("Enter tag name:")
+                    .prompt()
+                    .context("Failed to get custom tag name")?
+            } else {
+                select_choice
+            }
+        };
+
+        let trimmed = choice.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    } else {
+        None
+    };
+
+    let tag_line = if let Some(ref name) = tag_name {
+        format!(
+            "# Optional tag to use on transactions created by this importer\ntag = \"{}\"",
+            name
+        )
+    } else {
+        "# Optional tag to use on transactions created by this importer\n# tag = \"\"".to_string()
+    };
 
     let mut mapping_entries = Vec::new();
     if !args.pdfs.is_empty() {
@@ -225,6 +284,7 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
 api_key = "{lunch_money_api_key}"
 net_zero_account = "{net_zero_name}"
 rsu_account = "{rsu_name}"
+{tag_line}
 
 # Payee for newly created direct deposit / net-zero transactions
 payslip_payee = "Meta Payslip"
