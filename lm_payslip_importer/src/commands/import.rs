@@ -291,12 +291,14 @@ pub(crate) async fn run_import(
                     .end_date(end_date.to_string())
                     .limit(1000)
                     .plaid_account_id(*id)
+                    .maybe_include_split_parents(if cli.dry_run { Some(true) } else { None })
                     .build(),
                 ResolvedAccount::Manual(id) => TransactionQuery::builder()
                     .start_date(start_date.to_string())
                     .end_date(end_date.to_string())
                     .limit(1000)
                     .manual_account_id(*id)
+                    .maybe_include_split_parents(if cli.dry_run { Some(true) } else { None })
                     .build(),
             };
 
@@ -322,12 +324,14 @@ pub(crate) async fn run_import(
                     .end_date(end_date.to_string())
                     .limit(1000)
                     .plaid_account_id(*id)
+                    .maybe_include_split_parents(if cli.dry_run { Some(true) } else { None })
                     .build(),
                 ResolvedAccount::Manual(id) => TransactionQuery::builder()
                     .start_date(start_date.to_string())
                     .end_date(end_date.to_string())
                     .limit(1000)
                     .manual_account_id(*id)
+                    .maybe_include_split_parents(if cli.dry_run { Some(true) } else { None })
                     .build(),
             };
 
@@ -384,10 +388,7 @@ pub(crate) async fn run_import(
                 if !amount.is_zero() {
                     let (cat_name, cat_id) = map_category(&tax.description, &resolved_cats)?;
                     tax_components.push(SplitComponent {
-                        description: format!(
-                            "{} - {}",
-                            backend.payslip_payee, tax.description
-                        ),
+                        description: format!("{} - {}", backend.payslip_payee, tax.description),
                         amount,
                         category_id: cat_id,
                         category_name: cat_name,
@@ -401,10 +402,7 @@ pub(crate) async fn run_import(
 
             let (rsu_cat_name, rsu_cat_id) = map_category(&rsu_earn.description, &resolved_cats)?;
             let mut rsu_components = vec![SplitComponent {
-                description: format!(
-                    "{} - {}",
-                    backend.payslip_payee, rsu_earn.description
-                ),
+                description: format!("{} - {}", backend.payslip_payee, rsu_earn.description),
                 amount: -rsu_amount,
                 category_id: rsu_cat_id,
                 category_name: rsu_cat_name,
@@ -433,11 +431,9 @@ pub(crate) async fn run_import(
                             && tx.date >= start_window
                             && tx.date <= end_window
                             && tx.amount.is_zero()
-                            && tx
-                                .payee
-                                .eq_ignore_ascii_case(
-                                    backend.rsu_payee_match.as_deref().unwrap_or_default(),
-                                )
+                            && tx.payee.eq_ignore_ascii_case(
+                                backend.rsu_payee_match.as_deref().unwrap_or_default(),
+                            )
                     })
                     .cloned()
                     .collect::<Vec<_>>()
@@ -456,6 +452,14 @@ pub(crate) async fn run_import(
                     "  {STYLE_SUCCESS}✅ Matched RSU vest to auto-imported Plaid transaction(s): {}{STYLE_SUCCESS:#}",
                     matched_ids.join(", ")
                 };
+                for tx in &matched_plaid_rsu_txs {
+                    if tx.is_split_parent.unwrap_or(false) {
+                        println! {
+                            "  {STYLE_WARNING}⚠️ Warning: Matched RSU transaction ID {} has already been split.{STYLE_WARNING:#}",
+                            tx.id
+                        };
+                    }
+                }
             }
 
             if cli.dry_run || cli.interactive {
@@ -667,6 +671,12 @@ pub(crate) async fn run_import(
                     "  {STYLE_SUCCESS}✅ Matched to Lunch Money transaction: ID = {}, Date = {}, Amount = {}, Payee = \"{}\"{STYLE_SUCCESS:#}",
                     tx.id, tx.date, tx.amount, tx.payee
                 };
+                if tx.is_split_parent.unwrap_or(false) {
+                    println! {
+                        "  {STYLE_WARNING}⚠️ Warning: Transaction ID {} has already been split.{STYLE_WARNING:#}",
+                        tx.id
+                    };
+                }
 
                 tx_id = tx.id;
                 tx_date = tx.date;
@@ -807,10 +817,7 @@ pub(crate) async fn run_import(
             if !amount.is_zero() {
                 let (cat_name, cat_id) = map_category(&earn.description, &resolved_cats)?;
                 components.push(SplitComponent {
-                    description: format!(
-                        "{} - {}",
-                        backend.payslip_payee, earn.description
-                    ),
+                    description: format!("{} - {}", backend.payslip_payee, earn.description),
                     amount: -amount,
                     category_id: cat_id,
                     category_name: cat_name.clone(),
@@ -836,10 +843,7 @@ pub(crate) async fn run_import(
             if !amount.is_zero() {
                 let (cat_name, cat_id) = map_category(&ded.description, &resolved_cats)?;
                 components.push(SplitComponent {
-                    description: format!(
-                        "{} - {}",
-                        backend.payslip_payee, ded.description
-                    ),
+                    description: format!("{} - {}", backend.payslip_payee, ded.description),
                     amount,
                     category_id: cat_id,
                     category_name: cat_name.clone(),
@@ -865,10 +869,7 @@ pub(crate) async fn run_import(
             if !amount.is_zero() {
                 let (cat_name, cat_id) = map_category(&tax.description, &resolved_cats)?;
                 components.push(SplitComponent {
-                    description: format!(
-                        "{} - {}",
-                        backend.payslip_payee, tax.description
-                    ),
+                    description: format!("{} - {}", backend.payslip_payee, tax.description),
                     amount,
                     category_id: cat_id,
                     category_name: cat_name.clone(),
@@ -894,10 +895,7 @@ pub(crate) async fn run_import(
             if !amount.is_zero() {
                 let (cat_name, cat_id) = map_category(&ded.description, &resolved_cats)?;
                 components.push(SplitComponent {
-                    description: format!(
-                        "{} - {}",
-                        backend.payslip_payee, ded.description
-                    ),
+                    description: format!("{} - {}", backend.payslip_payee, ded.description),
                     amount,
                     category_id: cat_id,
                     category_name: cat_name.clone(),
