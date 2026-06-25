@@ -57,7 +57,7 @@ pub struct ParsedPage {
 
 /// Which payroll provider produced a payslip PDF. Selects the parsing backend
 /// and, in config, which `[backends.<kind>]` section applies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PayslipKind {
     /// Workday-generated payslips (e.g. Meta). Plain-text extraction.

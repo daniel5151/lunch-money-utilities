@@ -139,28 +139,6 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
     });
 
     println! {};
-    let selected_net_zero = inquire::Select::new("Select Net Zero Account:", accounts.clone())
-        .with_help_message(
-            "The account where zero-dollar check matches or direct deposit splits will be posted",
-        )
-        .prompt()
-        .context("Failed to select Net Zero Account")?;
-    let net_zero_name = selected_net_zero
-        .display_name
-        .clone()
-        .unwrap_or(selected_net_zero.name.clone());
-
-    println! {};
-    let selected_rsu = inquire::Select::new("Select RSU Account:", accounts)
-        .with_help_message("The manual account used to track your RSU vests (e.g. Equity Awards)")
-        .prompt()
-        .context("Failed to select RSU Account")?;
-    let rsu_name = selected_rsu
-        .display_name
-        .clone()
-        .unwrap_or(selected_rsu.name.clone());
-
-    println! {};
     let use_tag = inquire::Confirm::new("Would you like to set an optional tag for transactions created by this importer?")
         .with_default(false)
         .prompt()
@@ -214,9 +192,17 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
         "# Optional tag to use on transactions created by this importer\n# tag = \"\"".to_string()
     };
 
-    let mut mapping_entries = Vec::new();
+    // Seed the per-provider mapping tables. Each seed PDF is fingerprinted to
+    // its provider so a single `init` invocation can configure several backends
+    // at once (e.g. a Workday PDF and a Microsoft PDF), and each provider's
+    // unique line items land in that provider's own [backends.<kind>.mapping].
+    use crate::payslip::PayslipKind;
+    let mut per_backend_items: std::collections::BTreeMap<
+        PayslipKind,
+        std::collections::BTreeSet<String>,
+    > = std::collections::BTreeMap::new();
+
     if !args.pdfs.is_empty() {
-        let mut unique_items = std::collections::HashSet::new();
         for pdf_path in &args.pdfs {
             println! {};
             println! { "{STYLE_INFO}📄 Parsing payslip PDF to seed mappings: {}{STYLE_INFO:#}", pdf_path.display() };
@@ -225,12 +211,13 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
             // if the fingerprint is inconclusive (the historical default).
             let kind = match crate::payslip::detect_kind(pdf_path) {
                 Ok(Some(k)) => k,
-                Ok(None) => crate::payslip::PayslipKind::Workday,
+                Ok(None) => PayslipKind::Workday,
                 Err(e) => {
                     eprintln! { "{STYLE_ERROR}❌ Failed to detect payslip provider for {}: {}{STYLE_ERROR:#}", pdf_path.display(), e };
                     continue;
                 }
             };
+            println! { "  Detected payslip provider: {kind}" };
             let pages = match crate::payslip::parse_pdf(pdf_path, kind) {
                 Ok(p) => p,
                 Err(e) => {
@@ -238,6 +225,7 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
                     continue;
                 }
             };
+            let bucket = per_backend_items.entry(kind).or_default();
             for parsed in pages {
                 // Only seed items that actually appeared with a non-zero
                 // *current* amount. YTD-only rows (zero current) would
@@ -250,7 +238,7 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
                         }
                         let desc = item.description.trim().to_string();
                         if !desc.is_empty() {
-                            unique_items.insert(desc);
+                            bucket.insert(desc);
                         }
                     }
                 };
@@ -260,49 +248,129 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
                 collect(parsed.post_tax_deductions);
             }
         }
-        let mut items: Vec<String> = unique_items.into_iter().collect();
-        items.sort();
-        mapping_entries = items;
     }
 
-    let mut mapping_toml = String::new();
-    if mapping_entries.is_empty() {
-        mapping_toml.push_str("# \"Salary\" = \"Salary\"\n");
-        mapping_toml.push_str("# \"Federal Withholding\" = \"Taxes\"\n");
+    // With no seed PDFs we cannot know the provider, so scaffold a single
+    // Workday backend (the historical default) with commented example mappings.
+    let backends_to_configure: Vec<PayslipKind> = if per_backend_items.is_empty() {
+        vec![PayslipKind::Workday]
     } else {
-        for entry in &mapping_entries {
-            let escaped = entry.replace('"', "\\\"");
-            mapping_toml.push_str(&format!("\"{}\" = \"...\"\n", escaped));
+        per_backend_items.keys().copied().collect()
+    };
+
+    // Prompt for the provider-specific settings (deposit account, payee, and —
+    // for providers that reconstruct RSU vests — the RSU account + vest payee)
+    // once per detected backend, then assemble that backend's TOML section.
+    let mut backend_sections = String::new();
+    for kind in &backends_to_configure {
+        let kind = *kind;
+        println! {};
+        println! { "{STYLE_HEADER}⚙️  Configuring backend: {kind}{STYLE_HEADER:#}" };
+
+        let selected_net_zero =
+            inquire::Select::new("Select Net Zero Account:", accounts.clone())
+                .with_help_message(
+                    "The account where zero-dollar check matches or direct deposit splits will be posted",
+                )
+                .prompt()
+                .context("Failed to select Net Zero Account")?;
+        let net_zero_name = selected_net_zero
+            .display_name
+            .clone()
+            .unwrap_or(selected_net_zero.name.clone());
+
+        let default_payee = default_payslip_payee(kind);
+        let payslip_payee = inquire::Text::new("Payee for created transactions:")
+            .with_default(default_payee)
+            .with_help_message("Stamped on the splits this importer creates for this provider")
+            .prompt()
+            .context("Failed to get payslip payee")?;
+
+        // RSU plumbing only applies to providers that encode RSU vests as
+        // separate $0 paychecks (Workday). Others fold stock comp inline, so we
+        // neither prompt for nor emit those keys.
+        let (rsu_account_line, rsu_payee_line) = if kind.uses_rsu_reconstruction() {
+            let selected_rsu = inquire::Select::new("Select RSU Account:", accounts.clone())
+                .with_help_message(
+                    "The manual account used to track your RSU vests (e.g. Equity Awards)",
+                )
+                .prompt()
+                .context("Failed to select RSU Account")?;
+            let rsu_name = selected_rsu
+                .display_name
+                .clone()
+                .unwrap_or(selected_rsu.name.clone());
+
+            let rsu_payee_match = inquire::Text::new("RSU vest payee to match:")
+                .with_default(default_rsu_payee_match(kind))
+                .with_help_message(
+                    "Payee of the auto-imported $0.00 RSU vest transaction (case-insensitive)",
+                )
+                .prompt()
+                .context("Failed to get RSU payee match")?;
+
+            (
+                format!(
+                    "# Manual account used to track RSU vests\nrsu_account = \"{}\"\n",
+                    toml_escape(&rsu_name)
+                ),
+                format!(
+                    "# Payee of the auto-imported $0.00 RSU vest transaction to match (case-insensitive)\nrsu_payee_match = \"{}\"\n",
+                    toml_escape(&rsu_payee_match)
+                ),
+            )
+        } else {
+            (String::new(), String::new())
+        };
+
+        // This backend's mapping table.
+        let mut mapping_toml = String::new();
+        match per_backend_items.get(&kind) {
+            Some(items) if !items.is_empty() => {
+                for entry in items {
+                    mapping_toml.push_str(&format!("\"{}\" = \"...\"\n", toml_escape(entry)));
+                }
+            }
+            _ => {
+                mapping_toml.push_str("# \"Salary\" = \"Salary\"\n");
+                mapping_toml.push_str("# \"Federal Withholding\" = \"Taxes\"\n");
+            }
         }
-    }
-    mapping_toml = mapping_toml.trim_end().to_string();
+        let mapping_toml = mapping_toml.trim_end();
 
-    let template = format!(
-        r#"[lunch_money]
-# Your Lunch Money developer API key
-api_key = "{lunch_money_api_key}"
-net_zero_account = "{net_zero_name}"
-rsu_account = "{rsu_name}"
-{tag_line}
-
+        backend_sections.push_str(&format!(
+            r#"
+[backends.{kind}]
+# Account where zero-dollar check matches or direct deposit splits will be posted
+net_zero_account = "{net_zero}"
 # Payee for newly created direct deposit / net-zero transactions
-payslip_payee = "Meta Payslip"
-
-# Payee name for auto-imported RSU vest events in Lunch Money (case-insensitive direct comparison)
-rsu_payee_match = "$META Vest"
-
-[mapping]
+payslip_payee = "{payee}"
+{rsu_account_line}{rsu_payee_line}
+[backends.{kind}.mapping]
 # Map payslip item names to Lunch Money category names or IDs.
 # Please manually modify this section to map each item to the correct category.
 # TIP: Large Language Models (LLMs) are very good at filling in this categorization!
 {mapping_toml}
 
-[imputed_income]
-# List of imputed income payslip items that are exceptions and should not be treated as imputed income (e.g. relocation tax)
+[backends.{kind}.imputed_income]
+# Line descriptions (exact, case-insensitive) that should NOT be treated as
+# imputed income. Any description starting with '*' is always imputed income.
 # exceptions = [
 #     "relocation tax",
 # ]
-"#
+"#,
+            kind = kind.as_str(),
+            net_zero = toml_escape(&net_zero_name),
+            payee = toml_escape(&payslip_payee),
+        ));
+    }
+
+    let template = format!(
+        r#"[lunch_money]
+# Your Lunch Money developer API key
+api_key = "{lunch_money_api_key}"
+{tag_line}
+{backend_sections}"#
     );
 
     fs::write(&output_path, template)
@@ -314,7 +382,8 @@ rsu_payee_match = "$META Vest"
     println! {};
     println! { "{STYLE_DIM}Run {STYLE_DIM:#}{STYLE_HEADER}lm-payslip-importer import <payslip_pdf>{STYLE_HEADER:#}{STYLE_DIM} to import your payslip.{STYLE_DIM:#}" };
 
-    if !mapping_entries.is_empty() {
+    let total_seeded: usize = per_backend_items.values().map(|s| s.len()).sum();
+    if total_seeded > 0 {
         println! {};
         let print_prompt = inquire::Confirm::new("Would you like to print a copy-pasteable LLM prompt to help you fill in these mappings?")
             .with_default(true)
@@ -329,11 +398,20 @@ rsu_payee_match = "$META Vest"
                 .map(|c| c.name.clone())
                 .collect();
             category_names.sort();
-
             let categories_list = category_names.join("\n- ");
-            let mut mapping_list = String::new();
-            for entry in &mapping_entries {
-                mapping_list.push_str(&format!("\"{}\" = \"...\"\n", entry.replace('"', "\\\"")));
+
+            // One prompt block per backend, each with that provider's mapping
+            // header so the LLM output drops straight into the right section.
+            let mut mapping_sections = String::new();
+            for (kind, items) in &per_backend_items {
+                if items.is_empty() {
+                    continue;
+                }
+                mapping_sections.push_str(&format!("\n[backends.{}.mapping]\n", kind.as_str()));
+                for entry in items {
+                    mapping_sections
+                        .push_str(&format!("\"{}\" = \"...\"\n", entry.replace('"', "\\\"")));
+                }
             }
 
             let prompt_text = format!(
@@ -342,11 +420,9 @@ rsu_payee_match = "$META Vest"
 Here is the list of available Lunch Money categories:
 - {}
 
-Please map each of the following payslip items to the most appropriate Lunch Money category from the list above. Return ONLY the completed TOML mapping entries formatted exactly like this:
-
-[mapping]
+Please map each of the following payslip items to the most appropriate Lunch Money category from the list above. The items are grouped by payroll provider. Return ONLY the completed TOML mapping entries, preserving each provider's section header exactly like this:
 {}"#,
-                categories_list, mapping_list
+                categories_list, mapping_sections
             );
 
             println! {};
@@ -360,3 +436,27 @@ Please map each of the following payslip items to the most appropriate Lunch Mon
 
     Ok(())
 }
+
+/// Default payee to suggest for a provider's created transactions.
+fn default_payslip_payee(kind: crate::payslip::PayslipKind) -> &'static str {
+    match kind {
+        crate::payslip::PayslipKind::Workday => "Meta Payslip",
+        crate::payslip::PayslipKind::Microsoft
+        | crate::payslip::PayslipKind::AdpMicrosoft => "Microsoft Payslip",
+    }
+}
+
+/// Default RSU vest payee to match for a provider (only meaningful for
+/// providers that reconstruct RSU vests).
+fn default_rsu_payee_match(kind: crate::payslip::PayslipKind) -> &'static str {
+    match kind {
+        crate::payslip::PayslipKind::Workday => "$META Vest",
+        _ => "",
+    }
+}
+
+/// Escape a string for embedding inside a double-quoted TOML basic string.
+fn toml_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+

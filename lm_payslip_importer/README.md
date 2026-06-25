@@ -80,23 +80,31 @@ Flags:
 
 ## ⚙️ Configuration File (`lm_payslip_importer.toml`)
 
-The configuration structure is defined by [Config](./src/config.rs#L5-L10) in [config.rs](./src/config.rs). Below is an annotated example of `lm_payslip_importer.toml`:
+The configuration structure is defined by [`Config`](./src/config.rs) in [config.rs](./src/config.rs). Provider-independent, account-level settings live under `[lunch_money]`; everything that depends on which payroll provider produced a payslip — the category mapping, the payee stamped on splits, the deposit account, the imputed-income exceptions, and the Workday-only RSU plumbing — lives in a per-provider `[backends.<kind>]` section. At import time the importer fingerprints the PDF (`workday`, `microsoft`, or `adp_microsoft`) and uses the matching backend.
+
+Below is an annotated example with two providers configured:
 
 ```toml
 [lunch_money]
 # Your Lunch Money developer API key
 api_key = "..."
+# Optional tag applied to every transaction this importer creates
+tag = "payslip"
+
+# ── Workday (e.g. Meta) ─────────────────────────────────────────────
+[backends.workday]
 # Account where zero-dollar check matches or direct deposit splits will be posted
 net_zero_account = "Bank of America Checking"
-# Manual account used to track RSU vests
-rsu_account = "Equity Awards"
 # Payee for newly created direct deposit / net-zero transactions
 payslip_payee = "Meta Payslip"
+# Manual account used to track RSU vests. Required for providers (like Workday)
+# that encode RSU vests as separate $0 paychecks.
+rsu_account = "Equity Awards"
 # Payee of the auto-imported $0.00 RSU vest transaction to match against
 # (case-insensitive). This is the payee Workday/Plaid assigns to the vest event.
 rsu_payee_match = "$META Vest"
 
-[mapping]
+[backends.workday.mapping]
 # Maps payslip line descriptions to Lunch Money category names (or category IDs).
 # Use the full, un-truncated description exactly as the parser emits it.
 "Salary" = "Salary"
@@ -114,13 +122,27 @@ rsu_payee_match = "$META Vest"
 "City Tax - NY" = "Taxes"
 "401k Salary" = "Payment, Transfer"
 
-[imputed_income]
+[backends.workday.imputed_income]
 # Full descriptions (exact, case-insensitive match) that represent imputed
 # income exceptions. Any description starting with an asterisk '*' is always
 # treated as imputed income regardless of this list.
 exceptions = [
     "Relocation Tax Ben",
 ]
+
+# ── Microsoft ───────────────────────────────────────────────────────
+# Microsoft folds stock comp inline as offsetting line items that already
+# reconcile to net pay, so it needs no rsu_account / rsu_payee_match.
+[backends.microsoft]
+net_zero_account = "Bank of America Checking"
+payslip_payee = "Microsoft Payslip"
+
+[backends.microsoft.mapping]
+"Regular" = "Salary"
+"Federal Income Tax" = "Taxes"
+
+[backends.microsoft.imputed_income]
+# exceptions = []
 ```
 
 ---

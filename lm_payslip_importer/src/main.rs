@@ -56,7 +56,8 @@ pub fn load_config() -> anyhow::Result<config::Config> {
     if new_path.exists() {
         let content = std::fs::read_to_string(new_path)
             .context("Failed to read lm_payslip_importer.toml from current working directory")?;
-        let config = toml::from_str(&content).context("Malformed lm_payslip_importer.toml file")?;
+        let config = config::Config::from_toml_str(&content)
+            .context("Malformed lm_payslip_importer.toml file")?;
         return Ok(config);
     }
 
@@ -67,8 +68,8 @@ pub fn load_config() -> anyhow::Result<config::Config> {
         let content = std::fs::read_to_string(fallback_path).context(
             "Failed to read workday_payslip_splitter.toml from current working directory",
         )?;
-        let config =
-            toml::from_str(&content).context("Malformed workday_payslip_splitter.toml file")?;
+        let config = config::Config::from_toml_str(&content)
+            .context("Malformed workday_payslip_splitter.toml file")?;
         return Ok(config);
     }
 
@@ -79,8 +80,8 @@ pub fn load_config() -> anyhow::Result<config::Config> {
             if candidate.exists() {
                 let content = std::fs::read_to_string(&candidate)
                     .context("Failed to read lm_payslip_importer.toml from executable directory")?;
-                let config =
-                    toml::from_str(&content).context("Malformed lm_payslip_importer.toml file")?;
+                let config = config::Config::from_toml_str(&content)
+                    .context("Malformed lm_payslip_importer.toml file")?;
                 return Ok(config);
             }
 
@@ -90,7 +91,7 @@ pub fn load_config() -> anyhow::Result<config::Config> {
                 let content = std::fs::read_to_string(&fallback_candidate).context(
                     "Failed to read workday_payslip_splitter.toml from executable directory",
                 )?;
-                let config = toml::from_str(&content)
+                let config = config::Config::from_toml_str(&content)
                     .context("Malformed workday_payslip_splitter.toml file")?;
                 return Ok(config);
             }

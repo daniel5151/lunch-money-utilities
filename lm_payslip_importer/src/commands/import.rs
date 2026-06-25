@@ -71,7 +71,7 @@ pub(crate) async fn run_import(
     cli: crate::cli::ImportArgs,
 ) -> Result<()> {
     let api_key_opt = config
-        .lunch_money
+        .global
         .api_key
         .clone()
         .or_else(|| env::var("LUNCH_MONEY_API_KEY").ok())
@@ -90,6 +90,12 @@ pub(crate) async fn run_import(
     let kind = crate::payslip::detect_kind(&cli.payslip_pdf)?
         .unwrap_or(crate::payslip::PayslipKind::Workday);
     println! { "  Detected payslip provider: {kind}" };
+
+    // Select the provider-specific settings (mapping, payee, accounts, imputed
+    // income, RSU plumbing) for the detected kind. Errors with a clear message
+    // if the user has not configured a [backends.<kind>] section for it.
+    let backend = config.backend(kind)?.clone();
+
     let all_pages = crate::payslip::parse_pdf(&cli.payslip_pdf, kind)?;
     let total_pages = all_pages.len();
 
@@ -159,7 +165,7 @@ pub(crate) async fn run_import(
             .context("Failed to fetch Lunch Money categories")?;
 
         let mut map = HashMap::new();
-        for (payslip_item, lm_cat_name) in &config.mapping {
+        for (payslip_item, lm_cat_name) in &backend.mapping {
             let resolved = find_category(&lm_categories, lm_cat_name).with_context(|| {
                 format!(
                     "Failed to resolve mapping for payslip item '{}'",
@@ -171,7 +177,7 @@ pub(crate) async fn run_import(
         map
     } else {
         let mut map = HashMap::new();
-        for (payslip_item, lm_cat_name) in &config.mapping {
+        for (payslip_item, lm_cat_name) in &backend.mapping {
             map.insert(payslip_item.clone(), (lm_cat_name.clone(), CategoryId(0)));
         }
         map
@@ -183,7 +189,7 @@ pub(crate) async fn run_import(
     preflight_validate(&parsed_pages, &resolved_cats, kind)?;
 
     let resolved_net_zero_acct = if let Some(ref client_ref) = client {
-        let acct_name = &config.lunch_money.net_zero_account;
+        let acct_name = &backend.net_zero_account;
         println! { "Resolving Lunch Money account name '{}'...", acct_name };
         Some(
             resolve_account(client_ref, acct_name)
@@ -199,8 +205,17 @@ pub(crate) async fn run_import(
         None
     };
 
-    let resolved_rsu_acct = if let Some(ref client_ref) = client {
-        let acct_name = &config.lunch_money.rsu_account;
+    let resolved_rsu_acct = if !kind.uses_rsu_reconstruction() {
+        // Non-RSU providers fold stock comp inline; there is no RSU account to
+        // resolve and the config does not require one.
+        None
+    } else if let Some(ref client_ref) = client {
+        // RSU-reconstruction backends are guaranteed an rsu_account by config
+        // validation (see BackendConfig / into_backend), so this is safe.
+        let acct_name = backend
+            .rsu_account
+            .as_ref()
+            .expect("rsu_account is required for RSU-reconstruction backends");
         println! { "Resolving Lunch Money RSU account name '{}'...", acct_name };
         Some(
             resolve_account(client_ref, acct_name)
@@ -216,7 +231,7 @@ pub(crate) async fn run_import(
         None
     };
 
-    let resolved_tag_id = if let Some(ref tag_name) = config.lunch_money.tag {
+    let resolved_tag_id = if let Some(ref tag_name) = config.global.tag {
         if let Some(ref client_ref) = client {
             println! { "Resolving Lunch Money tag '{}'...", tag_name };
             let lm_tags = client_ref
@@ -285,7 +300,7 @@ pub(crate) async fn run_import(
                     .build(),
             };
 
-            println! { "Fetching transactions for net-zero account '{}' between {} and {}...", config.lunch_money.net_zero_account, start_date, end_date };
+            println! { "Fetching transactions for net-zero account '{}' between {} and {}...", backend.net_zero_account, start_date, end_date };
             let tx_response = client_ref
                 .fetch_transactions::<serde_json::Value, String>(&query)
                 .await
@@ -316,7 +331,7 @@ pub(crate) async fn run_import(
                     .build(),
             };
 
-            println! { "Fetching transactions for RSU account '{}' between {} and {}...", config.lunch_money.rsu_account, start_date, end_date };
+            println! { "Fetching transactions for RSU account '{}' between {} and {}...", backend.rsu_account.as_deref().unwrap_or_default(), start_date, end_date };
             let tx_response = client_ref
                 .fetch_transactions::<serde_json::Value, String>(&query)
                 .await
@@ -371,7 +386,7 @@ pub(crate) async fn run_import(
                     tax_components.push(SplitComponent {
                         description: format!(
                             "{} - {}",
-                            config.lunch_money.payslip_payee, tax.description
+                            backend.payslip_payee, tax.description
                         ),
                         amount,
                         category_id: cat_id,
@@ -388,7 +403,7 @@ pub(crate) async fn run_import(
             let mut rsu_components = vec![SplitComponent {
                 description: format!(
                     "{} - {}",
-                    config.lunch_money.payslip_payee, rsu_earn.description
+                    backend.payslip_payee, rsu_earn.description
                 ),
                 amount: -rsu_amount,
                 category_id: rsu_cat_id,
@@ -420,7 +435,9 @@ pub(crate) async fn run_import(
                             && tx.amount.is_zero()
                             && tx
                                 .payee
-                                .eq_ignore_ascii_case(&config.lunch_money.rsu_payee_match)
+                                .eq_ignore_ascii_case(
+                                    backend.rsu_payee_match.as_deref().unwrap_or_default(),
+                                )
                     })
                     .cloned()
                     .collect::<Vec<_>>()
@@ -445,7 +462,7 @@ pub(crate) async fn run_import(
                 let plan_tag = if cli.dry_run { "[Dry Run] " } else { "" };
                 println! {
                     "  {STYLE_INFO}ℹ️ {plan_tag}RSU Vest Detected. Creating synthetic transaction in account '{}'.{STYLE_INFO:#}",
-                    &config.lunch_money.rsu_account
+                    backend.rsu_account.as_deref().unwrap_or_default()
                 };
                 if !matched_plaid_rsu_txs.is_empty() {
                     let matched_ids: Vec<String> = matched_plaid_rsu_txs
@@ -459,7 +476,7 @@ pub(crate) async fn run_import(
                 }
                 println! {
                     "\n  {STYLE_HEADER}Plan: Create transaction (Date: {}, Amount: {}, Payee: {}){STYLE_HEADER:#}",
-                    synthetic_tx_date, parent_amount, config.lunch_money.payslip_payee
+                    synthetic_tx_date, parent_amount, backend.payslip_payee
                 };
                 for comp in &rsu_components {
                     let sign_style = if comp.amount.is_sign_negative() {
@@ -505,7 +522,7 @@ pub(crate) async fn run_import(
                     if let Some(ref rsu_acct) = resolved_rsu_acct {
                         println! {
                             "  RSU Vest Detected. Creating synthetic transaction in RSU account '{}'...{STYLE_INFO:#}",
-                            &config.lunch_money.rsu_account
+                            backend.rsu_account.as_deref().unwrap_or_default()
                         };
 
                         let notes = if !matched_plaid_rsu_txs.is_empty() {
@@ -524,7 +541,7 @@ pub(crate) async fn run_import(
                         let insert_tx = insert_transaction(
                             synthetic_tx_date,
                             parent_amount,
-                            config.lunch_money.payslip_payee.clone(),
+                            backend.payslip_payee.clone(),
                             notes,
                             rsu_cat_id,
                             rsu_acct,
@@ -606,7 +623,7 @@ pub(crate) async fn run_import(
         let mut tx_id = TransactionId::from(0);
         let mut tx_date = payslip.check_date;
         let mut tx_amount = -payslip.net_pay;
-        let mut tx_payee = config.lunch_money.payslip_payee.clone();
+        let mut tx_payee = backend.payslip_payee.clone();
 
         // In interactive mode, creating the synthetic zero-pay parent is
         // deferred until after the split plan has been printed and confirmed,
@@ -658,7 +675,7 @@ pub(crate) async fn run_import(
             } else {
                 // If no matching transaction is found and this is a net-zero check, create a synthetic transaction
                 if payslip.net_pay.is_zero() {
-                    let account_name = &config.lunch_money.net_zero_account;
+                    let account_name = &backend.net_zero_account;
 
                     if cli.dry_run {
                         println! {
@@ -668,7 +685,7 @@ pub(crate) async fn run_import(
                         tx_id = TransactionId(0);
                         tx_date = payslip.check_date;
                         tx_amount = Decimal::ZERO;
-                        tx_payee = config.lunch_money.payslip_payee.clone();
+                        tx_payee = backend.payslip_payee.clone();
                     } else {
                         let acct = match resolved_net_zero_acct {
                             Some(acct) => acct,
@@ -719,7 +736,7 @@ pub(crate) async fn run_import(
                             tx_id = TransactionId(0);
                             tx_date = payslip.check_date;
                             tx_amount = Decimal::ZERO;
-                            tx_payee = config.lunch_money.payslip_payee.clone();
+                            tx_payee = backend.payslip_payee.clone();
                         } else {
                             println! {
                                 "  {STYLE_INFO}ℹ️ No match found. Creating synthetic $0.00 transaction for Page {} in account '{}'...{STYLE_INFO:#}",
@@ -729,7 +746,7 @@ pub(crate) async fn run_import(
                             let insert_tx = insert_transaction_for_zero_pay(
                                 payslip.check_date,
                                 &acct,
-                                config.lunch_money.payslip_payee.clone(),
+                                backend.payslip_payee.clone(),
                                 parent_cat_id,
                                 resolved_tag_id,
                             )?;
@@ -783,7 +800,7 @@ pub(crate) async fn run_import(
             if desc_trimmed.starts_with('*') {
                 return true;
             }
-            config
+            backend
                 .imputed_income
                 .exceptions
                 .iter()
@@ -798,7 +815,7 @@ pub(crate) async fn run_import(
                 components.push(SplitComponent {
                     description: format!(
                         "{} - {}",
-                        config.lunch_money.payslip_payee, earn.description
+                        backend.payslip_payee, earn.description
                     ),
                     amount: -amount,
                     category_id: cat_id,
@@ -809,7 +826,7 @@ pub(crate) async fn run_import(
                     components.push(SplitComponent {
                         description: format!(
                             "{} - {} Offset",
-                            config.lunch_money.payslip_payee, earn.description
+                            backend.payslip_payee, earn.description
                         ),
                         amount,
                         category_id: cat_id,
@@ -827,7 +844,7 @@ pub(crate) async fn run_import(
                 components.push(SplitComponent {
                     description: format!(
                         "{} - {}",
-                        config.lunch_money.payslip_payee, ded.description
+                        backend.payslip_payee, ded.description
                     ),
                     amount,
                     category_id: cat_id,
@@ -838,7 +855,7 @@ pub(crate) async fn run_import(
                     components.push(SplitComponent {
                         description: format!(
                             "{} - {} Offset",
-                            config.lunch_money.payslip_payee, ded.description
+                            backend.payslip_payee, ded.description
                         ),
                         amount: -amount,
                         category_id: cat_id,
@@ -856,7 +873,7 @@ pub(crate) async fn run_import(
                 components.push(SplitComponent {
                     description: format!(
                         "{} - {}",
-                        config.lunch_money.payslip_payee, tax.description
+                        backend.payslip_payee, tax.description
                     ),
                     amount,
                     category_id: cat_id,
@@ -867,7 +884,7 @@ pub(crate) async fn run_import(
                     components.push(SplitComponent {
                         description: format!(
                             "{} - {} Offset",
-                            config.lunch_money.payslip_payee, tax.description
+                            backend.payslip_payee, tax.description
                         ),
                         amount: -amount,
                         category_id: cat_id,
@@ -885,7 +902,7 @@ pub(crate) async fn run_import(
                 components.push(SplitComponent {
                     description: format!(
                         "{} - {}",
-                        config.lunch_money.payslip_payee, ded.description
+                        backend.payslip_payee, ded.description
                     ),
                     amount,
                     category_id: cat_id,
@@ -896,7 +913,7 @@ pub(crate) async fn run_import(
                     components.push(SplitComponent {
                         description: format!(
                             "{} - {} Offset",
-                            config.lunch_money.payslip_payee, ded.description
+                            backend.payslip_payee, ded.description
                         ),
                         amount: -amount,
                         category_id: cat_id,
@@ -998,12 +1015,12 @@ pub(crate) async fn run_import(
                 if let Some(ref client_ref) = client {
                     println! {
                         "  {STYLE_INFO}ℹ️ Creating synthetic $0.00 transaction for Page {} in account '{}'...{STYLE_INFO:#}",
-                        payslip.page_num, &config.lunch_money.net_zero_account
+                        payslip.page_num, &backend.net_zero_account
                     };
                     let insert_tx = insert_transaction_for_zero_pay(
                         payslip.check_date,
                         &acct,
-                        config.lunch_money.payslip_payee.clone(),
+                        backend.payslip_payee.clone(),
                         parent_cat_id,
                         resolved_tag_id,
                     )?;
