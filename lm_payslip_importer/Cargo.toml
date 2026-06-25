@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+lunch_money = { workspace = true, features = ["client"] }
+
 anstream.workspace = true
 anstyle.workspace = true
 anyhow.workspace = true
@@ -12,16 +14,15 @@ clap.workspace = true
 csv.workspace = true
 inquire.workspace = true
 jiff.workspace = true
-lunch_money = { workspace = true, features = ["client"] }
+pdf-extract.workspace = true
 regex.workspace = true
 reqwest.workspace = true
 rust_decimal.workspace = true
 rustls.workspace = true
-serde.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 tokio.workspace = true
 toml.workspace = true
-pdf-extract = "0.10.0"
 
 [lints]
 workspace = true
