@@ -85,4 +85,8 @@ pub struct InitArgs {
     /// Output file path (defaults to lm_payslip_importer.toml)
     #[arg(long, short)]
     pub file: Option<PathBuf>,
+
+    /// Skip interactive logic and just print the LLM prompt for categorizing sections
+    #[arg(long)]
+    pub just_categorize: bool,
 }

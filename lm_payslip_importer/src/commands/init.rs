@@ -26,6 +26,60 @@ impl std::fmt::Display for LunchMoneyAccount {
 }
 
 pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
+    if args.just_categorize {
+        if args.pdfs.is_empty() {
+            anyhow::bail!(
+                "No payslip PDF files were provided. Please specify one or more PDF files when using --just-categorize."
+            );
+        }
+
+        // 1. Parse PDFs to gather unique items
+        let per_backend_items = parse_pdfs(&args.pdfs);
+
+        // 2. Fetch categories by prompting for the API key
+        let lunch_money_api_key = inquire::Password::new("Lunch Money API Key:")
+            .with_help_message("Your Lunch Money developer API key")
+            .with_display_mode(inquire::PasswordDisplayMode::Masked)
+            .without_confirmation()
+            .prompt()
+            .context("Failed to get Lunch Money API Key")?;
+
+        let mut category_names = Vec::new();
+        if !lunch_money_api_key.trim().is_empty() {
+            println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API to fetch categories...{STYLE_INFO:#}" };
+            let http_client = reqwest::Client::new();
+            let lm_client = LunchMoneyClient::new(
+                http_client,
+                lunch_money_api_key.trim().to_string(),
+                TooManyRequestsPolicy::Retry {
+                    max_retries: 5,
+                    initial_delay: std::time::Duration::from_secs(2),
+                },
+            );
+            let cat_query = lunch_money::categories::query_params::CategoryQuery::builder()
+                .format("flattened".to_string())
+                .build();
+            match lm_client.fetch_categories(&cat_query).await {
+                Ok(lm_categories) => {
+                    category_names = lm_categories
+                        .iter()
+                        .filter(|c| !c.archived && !c.is_group)
+                        .map(|c| c.name.clone())
+                        .collect();
+                    category_names.sort();
+                }
+                Err(e) => {
+                    eprintln! { "{STYLE_WARNING}⚠️  Warning: Failed to fetch categories from Lunch Money API: {}{STYLE_WARNING:#}", e };
+                }
+            }
+        }
+
+        // 3. Print LLM prompt
+        print_llm_prompt(&category_names, &per_backend_items);
+
+        return Ok(());
+    }
+
     if args.pdfs.is_empty() {
         println! {};
         println! { "{STYLE_WARNING}⚠️  Warning: No payslip PDF files were provided to seed category mappings.{STYLE_WARNING:#}" };
@@ -139,10 +193,12 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
     });
 
     println! {};
-    let use_tag = inquire::Confirm::new("Would you like to set an optional tag for transactions created by this importer?")
-        .with_default(false)
-        .prompt()
-        .context("Failed to get tag preference")?;
+    let use_tag = inquire::Confirm::new(
+        "Would you like to set an optional tag for transactions created by this importer?",
+    )
+    .with_default(false)
+    .prompt()
+    .context("Failed to get tag preference")?;
 
     let tag_name = if use_tag {
         let mut active_tags: Vec<String> = lm_tags
@@ -197,58 +253,7 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
     // at once (e.g. a Workday PDF and a Microsoft PDF), and each provider's
     // unique line items land in that provider's own [backends.<kind>.mapping].
     use crate::payslip::PayslipKind;
-    let mut per_backend_items: std::collections::BTreeMap<
-        PayslipKind,
-        std::collections::BTreeSet<String>,
-    > = std::collections::BTreeMap::new();
-
-    if !args.pdfs.is_empty() {
-        for pdf_path in &args.pdfs {
-            println! {};
-            println! { "{STYLE_INFO}📄 Parsing payslip PDF to seed mappings: {}{STYLE_INFO:#}", pdf_path.display() };
-            // Detect which payroll provider produced this PDF so seeding works
-            // for any supported backend, not just Workday. Fall back to Workday
-            // if the fingerprint is inconclusive (the historical default).
-            let kind = match crate::payslip::detect_kind(pdf_path) {
-                Ok(Some(k)) => k,
-                Ok(None) => PayslipKind::Workday,
-                Err(e) => {
-                    eprintln! { "{STYLE_ERROR}❌ Failed to detect payslip provider for {}: {}{STYLE_ERROR:#}", pdf_path.display(), e };
-                    continue;
-                }
-            };
-            println! { "  Detected payslip provider: {kind}" };
-            let pages = match crate::payslip::parse_pdf(pdf_path, kind) {
-                Ok(p) => p,
-                Err(e) => {
-                    eprintln! { "{STYLE_ERROR}❌ Failed to parse {}: {}{STYLE_ERROR:#}", pdf_path.display(), e };
-                    continue;
-                }
-            };
-            let bucket = per_backend_items.entry(kind).or_default();
-            for parsed in pages {
-                // Only seed items that actually appeared with a non-zero
-                // *current* amount. YTD-only rows (zero current) would
-                // otherwise pollute the mapping list with items the user
-                // never needs to categorize (audit #10).
-                let mut collect = |rows: Vec<crate::payslip::RowData>| {
-                    for item in rows {
-                        if item.amount().is_zero() {
-                            continue;
-                        }
-                        let desc = item.description.trim().to_string();
-                        if !desc.is_empty() {
-                            bucket.insert(desc);
-                        }
-                    }
-                };
-                collect(parsed.earnings);
-                collect(parsed.employee_taxes);
-                collect(parsed.pre_tax_deductions);
-                collect(parsed.post_tax_deductions);
-            }
-        }
-    }
+    let per_backend_items = parse_pdfs(&args.pdfs);
 
     // With no seed PDFs we cannot know the provider, so scaffold a single
     // Workday backend (the historical default) with commented example mappings.
@@ -398,39 +403,7 @@ api_key = "{lunch_money_api_key}"
                 .map(|c| c.name.clone())
                 .collect();
             category_names.sort();
-            let categories_list = category_names.join("\n- ");
-
-            // One prompt block per backend, each with that provider's mapping
-            // header so the LLM output drops straight into the right section.
-            let mut mapping_sections = String::new();
-            for (kind, items) in &per_backend_items {
-                if items.is_empty() {
-                    continue;
-                }
-                mapping_sections.push_str(&format!("\n[backends.{}.mapping]\n", kind.as_str()));
-                for entry in items {
-                    mapping_sections
-                        .push_str(&format!("\"{}\" = \"...\"\n", entry.replace('"', "\\\"")));
-                }
-            }
-
-            let prompt_text = format!(
-                r#"I need help mapping my payslip items to Lunch Money categories.
-
-Here is the list of available Lunch Money categories:
-- {}
-
-Please map each of the following payslip items to the most appropriate Lunch Money category from the list above. The items are grouped by payroll provider. Return ONLY the completed TOML mapping entries, preserving each provider's section header exactly like this:
-{}"#,
-                categories_list, mapping_sections
-            );
-
-            println! {};
-            println! { "{STYLE_HEADER}📋 Copy-Pasteable LLM Prompt:{STYLE_HEADER:#}" };
-            println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
-            println! { "{prompt_text}" };
-            println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
-            println! {};
+            print_llm_prompt(&category_names, &per_backend_items);
         }
     }
 
@@ -441,8 +414,9 @@ Please map each of the following payslip items to the most appropriate Lunch Mon
 fn default_payslip_payee(kind: crate::payslip::PayslipKind) -> &'static str {
     match kind {
         crate::payslip::PayslipKind::Workday => "Meta Payslip",
-        crate::payslip::PayslipKind::Microsoft
-        | crate::payslip::PayslipKind::AdpMicrosoft => "Microsoft Payslip",
+        crate::payslip::PayslipKind::Microsoft | crate::payslip::PayslipKind::AdpMicrosoft => {
+            "Microsoft Payslip"
+        }
     }
 }
 
@@ -460,3 +434,106 @@ fn toml_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// Parse the provided payslip PDFs to gather unique item descriptions.
+fn parse_pdfs(
+    pdfs: &[std::path::PathBuf],
+) -> std::collections::BTreeMap<crate::payslip::PayslipKind, std::collections::BTreeSet<String>> {
+    use crate::payslip::PayslipKind;
+    let mut per_backend_items: std::collections::BTreeMap<
+        PayslipKind,
+        std::collections::BTreeSet<String>,
+    > = std::collections::BTreeMap::new();
+
+    for pdf_path in pdfs {
+        println! {};
+        println! { "{STYLE_INFO}📄 Parsing payslip PDF to seed mappings: {}{STYLE_INFO:#}", pdf_path.display() };
+        // Detect which payroll provider produced this PDF so seeding works
+        // for any supported backend, not just Workday. Fall back to Workday
+        // if the fingerprint is inconclusive (the historical default).
+        let kind = match crate::payslip::detect_kind(pdf_path) {
+            Ok(Some(k)) => k,
+            Ok(None) => PayslipKind::Workday,
+            Err(e) => {
+                eprintln! { "{STYLE_ERROR}❌ Failed to detect payslip provider for {}: {}{STYLE_ERROR:#}", pdf_path.display(), e };
+                continue;
+            }
+        };
+        println! { "  Detected payslip provider: {kind}" };
+        let pages = match crate::payslip::parse_pdf(pdf_path, kind) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln! { "{STYLE_ERROR}❌ Failed to parse {}: {}{STYLE_ERROR:#}", pdf_path.display(), e };
+                continue;
+            }
+        };
+        let bucket = per_backend_items.entry(kind).or_default();
+        for parsed in pages {
+            // Only seed items that actually appeared with a non-zero
+            // *current* amount. YTD-only rows (zero current) would
+            // otherwise pollute the mapping list with items the user
+            // never needs to categorize (audit #10).
+            let mut collect = |rows: Vec<crate::payslip::RowData>| {
+                for item in rows {
+                    if item.amount().is_zero() {
+                        continue;
+                    }
+                    let desc = item.description.trim().to_string();
+                    if !desc.is_empty() {
+                        bucket.insert(desc);
+                    }
+                }
+            };
+            collect(parsed.earnings);
+            collect(parsed.employee_taxes);
+            collect(parsed.pre_tax_deductions);
+            collect(parsed.post_tax_deductions);
+        }
+    }
+    per_backend_items
+}
+
+/// Print the copy-pasteable LLM prompt to stdout.
+fn print_llm_prompt(
+    category_names: &[String],
+    per_backend_items: &std::collections::BTreeMap<
+        crate::payslip::PayslipKind,
+        std::collections::BTreeSet<String>,
+    >,
+) {
+    let categories_list = if category_names.is_empty() {
+        "[Insert your Lunch Money categories here]".to_string()
+    } else {
+        category_names.join("\n- ")
+    };
+
+    // One prompt block per backend, each with that provider's mapping
+    // header so the LLM output drops straight into the right section.
+    let mut mapping_sections = String::new();
+    for (kind, items) in per_backend_items {
+        if items.is_empty() {
+            continue;
+        }
+        mapping_sections.push_str(&format!("\n[backends.{}.mapping]\n", kind.as_str()));
+        for entry in items {
+            mapping_sections.push_str(&format!("\"{}\" = \"...\"\n", entry.replace('"', "\\\"")));
+        }
+    }
+
+    let prompt_text = format!(
+        r#"I need help mapping my payslip items to Lunch Money categories.
+
+Here is the list of available Lunch Money categories:
+- {}
+
+Please map each of the following payslip items to the most appropriate Lunch Money category from the list above. The items are grouped by payroll provider. Return ONLY the completed TOML mapping entries, preserving each provider's section header exactly like this:
+{}"#,
+        categories_list, mapping_sections
+    );
+
+    println! {};
+    println! { "{STYLE_HEADER}📋 Copy-Pasteable LLM Prompt:{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
+    println! { "{prompt_text}" };
+    println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
+    println! {};
+}
