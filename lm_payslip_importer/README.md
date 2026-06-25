@@ -31,7 +31,7 @@ The code may eventually support numerous payslip formats, but at the moment, it'
   - For zero-dollar checks or RSU vests where there isn't a corresponding bank transaction, the tool inserts a synthetic parent transaction on the check date before splitting it.
 - **Imputed Income Handling**:
   - Imputed income represents non-cash compensation that increases taxable income.
-  - Any description starting with an asterisk `*` (e.g., `*Imp GTL`) or exactly matching (case-insensitive) an entry in the `exceptions` list of `[imputed_income]` is recognized as imputed income.
+  - Any description starting with an asterisk `*` (e.g., `*Imp GTL`) or exactly matching (case-insensitive) an entry in the `descriptions` list of `[backends.<kind>.imputed_income]` is recognized as imputed income. Only providers that need it (Workday) inject offsets; Microsoft and ADP-Microsoft print both halves inline and reconcile on their own.
   - To prevent altering the transaction's net cash flow, two split lines are generated: the main benefit line and a matching "Offset" line with the opposite sign.
 - **RSU Vest Processing**:
   - Identifies pages containing "restricted stock" in the earnings section.
@@ -80,7 +80,7 @@ Flags:
 
 ## ⚙️ Configuration File (`lm_payslip_importer.toml`)
 
-The configuration structure is defined by [`Config`](./src/config.rs) in [config.rs](./src/config.rs). Provider-independent, account-level settings live under `[lunch_money]`; everything that depends on which payroll provider produced a payslip — the category mapping, the payee stamped on splits, the deposit account, the imputed-income exceptions, and the Workday-only RSU plumbing — lives in a per-provider `[backends.<kind>]` section. At import time the importer fingerprints the PDF (`workday`, `microsoft`, or `adp_microsoft`) and uses the matching backend.
+The configuration structure is defined by [`Config`](./src/config.rs) in [config.rs](./src/config.rs). Provider-independent, account-level settings live under `[lunch_money]`; everything that depends on which payroll provider produced a payslip — the category mapping, the payee stamped on splits, the deposit account, the imputed-income descriptions, and the Workday-only RSU plumbing — lives in a per-provider `[backends.<kind>]` section. At import time the importer fingerprints the PDF (`workday`, `microsoft`, or `adp_microsoft`) and uses the matching backend.
 
 Below is an annotated example with two providers configured:
 
@@ -123,10 +123,10 @@ rsu_payee_match = "$META Vest"
 "401k Salary" = "Payment, Transfer"
 
 [backends.workday.imputed_income]
-# Full descriptions (exact, case-insensitive match) that represent imputed
-# income exceptions. Any description starting with an asterisk '*' is always
-# treated as imputed income regardless of this list.
-exceptions = [
+# Extra line descriptions (exact, case-insensitive match) to treat as imputed
+# income, beyond those detected automatically. Any description starting with an
+# asterisk '*' is always imputed income; list here only the unmarked ones.
+descriptions = [
     "Relocation Tax Ben",
 ]
 
@@ -141,8 +141,6 @@ payslip_payee = "Microsoft Payslip"
 "Regular" = "Salary"
 "Federal Income Tax" = "Taxes"
 
-[backends.microsoft.imputed_income]
-# exceptions = []
 ```
 
 ---

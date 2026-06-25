@@ -343,6 +343,24 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
         }
         let mapping_toml = mapping_toml.trim_end();
 
+        // Only providers that inject imputed-income offsets (Workday) detect
+        // imputed lines by a marker and accept a list of extra unmarked
+        // descriptions. Microsoft / ADP-Microsoft reconcile on their own, so
+        // emitting the section for them would only produce a config the
+        // validator rejects.
+        let imputed_section = if kind.injects_imputed_offsets() {
+            "\n[backends.{kind}.imputed_income]\n\
+             # Extra line descriptions (exact, case-insensitive) to treat as imputed\n\
+             # income, beyond those detected automatically. Any description starting\n\
+             # with '*' is always imputed income; list here only the unmarked ones.\n\
+             # descriptions = [\n\
+             #     \"Relocation Tax Ben\",\n\
+             # ]\n"
+                .replace("{kind}", kind.as_str())
+        } else {
+            String::new()
+        };
+
         backend_sections.push_str(&format!(
             r#"
 [backends.{kind}]
@@ -356,14 +374,7 @@ payslip_payee = "{payee}"
 # Please manually modify this section to map each item to the correct category.
 # TIP: Large Language Models (LLMs) are very good at filling in this categorization!
 {mapping_toml}
-
-[backends.{kind}.imputed_income]
-# Line descriptions (exact, case-insensitive) that should NOT be treated as
-# imputed income. Any description starting with '*' is always imputed income.
-# exceptions = [
-#     "relocation tax",
-# ]
-"#,
+{imputed_section}"#,
             kind = kind.as_str(),
             net_zero = toml_escape(&net_zero_name),
             payee = toml_escape(&payslip_payee),

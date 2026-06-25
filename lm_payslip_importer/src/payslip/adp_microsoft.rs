@@ -29,10 +29,12 @@
 //! against the `Net Pay` figure before returning a page.
 //!
 //! The leading `*` ADP puts on `*401K Pre Tax` (its "excluded from federal
-//! taxable wages" marker) is stripped: left in place it would trip the
-//! importer's `*`-prefix imputed-income detection and inject a spurious
-//! offsetting split. ADP already states stock/disability offsets explicitly in
-//! the `Other` section, so no synthetic offset is wanted.
+//! taxable wages" marker) is stripped: although the importer only injects
+//! imputed-income offsets for providers that need it (Workday — ADP-Microsoft
+//! reconciles on its own), stripping the marker keeps the parsed descriptions
+//! clean and avoids any reliance on backend dispatch to suppress it. ADP already
+//! states stock/disability offsets explicitly in the `Other` section, so no
+//! synthetic offset is wanted.
 
 use super::ParsedPage;
 use super::RowData;

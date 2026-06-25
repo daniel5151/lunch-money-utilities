@@ -35,6 +35,27 @@ fn deglue_dates(line: &str) -> std::borrow::Cow<'_, str> {
     GLUED_DATE_RE.replace_all(line, "$1 $2")
 }
 
+/// Whether a Workday line description denotes imputed income — a taxable item
+/// added back into gross pay but not paid in cash, which the importer must
+/// offset for the paycheck to reconcile to net pay.
+///
+/// Workday marks most imputed lines with a leading `*` (`*Imp GTL` =
+/// imputed group-term life; `*Relo Qualified` = qualified relocation). A few
+/// imputed lines carry no marker (`Relocation Tax Ben`, the tax-benefit
+/// gross-up companion); those are listed exactly (case-insensitive, trimmed) in
+/// `extra` via per-backend config. Matching is exact, not substring, so a short
+/// entry cannot capture an unrelated sibling line (e.g. `Relocation Tax Ben`
+/// does not also match `Relocation Tax Ben Adjustment`).
+pub fn is_imputed_income(description: &str, extra: &[String]) -> bool {
+    let desc = description.trim();
+    if desc.starts_with('*') {
+        return true;
+    }
+    extra
+        .iter()
+        .any(|entry| desc.eq_ignore_ascii_case(entry.trim()))
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum ParseState {
     None,
@@ -297,3 +318,37 @@ pub fn parse_pdf(pdf_path: &std::path::Path) -> Result<Vec<ParsedPage>> {
     Ok(parsed)
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::is_imputed_income;
+
+    #[test]
+    fn starred_descriptions_are_always_imputed() {
+        assert!(is_imputed_income("*Imp GTL", &[]));
+        assert!(is_imputed_income("*Relo Qualified", &[]));
+        // Leading/trailing whitespace around the marker is tolerated.
+        assert!(is_imputed_income("  *Imp GTL  ", &[]));
+    }
+
+    #[test]
+    fn unmarked_descriptions_are_imputed_only_when_listed() {
+        let extra = vec!["Relocation Tax Ben".to_string()];
+        assert!(is_imputed_income("Relocation Tax Ben", &extra));
+        // Case-insensitive, whitespace-trimmed.
+        assert!(is_imputed_income("relocation tax ben", &extra));
+        assert!(is_imputed_income("  Relocation Tax Ben ", &extra));
+        // Not listed -> not imputed.
+        assert!(!is_imputed_income("Relocation Tax Ben", &[]));
+        assert!(!is_imputed_income("Salary", &extra));
+    }
+
+    #[test]
+    fn matching_is_exact_not_substring() {
+        let extra = vec!["Relocation Tax Ben".to_string()];
+        // A longer sibling line must not be captured by a shorter entry.
+        assert!(!is_imputed_income("Relocation Tax Ben Adjustment", &extra));
+        // Nor a shorter prefix.
+        assert!(!is_imputed_income("Relocation Tax", &extra));
+    }
+}

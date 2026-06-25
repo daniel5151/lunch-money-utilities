@@ -69,11 +69,20 @@ pub struct BackendConfig {
     pub imputed_income: ImputedIncomeConfig,
 }
 
+/// Per-backend imputed-income configuration. Only meaningful for providers that
+/// inject offsets ([`PayslipKind::injects_imputed_offsets`], i.e. Workday): such
+/// providers detect most imputed lines by a marker (Workday's leading `*`), and
+/// this lists the *additional* descriptions that are imputed but carry no
+/// marker.
 #[derive(Debug, Deserialize, Default, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct ImputedIncomeConfig {
+    /// Extra line descriptions (exact, case-insensitive) to treat as imputed
+    /// income, beyond those the backend detects by its own marker. For Workday
+    /// these are the unmarked relocation gross-up companions (e.g.
+    /// `Relocation Tax Ben`).
     #[serde(default)]
-    pub exceptions: Vec<String>,
+    pub descriptions: Vec<String>,
 }
 
 impl Config {
@@ -128,6 +137,14 @@ impl BackendConfig {
                 );
             }
         }
+        if !kind.injects_imputed_offsets() && !self.imputed_income.descriptions.is_empty() {
+            anyhow::bail!(
+                "[backends.{0}.imputed_income] sets 'descriptions', but the '{0}' provider \
+                 does not inject imputed-income offsets (it prints both halves of non-cash \
+                 items inline). Remove the [backends.{0}.imputed_income] section.",
+                kind.as_str()
+            );
+        }
         Ok(())
     }
 }
@@ -151,7 +168,7 @@ rsu_payee_match = "$META Vest"
 [backends.workday.mapping]
 "Salary" = "Salary"
 [backends.workday.imputed_income]
-exceptions = ["relocation tax"]
+descriptions = ["Relocation Tax Ben"]
 
 [backends.microsoft]
 net_zero_account = "MSFT Checking"
@@ -167,7 +184,7 @@ payslip_payee = "Microsoft Payslip"
         assert_eq!(wd.rsu_account.as_deref(), Some("Equity Awards"));
         assert_eq!(wd.rsu_payee_match.as_deref(), Some("$META Vest"));
         assert_eq!(wd.mapping.get("Salary").map(String::as_str), Some("Salary"));
-        assert_eq!(wd.imputed_income.exceptions, vec!["relocation tax"]);
+        assert_eq!(wd.imputed_income.descriptions, vec!["Relocation Tax Ben"]);
         let ms = cfg.backend(PayslipKind::Microsoft).unwrap();
         assert_eq!(ms.net_zero_account, "MSFT Checking");
         assert!(ms.rsu_account.is_none());
@@ -187,7 +204,7 @@ payslip_payee = "Microsoft Payslip"
         let cfg = Config::from_toml_str(toml).unwrap();
         let ms = cfg.backend(PayslipKind::Microsoft).unwrap();
         assert!(ms.mapping.is_empty());
-        assert!(ms.imputed_income.exceptions.is_empty());
+        assert!(ms.imputed_income.descriptions.is_empty());
     }
 
     #[test]
@@ -220,6 +237,29 @@ payslip_payee = "Microsoft Payslip"
                 .unwrap()
                 .rsu_account
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn imputed_income_rejected_on_non_injecting_backend() {
+        // Microsoft prints both halves of non-cash items inline and so does not
+        // inject imputed offsets; configuring imputed descriptions for it is a
+        // mistake the validator must catch.
+        let toml = r#"
+[lunch_money]
+api_key = "k"
+
+[backends.microsoft]
+net_zero_account = "Checking"
+payslip_payee = "Microsoft Payslip"
+
+[backends.microsoft.imputed_income]
+descriptions = ["Some Line"]
+"#;
+        let err = Config::from_toml_str(toml).unwrap_err().to_string();
+        assert!(
+            err.contains("does not inject imputed-income offsets"),
+            "unexpected error: {err}"
         );
     }
 

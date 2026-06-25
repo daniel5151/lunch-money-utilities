@@ -87,6 +87,30 @@ impl PayslipKind {
     pub fn uses_rsu_reconstruction(self) -> bool {
         matches!(self, PayslipKind::Workday)
     }
+
+    /// Whether this provider lists some taxable items as *one-sided* earnings
+    /// add-backs (imputed income: group-term life, relocation gross-ups) that
+    /// inflate gross pay without being paid in cash. Such a paycheck only
+    /// reconciles to net pay once the importer injects an equal, opposite offset
+    /// for each imputed line. Only Workday does this: Microsoft and ADP-Microsoft
+    /// already print both halves of every non-cash item inline (e.g. `STOCK AWARD
+    /// INCOME +/-`), so they reconcile on their own and an injected offset would
+    /// double-count.
+    pub fn injects_imputed_offsets(self) -> bool {
+        matches!(self, PayslipKind::Workday)
+    }
+
+    /// Whether `description` is an imputed-income line for this provider, given
+    /// the backend's configured extra descriptions (lines that are imputed but
+    /// carry no machine-readable marker). Backends that do not inject offsets
+    /// always return `false`; the per-provider marker convention lives in the
+    /// backend module ([`workday::is_imputed_income`]).
+    pub fn is_imputed_income(self, description: &str, extra: &[String]) -> bool {
+        match self {
+            PayslipKind::Workday => workday::is_imputed_income(description, extra),
+            PayslipKind::Microsoft | PayslipKind::AdpMicrosoft => false,
+        }
+    }
 }
 
 impl std::fmt::Display for PayslipKind {
@@ -186,10 +210,14 @@ mod recon_tests {
     //!
     //! * `LM_MSFT_PDF`     — the multi-page "Official Copy" Microsoft PDF.
     //! * `LM_ADP_MSFT_DIR` — a directory of ADP-Microsoft `*.pdf` statements.
+    //! * `LM_WORKDAY_DIR`  — a directory of Workday `*.pdf` payslips.
     //!
     //! Every parsed page must satisfy `earnings − taxes − pre_tax − post_tax ==
     //! net_pay` to within a cent, which is the same invariant the importer
-    //! enforces before writing transactions.
+    //! enforces before writing transactions. Workday is the exception: it lists
+    //! imputed income (group-term life, relocation gross-ups) as one-sided
+    //! earnings add-backs, so its pages only reconcile once those imputed
+    //! earnings are removed — exactly the offset the importer injects.
 
     use super::*;
     use rust_decimal::Decimal;
@@ -265,6 +293,90 @@ mod recon_tests {
             "adp_microsoft: {} files, {} statement pages reconciled",
             files.len(),
             total_pages
+        );
+    }
+
+    #[test]
+    fn workday_corpus_reconciles() {
+        let Ok(dir) = std::env::var("LM_WORKDAY_DIR") else {
+            eprintln!("LM_WORKDAY_DIR unset; skipping");
+            return;
+        };
+        let mut files: Vec<_> = std::fs::read_dir(&dir)
+            .expect("read corpus dir")
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("pdf"))
+            .collect();
+        files.sort();
+        assert!(!files.is_empty(), "no PDFs in {dir}");
+
+        // The unmarked imputed companions present in the Meta corpus (the
+        // relocation tax-benefit gross-ups Workday does not asterisk). Marked
+        // imputed lines (`*Imp GTL`, `*Relo Qualified`) are detected by prefix.
+        let extra = vec!["Relocation Tax Ben".to_string()];
+
+        let mut total_pages = 0;
+        for f in &files {
+            let kind = detect_kind(f).unwrap();
+            assert_eq!(
+                kind,
+                Some(PayslipKind::Workday),
+                "detect_kind mismatch for {}",
+                f.display()
+            );
+            let pages = workday::parse_pdf(f)
+                .unwrap_or_else(|e| panic!("parse {}: {e:#}", f.display()));
+            assert!(!pages.is_empty(), "no pages parsed from {}", f.display());
+            for p in &pages {
+                // RSU vest pages are routed through the separate
+                // gross-comp-minus-taxes reconstruction (matched against a
+                // brokerage transaction), not 4-section reconciliation, so skip
+                // them here — they legitimately do not satisfy this invariant.
+                if is_rsu_vest_page(p) {
+                    continue;
+                }
+                assert_workday_page_reconciles(p, &extra, &f.display().to_string());
+            }
+            total_pages += pages.len();
+        }
+        eprintln!(
+            "workday: {} files, {} statement pages reconciled",
+            files.len(),
+            total_pages
+        );
+    }
+
+    /// Mirrors the importer's RSU-vest detection ([`rsu_vest_earning`] in
+    /// `commands::import`): a page is an RSU vest if it carries a "restricted
+    /// stock" earning with a non-zero current amount.
+    fn is_rsu_vest_page(p: &ParsedPage) -> bool {
+        p.earnings.iter().any(|r| {
+            r.description.to_lowercase().contains("restricted stock") && !r.amount().is_zero()
+        })
+    }
+
+    /// Workday-specific reconciliation: imputed earnings are one-sided add-backs
+    /// that inflate gross without being paid, so they must be excluded from the
+    /// earnings side for `earnings − taxes − pre − post == net_pay` to hold —
+    /// mirroring the offset the importer injects for each imputed line.
+    fn assert_workday_page_reconciles(p: &ParsedPage, extra: &[String], ctx: &str) {
+        let cash_earnings: Decimal = p
+            .earnings
+            .iter()
+            .filter(|r| !workday::is_imputed_income(&r.description, extra))
+            .map(|r| r.amount())
+            .sum();
+        let recon = cash_earnings
+            - sum(&p.employee_taxes)
+            - sum(&p.pre_tax_deductions)
+            - sum(&p.post_tax_deductions);
+        let diff = (recon - p.net_pay).abs();
+        assert!(
+            diff <= Decimal::new(1, 2),
+            "{ctx} page {}: reconstructed {recon} != net {} (diff {})",
+            p.page_num,
+            p.net_pay,
+            recon - p.net_pay
         );
     }
 }

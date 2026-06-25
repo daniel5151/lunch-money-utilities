@@ -790,22 +790,16 @@ pub(crate) async fn run_import(
 
         let mut components = Vec::new();
 
-        // Helper to check for imputed income components. An item is imputed
-        // income if its description starts with '*', or if it exactly (modulo
-        // ASCII case) equals one of the configured exceptions. Exact matching —
-        // not substring — so e.g. an exception of "Relocation Tax Ben" does not
-        // also capture an unrelated "Relocation Tax Ben Adjustment" line.
-        let is_imputed_income = |desc: &str| -> bool {
-            let desc_trimmed = desc.trim();
-            if desc_trimmed.starts_with('*') {
-                return true;
-            }
-            backend
-                .imputed_income
-                .exceptions
-                .iter()
-                .any(|exception| desc_trimmed.eq_ignore_ascii_case(exception.trim()))
-        };
+        // Imputed income is provider-specific: only backends that list non-cash
+        // items as one-sided earnings add-backs need an offset injected for the
+        // paycheck to reconcile (see PayslipKind::injects_imputed_offsets). The
+        // detection rule (Workday's leading `*`, plus configured unmarked
+        // descriptions) lives in the backend; here we just dispatch through the
+        // detected kind, which returns false for providers that reconcile on
+        // their own (Microsoft, ADP-Microsoft).
+        let imputed_descriptions = &backend.imputed_income.descriptions;
+        let is_imputed_income =
+            |desc: &str| -> bool { kind.is_imputed_income(desc, imputed_descriptions) };
 
         // 1. Earnings (credits - negative amount in Lunch Money)
         for earn in &payslip.earnings {
