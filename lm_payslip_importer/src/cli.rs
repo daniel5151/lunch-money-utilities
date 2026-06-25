@@ -46,8 +46,8 @@ pub enum Commands {
 
 #[derive(Parser, Debug)]
 pub struct ImportArgs {
-    #[arg(help = "Path to the payslip PDF file")]
-    pub payslip_pdf: PathBuf,
+    #[arg(help = "Path(s) to the payslip PDF file(s) to import", num_args = 1..)]
+    pub payslip_pdfs: Vec<PathBuf>,
 
     #[arg(
         long,

@@ -22,10 +22,23 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResolvedAccount {
     Plaid(PlaidAccountId),
     Manual(ManualAccountId),
+}
+
+struct PageToProcess {
+    pdf_path: std::path::PathBuf,
+    page: crate::payslip::ParsedPage,
+    kind: crate::payslip::PayslipKind,
+}
+
+struct ResolvedBackend {
+    backend: crate::config::BackendConfig,
+    resolved_cats: HashMap<String, (String, CategoryId)>,
+    resolved_net_zero_acct: Option<ResolvedAccount>,
+    resolved_rsu_acct: Option<ResolvedAccount>,
 }
 
 pub struct SplitComponent {
@@ -83,59 +96,71 @@ pub(crate) async fn run_import(
         );
     }
 
-    println! { "{STYLE_HEADER}📄 Reading payslip PDF: {}{STYLE_HEADER:#}", cli.payslip_pdf.display() };
-    // Detect which payroll provider produced this PDF and parse with the
-    // matching backend. Falls back to Workday when the fingerprint is
-    // inconclusive (the historical default for this importer).
-    let kind = crate::payslip::detect_kind(&cli.payslip_pdf)?
-        .unwrap_or(crate::payslip::PayslipKind::Workday);
-    println! { "  Detected payslip provider: {kind}" };
-
-    // Select the provider-specific settings (mapping, payee, accounts, imputed
-    // income, RSU plumbing) for the detected kind. Errors with a clear message
-    // if the user has not configured a [backends.<kind>] section for it.
-    let backend = config.backend(kind)?.clone();
-
-    let all_pages = crate::payslip::parse_pdf(&cli.payslip_pdf, kind)?;
-    let total_pages = all_pages.len();
-
-    for &p in &cli.pages {
-        if p == 0 || p > total_pages {
-            anyhow::bail!(
-                "Requested page number {} is invalid. The PDF has {} pages.",
-                p,
-                total_pages
-            );
-        }
+    // `--page`/`--from-page` select pages within a single document, so they are
+    // ambiguous once more than one PDF is supplied (they would otherwise be
+    // applied to every file, and a page that is out of range in any one file
+    // would abort the whole run). Reject the combination up front with a clear
+    // message rather than silently applying the filter to all inputs.
+    if cli.payslip_pdfs.len() > 1 && (!cli.pages.is_empty() || cli.from_page.is_some()) {
+        anyhow::bail!(
+            "--page/--from-page can only be used when importing a single PDF (got {} files). \
+             Re-run with one PDF to target specific pages.",
+            cli.payslip_pdfs.len()
+        );
     }
 
-    if let Some(from_page) = cli.from_page {
-        if from_page == 0 || from_page > total_pages {
-            anyhow::bail!(
-                "Requested start page number {} is invalid. The PDF has {} pages.",
-                from_page,
-                total_pages
-            );
-        }
-    }
+    let mut pages_to_process = Vec::new();
+    for pdf_path in &cli.payslip_pdfs {
+        println! { "{STYLE_HEADER}📄 Reading payslip PDF: {}{STYLE_HEADER:#}", pdf_path.display() };
+        let kind = crate::payslip::detect_kind(pdf_path)?
+            .unwrap_or(crate::payslip::PayslipKind::Workday);
+        println! { "  Detected payslip provider: {kind}" };
 
-    let mut parsed_pages = Vec::new();
+        let all_pages = crate::payslip::parse_pdf(pdf_path, kind)?;
+        let total_pages = all_pages.len();
 
-    for parsed in all_pages {
-        let page_num = parsed.page_num;
-        if !cli.pages.is_empty() && !cli.pages.contains(&page_num) {
-            continue;
-        }
-        if let Some(from_page) = cli.from_page {
-            if page_num < from_page {
-                continue;
+        for &p in &cli.pages {
+            if p == 0 || p > total_pages {
+                anyhow::bail!(
+                    "Requested page number {} is invalid. PDF '{}' has {} pages.",
+                    p,
+                    pdf_path.display(),
+                    total_pages
+                );
             }
         }
-        parsed_pages.push(parsed);
+
+        if let Some(from_page) = cli.from_page {
+            if from_page == 0 || from_page > total_pages {
+                anyhow::bail!(
+                    "Requested start page number {} is invalid. PDF '{}' has {} pages.",
+                    from_page,
+                    pdf_path.display(),
+                    total_pages
+                );
+            }
+        }
+
+        for parsed in all_pages {
+            let page_num = parsed.page_num;
+            if !cli.pages.is_empty() && !cli.pages.contains(&page_num) {
+                continue;
+            }
+            if let Some(from_page) = cli.from_page {
+                if page_num < from_page {
+                    continue;
+                }
+            }
+            pages_to_process.push(PageToProcess {
+                pdf_path: pdf_path.clone(),
+                page: parsed,
+                kind,
+            });
+        }
     }
 
-    println! { "Parsed {} pages.", parsed_pages.len() };
-    if parsed_pages.is_empty() {
+    println! { "Parsed {} pages across {} files.", pages_to_process.len(), cli.payslip_pdfs.len() };
+    if pages_to_process.is_empty() {
         return Ok(());
     }
 
@@ -154,82 +179,94 @@ pub(crate) async fn run_import(
         None
     };
 
-    let resolved_cats = if let Some(ref client_ref) = client {
-        println! { "Resolving Lunch Money category names..." };
-        let query = lunch_money::categories::query_params::CategoryQuery::builder()
-            .format("flattened".to_string())
-            .build();
-        let lm_categories = client_ref
-            .fetch_categories(&query)
-            .await
-            .context("Failed to fetch Lunch Money categories")?;
+    let mut unique_kinds = HashSet::new();
+    for ptp in &pages_to_process {
+        unique_kinds.insert(ptp.kind);
+    }
 
-        let mut map = HashMap::new();
-        for (payslip_item, lm_cat_name) in &backend.mapping {
-            let resolved = find_category(&lm_categories, lm_cat_name).with_context(|| {
-                format!(
-                    "Failed to resolve mapping for payslip item '{}'",
-                    payslip_item
-                )
-            })?;
-            map.insert(payslip_item.clone(), resolved);
-        }
-        map
-    } else {
-        let mut map = HashMap::new();
-        for (payslip_item, lm_cat_name) in &backend.mapping {
-            map.insert(payslip_item.clone(), (lm_cat_name.clone(), CategoryId(0)));
-        }
-        map
-    };
+    let mut resolved_backends = HashMap::new();
+    for kind in unique_kinds {
+        let backend = config.backend(kind)?.clone();
 
-    // Pre-flight: validate every page (category mappings + RSU structure)
-    // before any mutation, so a problem on a late page can't leave earlier
-    // pages half-imported (audit #5). Reports all problems at once.
-    preflight_validate(&parsed_pages, &resolved_cats, kind)?;
+        let resolved_cats = if let Some(ref client_ref) = client {
+            println! { "Resolving Lunch Money category names for provider {}...", kind };
+            let query = lunch_money::categories::query_params::CategoryQuery::builder()
+                .format("flattened".to_string())
+                .build();
+            let lm_categories = client_ref
+                .fetch_categories(&query)
+                .await
+                .context("Failed to fetch Lunch Money categories")?;
 
-    let resolved_net_zero_acct = if let Some(ref client_ref) = client {
-        let acct_name = &backend.net_zero_account;
-        println! { "Resolving Lunch Money account name '{}'...", acct_name };
-        Some(
-            resolve_account(client_ref, acct_name)
-                .await?
-                .ok_or_else(|| {
-                    anyhow!(
-                        "Configured net-zero account '{}' does not exist in Lunch Money.",
-                        acct_name
+            let mut map = HashMap::new();
+            for (payslip_item, lm_cat_name) in &backend.mapping {
+                let resolved = find_category(&lm_categories, lm_cat_name).with_context(|| {
+                    format!(
+                        "Failed to resolve mapping for payslip item '{}' under provider {}",
+                        payslip_item, kind
                     )
-                })?,
-        )
-    } else {
-        None
-    };
+                })?;
+                map.insert(payslip_item.clone(), resolved);
+            }
+            map
+        } else {
+            let mut map = HashMap::new();
+            for (payslip_item, lm_cat_name) in &backend.mapping {
+                map.insert(payslip_item.clone(), (lm_cat_name.clone(), CategoryId(0)));
+            }
+            map
+        };
 
-    let resolved_rsu_acct = if !kind.uses_rsu_reconstruction() {
-        // Non-RSU providers fold stock comp inline; there is no RSU account to
-        // resolve and the config does not require one.
-        None
-    } else if let Some(ref client_ref) = client {
-        // RSU-reconstruction backends are guaranteed an rsu_account by config
-        // validation (see BackendConfig / into_backend), so this is safe.
-        let acct_name = backend
-            .rsu_account
-            .as_ref()
-            .expect("rsu_account is required for RSU-reconstruction backends");
-        println! { "Resolving Lunch Money RSU account name '{}'...", acct_name };
-        Some(
-            resolve_account(client_ref, acct_name)
-                .await?
-                .ok_or_else(|| {
-                    anyhow!(
-                        "Configured RSU account '{}' does not exist in Lunch Money.",
-                        acct_name
-                    )
-                })?,
-        )
-    } else {
-        None
-    };
+        let resolved_net_zero_acct = if let Some(ref client_ref) = client {
+            let acct_name = &backend.net_zero_account;
+            println! { "Resolving Lunch Money account name '{}' for provider {}...", acct_name, kind };
+            Some(
+                resolve_account(client_ref, acct_name)
+                    .await?
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Configured net-zero account '{}' does not exist in Lunch Money for provider {}.",
+                            acct_name,
+                            kind
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+
+        let resolved_rsu_acct = if !kind.uses_rsu_reconstruction() {
+            None
+        } else if let Some(ref client_ref) = client {
+            let acct_name = backend
+                .rsu_account
+                .as_ref()
+                .expect("rsu_account is required for RSU-reconstruction backends");
+            println! { "Resolving Lunch Money RSU account name '{}' for provider {}...", acct_name, kind };
+            Some(
+                resolve_account(client_ref, acct_name)
+                    .await?
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Configured RSU account '{}' does not exist in Lunch Money for provider {}.",
+                            acct_name,
+                            kind
+                        )
+                    })?,
+            )
+        } else {
+            None
+        };
+
+        resolved_backends.insert(kind, ResolvedBackend {
+            backend,
+            resolved_cats,
+            resolved_net_zero_acct,
+            resolved_rsu_acct,
+        });
+    }
+
+    preflight_validate(&pages_to_process, &resolved_backends)?;
 
     let resolved_tag_id = if let Some(ref tag_name) = config.global.tag {
         if let Some(ref client_ref) = client {
@@ -265,14 +302,15 @@ pub(crate) async fn run_import(
 
     let mut matched_tx_ids = HashSet::new();
 
-    let mut min_date = parsed_pages[0].check_date;
-    let mut max_date = parsed_pages[0].check_date;
-    for page in &parsed_pages {
-        if page.check_date < min_date {
-            min_date = page.check_date;
+    let mut min_date = pages_to_process[0].page.check_date;
+    let mut max_date = pages_to_process[0].page.check_date;
+    for ptp in &pages_to_process {
+        let d = ptp.page.check_date;
+        if d < min_date {
+            min_date = d;
         }
-        if page.check_date > max_date {
-            max_date = page.check_date;
+        if d > max_date {
+            max_date = d;
         }
     }
 
@@ -283,8 +321,20 @@ pub(crate) async fn run_import(
         .checked_add(jiff::Span::new().days(3))
         .map_err(|e| anyhow!("Failed to add days: {}", e))?;
 
-    let checking_txs = if let Some(ref client_ref) = client {
-        if let Some(ref checking_acct) = resolved_net_zero_acct {
+    let mut unique_net_zero_accounts = HashSet::new();
+    let mut unique_rsu_accounts = HashSet::new();
+    for rb in resolved_backends.values() {
+        if let Some(acct) = rb.resolved_net_zero_acct {
+            unique_net_zero_accounts.insert(acct);
+        }
+        if let Some(acct) = rb.resolved_rsu_acct {
+            unique_rsu_accounts.insert(acct);
+        }
+    }
+
+    let mut checking_txs = Vec::new();
+    if let Some(ref client_ref) = client {
+        for checking_acct in &unique_net_zero_accounts {
             let query = match checking_acct {
                 ResolvedAccount::Plaid(id) => TransactionQuery::builder()
                     .start_date(start_date.to_string())
@@ -302,22 +352,25 @@ pub(crate) async fn run_import(
                     .build(),
             };
 
-            println! { "Fetching transactions for net-zero account '{}' between {} and {}...", backend.net_zero_account, start_date, end_date };
+            let acct_name = resolved_backends
+                .values()
+                .find(|rb| rb.resolved_net_zero_acct == Some(*checking_acct))
+                .map(|rb| rb.backend.net_zero_account.as_str())
+                .unwrap_or("unknown");
+
+            println! { "Fetching transactions for net-zero account '{}' between {} and {}...", acct_name, start_date, end_date };
             let tx_response = client_ref
                 .fetch_transactions::<serde_json::Value, String>(&query)
                 .await
                 .context("Failed to fetch checking transactions")?;
             println! { "Fetched {} checking transactions.", tx_response.transactions.len() };
-            tx_response.transactions
-        } else {
-            Vec::new()
+            checking_txs.extend(tx_response.transactions);
         }
-    } else {
-        Vec::new()
-    };
+    }
 
-    let rsu_txs = if let Some(ref client_ref) = client {
-        if let Some(ref rsu_acct) = resolved_rsu_acct {
+    let mut rsu_txs = Vec::new();
+    if let Some(ref client_ref) = client {
+        for rsu_acct in &unique_rsu_accounts {
             let query = match rsu_acct {
                 ResolvedAccount::Plaid(id) => TransactionQuery::builder()
                     .start_date(start_date.to_string())
@@ -335,27 +388,40 @@ pub(crate) async fn run_import(
                     .build(),
             };
 
-            println! { "Fetching transactions for RSU account '{}' between {} and {}...", backend.rsu_account.as_deref().unwrap_or_default(), start_date, end_date };
+            let acct_name = resolved_backends
+                .values()
+                .find(|rb| rb.resolved_rsu_acct == Some(*rsu_acct))
+                .and_then(|rb| rb.backend.rsu_account.as_deref())
+                .unwrap_or("unknown");
+
+            println! { "Fetching transactions for RSU account '{}' between {} and {}...", acct_name, start_date, end_date };
             let tx_response = client_ref
                 .fetch_transactions::<serde_json::Value, String>(&query)
                 .await
                 .context("Failed to fetch RSU transactions")?;
             println! { "Fetched {} RSU transactions.", tx_response.transactions.len() };
-            tx_response.transactions
-        } else {
-            Vec::new()
+            rsu_txs.extend(tx_response.transactions);
         }
-    } else {
-        Vec::new()
-    };
+    }
 
-    for payslip in &parsed_pages {
+    for ptp in &pages_to_process {
+        let payslip = &ptp.page;
+        let kind = ptp.kind;
+        let rb = resolved_backends
+            .get(&kind)
+            .expect("every page's kind was resolved in the unique_kinds pass above");
+        let backend = &rb.backend;
+        let resolved_cats = &rb.resolved_cats;
+        let resolved_net_zero_acct = &rb.resolved_net_zero_acct;
+        let resolved_rsu_acct = &rb.resolved_rsu_acct;
+
         let check_date_str = payslip.check_date.to_string();
         let net_pay = payslip.net_pay;
+        let pdf_filename = ptp.pdf_path.file_name().unwrap_or_default().to_string_lossy();
 
         println! {
-            "\n{STYLE_HEADER}Matching payslip Page {}: Check Date = {}, Net Pay = {}{STYLE_HEADER:#}",
-            payslip.page_num, check_date_str, net_pay
+            "\n{STYLE_HEADER}Matching payslip {} Page {}: Check Date = {}, Net Pay = {}{STYLE_HEADER:#}",
+            pdf_filename, payslip.page_num, check_date_str, net_pay
         };
 
         // Detect if this is an RSU vest page. Only Workday represents RSU vests
@@ -410,7 +476,7 @@ pub(crate) async fn run_import(
             rsu_components.extend(tax_components);
 
             // Match RSU vest to auto-imported Plaid transaction(s)
-            let matched_plaid_rsu_txs = if let Some(ref rsu_acct) = resolved_rsu_acct {
+            let matched_plaid_rsu_txs = if let Some(rsu_acct) = resolved_rsu_acct {
                 let start_window = payslip
                     .check_date
                     .checked_sub(jiff::Span::new().days(3))
@@ -423,6 +489,13 @@ pub(crate) async fn run_import(
                 rsu_txs
                     .iter()
                     .filter(|tx| {
+                        // Respect cross-page dedup: a Plaid RSU transaction
+                        // already claimed by an earlier page must not be matched
+                        // again (overlapping ±3-day windows across pages/files
+                        // would otherwise reference the same companion tx twice).
+                        if matched_tx_ids.contains(&tx.id) {
+                            return false;
+                        }
                         let matches_acct = match rsu_acct {
                             ResolvedAccount::Plaid(id) => tx.plaid_account_id == Some(*id),
                             ResolvedAccount::Manual(id) => tx.manual_account_id == Some(*id),
@@ -444,6 +517,11 @@ pub(crate) async fn run_import(
             let mut synthetic_tx_date = payslip.check_date;
             if !matched_plaid_rsu_txs.is_empty() {
                 synthetic_tx_date = matched_plaid_rsu_txs[0].date;
+                // Claim these transactions so a later page cannot match the same
+                // companion tx (mirrors the net-zero path's dedup).
+                for tx in &matched_plaid_rsu_txs {
+                    matched_tx_ids.insert(tx.id);
+                }
                 let matched_ids: Vec<String> = matched_plaid_rsu_txs
                     .iter()
                     .map(|tx| tx.id.to_string())
@@ -523,7 +601,7 @@ pub(crate) async fn run_import(
 
             {
                 if let Some(ref client_ref) = client {
-                    if let Some(ref rsu_acct) = resolved_rsu_acct {
+                    if let Some(rsu_acct) = resolved_rsu_acct {
                         println! {
                             "  RSU Vest Detected. Creating synthetic transaction in RSU account '{}'...{STYLE_INFO:#}",
                             backend.rsu_account.as_deref().unwrap_or_default()
@@ -656,6 +734,16 @@ pub(crate) async fn run_import(
                     continue;
                 }
 
+                // Verify the transaction belongs to the correct net-zero account
+                let matches_acct = match resolved_net_zero_acct {
+                    Some(ResolvedAccount::Plaid(id)) => tx.plaid_account_id == Some(*id),
+                    Some(ResolvedAccount::Manual(id)) => tx.manual_account_id == Some(*id),
+                    None => false,
+                };
+                if !matches_acct {
+                    continue;
+                }
+
                 // In Lunch Money, credit amounts are negative
                 let tx_amount_abs = tx.amount.abs();
 
@@ -742,7 +830,7 @@ pub(crate) async fn run_import(
                                 "  {STYLE_INFO}ℹ️ No match found. Would create synthetic $0.00 transaction for Page {} in account '{}' (pending confirmation).{STYLE_INFO:#}",
                                 payslip.page_num, account_name
                             };
-                            pending_zero_pay = Some((acct, parent_cat_id));
+                            pending_zero_pay = Some((*acct, parent_cat_id));
                             tx_id = TransactionId(0);
                             tx_date = payslip.check_date;
                             tx_amount = Decimal::ZERO;
@@ -755,7 +843,7 @@ pub(crate) async fn run_import(
 
                             let insert_tx = insert_transaction_for_zero_pay(
                                 payslip.check_date,
-                                &acct,
+                                acct,
                                 backend.payslip_payee.clone(),
                                 parent_cat_id,
                                 resolved_tag_id,
@@ -1156,14 +1244,18 @@ fn check_rsu_structure(
 /// satisfy its structural invariants. All problems are collected and reported
 /// together rather than failing on the first one.
 fn preflight_validate(
-    parsed_pages: &[crate::payslip::ParsedPage],
-    resolved_cats: &HashMap<String, (String, CategoryId)>,
-    kind: crate::payslip::PayslipKind,
+    pages_to_process: &[PageToProcess],
+    resolved_backends: &HashMap<crate::payslip::PayslipKind, ResolvedBackend>,
 ) -> Result<()> {
     let mut problems = Vec::new();
-    let mut unmapped: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut unmapped: std::collections::BTreeSet<(crate::payslip::PayslipKind, String)> = std::collections::BTreeSet::new();
 
-    for payslip in parsed_pages {
+    for ptp in pages_to_process {
+        let payslip = &ptp.page;
+        let kind = ptp.kind;
+        let rb = resolved_backends.get(&kind).ok_or_else(|| anyhow!("Backend info not found for kind {:?}", kind))?;
+        let resolved_cats = &rb.resolved_cats;
+
         // Only providers that encode RSU vests as separate $0 paychecks
         // (Workday) take the gross-minus-taxes reconstruction path; others
         // fold stock comp inline, so the RSU structural check never applies.
@@ -1196,14 +1288,14 @@ fn preflight_validate(
                 continue;
             }
             if lookup_category(&item.description, resolved_cats).is_none() {
-                unmapped.insert(item.description.clone());
+                unmapped.insert((kind, item.description.clone()));
             }
         }
     }
 
-    for desc in &unmapped {
+    for (kind, desc) in &unmapped {
         problems.push(format!(
-            "No Lunch Money category mapping found for payslip item '{desc}'. Add it to the [mapping] section of lm_payslip_importer.toml."
+            "No Lunch Money category mapping found for payslip item '{desc}' (provider: {kind}). Add it to the [backends.{kind}.mapping] section of lm_payslip_importer.toml."
         ));
     }
 
