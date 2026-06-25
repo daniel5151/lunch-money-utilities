@@ -112,8 +112,8 @@ pub(crate) async fn run_import(
     let mut pages_to_process = Vec::new();
     for pdf_path in &cli.payslip_pdfs {
         println! { "{STYLE_HEADER}📄 Reading payslip PDF: {}{STYLE_HEADER:#}", pdf_path.display() };
-        let kind = crate::payslip::detect_kind(pdf_path)?
-            .unwrap_or(crate::payslip::PayslipKind::Workday);
+        let kind =
+            crate::payslip::detect_kind(pdf_path)?.unwrap_or(crate::payslip::PayslipKind::Workday);
         println! { "  Detected payslip provider: {kind}" };
 
         let all_pages = crate::payslip::parse_pdf(pdf_path, kind)?;
@@ -258,12 +258,15 @@ pub(crate) async fn run_import(
             None
         };
 
-        resolved_backends.insert(kind, ResolvedBackend {
-            backend,
-            resolved_cats,
-            resolved_net_zero_acct,
-            resolved_rsu_acct,
-        });
+        resolved_backends.insert(
+            kind,
+            ResolvedBackend {
+                backend,
+                resolved_cats,
+                resolved_net_zero_acct,
+                resolved_rsu_acct,
+            },
+        );
     }
 
     preflight_validate(&pages_to_process, &resolved_backends)?;
@@ -417,7 +420,11 @@ pub(crate) async fn run_import(
 
         let check_date_str = payslip.check_date.to_string();
         let net_pay = payslip.net_pay;
-        let pdf_filename = ptp.pdf_path.file_name().unwrap_or_default().to_string_lossy();
+        let pdf_filename = ptp
+            .pdf_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
 
         println! {
             "\n{STYLE_HEADER}Matching payslip {} Page {}: Check Date = {}, Net Pay = {}{STYLE_HEADER:#}",
@@ -452,7 +459,7 @@ pub(crate) async fn run_import(
             for tax in &payslip.employee_taxes {
                 let amount = tax.values.get("Amount").copied().unwrap_or(Decimal::ZERO);
                 if !amount.is_zero() {
-                    let (cat_name, cat_id) = map_category(&tax.description, &resolved_cats)?;
+                    let (cat_name, cat_id) = map_category(&tax.description, resolved_cats)?;
                     tax_components.push(SplitComponent {
                         description: format!("{} - {}", backend.payslip_payee, tax.description),
                         amount,
@@ -466,7 +473,7 @@ pub(crate) async fn run_import(
             let net_value = rsu_amount - total_taxes;
             let parent_amount = -net_value; // In Lunch Money, credit is negative
 
-            let (rsu_cat_name, rsu_cat_id) = map_category(&rsu_earn.description, &resolved_cats)?;
+            let (rsu_cat_name, rsu_cat_id) = map_category(&rsu_earn.description, resolved_cats)?;
             let mut rsu_components = vec![SplitComponent {
                 description: format!("{} - {}", backend.payslip_payee, rsu_earn.description),
                 amount: -rsu_amount,
@@ -818,7 +825,7 @@ pub(crate) async fn run_import(
                                     .abs()
                             })
                             .and_then(|e| {
-                                lookup_category(&e.description, &resolved_cats).map(|(_, id)| id)
+                                lookup_category(&e.description, resolved_cats).map(|(_, id)| id)
                             })
                             .unwrap_or(CategoryId(0));
 
@@ -903,7 +910,7 @@ pub(crate) async fn run_import(
         for earn in &payslip.earnings {
             let amount = earn.values.get("Amount").copied().unwrap_or(Decimal::ZERO);
             if !amount.is_zero() {
-                let (cat_name, cat_id) = map_category(&earn.description, &resolved_cats)?;
+                let (cat_name, cat_id) = map_category(&earn.description, resolved_cats)?;
                 components.push(SplitComponent {
                     description: format!("{} - {}", backend.payslip_payee, earn.description),
                     amount: -amount,
@@ -929,7 +936,7 @@ pub(crate) async fn run_import(
         for ded in &payslip.pre_tax_deductions {
             let amount = ded.values.get("Amount").copied().unwrap_or(Decimal::ZERO);
             if !amount.is_zero() {
-                let (cat_name, cat_id) = map_category(&ded.description, &resolved_cats)?;
+                let (cat_name, cat_id) = map_category(&ded.description, resolved_cats)?;
                 components.push(SplitComponent {
                     description: format!("{} - {}", backend.payslip_payee, ded.description),
                     amount,
@@ -955,7 +962,7 @@ pub(crate) async fn run_import(
         for tax in &payslip.employee_taxes {
             let amount = tax.values.get("Amount").copied().unwrap_or(Decimal::ZERO);
             if !amount.is_zero() {
-                let (cat_name, cat_id) = map_category(&tax.description, &resolved_cats)?;
+                let (cat_name, cat_id) = map_category(&tax.description, resolved_cats)?;
                 components.push(SplitComponent {
                     description: format!("{} - {}", backend.payslip_payee, tax.description),
                     amount,
@@ -981,7 +988,7 @@ pub(crate) async fn run_import(
         for ded in &payslip.post_tax_deductions {
             let amount = ded.values.get("Amount").copied().unwrap_or(Decimal::ZERO);
             if !amount.is_zero() {
-                let (cat_name, cat_id) = map_category(&ded.description, &resolved_cats)?;
+                let (cat_name, cat_id) = map_category(&ded.description, resolved_cats)?;
                 components.push(SplitComponent {
                     description: format!("{} - {}", backend.payslip_payee, ded.description),
                     amount,
@@ -1248,12 +1255,15 @@ fn preflight_validate(
     resolved_backends: &HashMap<crate::payslip::PayslipKind, ResolvedBackend>,
 ) -> Result<()> {
     let mut problems = Vec::new();
-    let mut unmapped: std::collections::BTreeSet<(crate::payslip::PayslipKind, String)> = std::collections::BTreeSet::new();
+    let mut unmapped: std::collections::BTreeSet<(crate::payslip::PayslipKind, String)> =
+        std::collections::BTreeSet::new();
 
     for ptp in pages_to_process {
         let payslip = &ptp.page;
         let kind = ptp.kind;
-        let rb = resolved_backends.get(&kind).ok_or_else(|| anyhow!("Backend info not found for kind {:?}", kind))?;
+        let rb = resolved_backends
+            .get(&kind)
+            .ok_or_else(|| anyhow!("Backend info not found for kind {:?}", kind))?;
         let resolved_cats = &rb.resolved_cats;
 
         // Only providers that encode RSU vests as separate $0 paychecks
