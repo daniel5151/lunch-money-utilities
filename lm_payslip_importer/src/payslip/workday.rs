@@ -303,8 +303,8 @@ pub fn parse_page_tables(page_text: &str, page_num: usize) -> Result<ParsedPage>
 /// (blank trailing pages, separators) are skipped. This is the backend entry
 /// point dispatched to from [`super::parse_pdf`].
 pub fn parse_pdf(pdf_path: &std::path::Path) -> Result<Vec<ParsedPage>> {
-    let pages = pdf_extract::extract_text_by_pages(pdf_path)
-        .context("Failed to extract text from PDF")?;
+    let pages =
+        pdf_extract::extract_text_by_pages(pdf_path).context("Failed to extract text from PDF")?;
 
     let mut parsed = Vec::new();
     for (i, page_text) in pages.iter().enumerate() {
@@ -317,7 +317,6 @@ pub fn parse_pdf(pdf_path: &std::path::Path) -> Result<Vec<ParsedPage>> {
     }
     Ok(parsed)
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -62,8 +62,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 /// A signed money token with thousands separators and a 2+ digit fraction.
-static MONEY_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^-?[\d,]+\.\d{2,}$").unwrap());
+static MONEY_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-?[\d,]+\.\d{2,}$").unwrap());
 
 fn is_money(tok: &str) -> bool {
     MONEY_RE.is_match(tok)
@@ -199,9 +198,9 @@ fn parse_page(page: &str, page_num: usize) -> Result<Option<ParsedPage>> {
     }
 
     // Find the CURRENT block: from the column header to NET PAY.
-    let header_idx = lines.iter().position(|l| {
-        l.contains("DESCRIPTION") && l.contains("AMOUNT") && l.contains("TOTAL")
-    });
+    let header_idx = lines
+        .iter()
+        .position(|l| l.contains("DESCRIPTION") && l.contains("AMOUNT") && l.contains("TOTAL"));
     let Some(header_idx) = header_idx else {
         return Ok(None);
     };
@@ -284,8 +283,7 @@ fn parse_page(page: &str, page_num: usize) -> Result<Option<ParsedPage>> {
     if !saw_gross_pay {
         return Ok(None);
     }
-    let check_date =
-        check_date.ok_or_else(|| anyhow!("page {page_num}: Check Date not found"))?;
+    let check_date = check_date.ok_or_else(|| anyhow!("page {page_num}: Check Date not found"))?;
     let period_begin = period_begin.unwrap_or(check_date);
     let period_end = period_end.unwrap_or(check_date);
 

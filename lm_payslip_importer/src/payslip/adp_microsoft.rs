@@ -52,8 +52,7 @@ use std::sync::LazyLock;
 /// A money token: optional thousands-separated integer part, a 2+ digit
 /// fractional part, optional trailing minus. Bare integers (hours, ids) are
 /// matched separately where a row's numeric tail is collected.
-static MONEY_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^-?[\d,]+\.\d{2,}-?$").unwrap());
+static MONEY_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-?[\d,]+\.\d{2,}-?$").unwrap());
 
 /// A bare integer token (e.g. an `Hours` column), thousands-separators allowed.
 static INT_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-?[\d,]+-?$").unwrap());
@@ -139,8 +138,7 @@ fn parse_row(line: &str, max_cols: usize) -> Result<Option<RowData>> {
     let amount = if run.len() >= 2 {
         let this_period =
             clean_decimal(run[run.len() - 2]).with_context(|| format!("adp row {line:?}"))?;
-        let ytd =
-            clean_decimal(run[run.len() - 1]).with_context(|| format!("adp row {line:?}"))?;
+        let ytd = clean_decimal(run[run.len() - 1]).with_context(|| format!("adp row {line:?}"))?;
         if this_period.abs() > ytd.abs() {
             Decimal::ZERO
         } else {

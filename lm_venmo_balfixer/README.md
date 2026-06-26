@@ -37,7 +37,8 @@ bank_acct = "Bank Checking"
 
 ## Running
 
-The tool exposes the `reconcile` command, which takes a scan duration window (e.g. `30d`, `2w`, `3mon`):
+The tool exposes the `reconcile` command, which takes a scan duration window
+(e.g. `30d`, `2w`, `3months`):
 
 ```bash
 # Dry run: display what would be created without inserting any transactions
@@ -46,3 +47,14 @@ cargo run -p lm-venmo-balfixer -- reconcile 30d --dry-run
 # Reconcile and insert synthetic transactions for the last 30 days
 cargo run -p lm-venmo-balfixer -- reconcile 30d
 ```
+
+### Behavior notes
+
+- Synthetic transactions are inserted as **unreviewed**, so they show up in your
+  Lunch Money review queue for you to eyeball rather than landing pre-cleared.
+- **Pending** transactions are ignored on both accounts. A pending transfer can
+  later re-post with a changed amount/date or disappear entirely, so the tool
+  only reconciles settled transactions to avoid orphaning a synthetic.
+- Each synthetic carries a stable `external_id` (`synthetic-venmo-<bank-tx-id>`),
+  so re-running over an overlapping window won't create duplicates — the API
+  reports those as skipped duplicates.

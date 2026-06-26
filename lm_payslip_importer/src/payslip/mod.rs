@@ -125,9 +125,7 @@ impl FromStr for PayslipKind {
         match s.trim().to_lowercase().as_str() {
             "workday" => Ok(PayslipKind::Workday),
             "microsoft" | "msft" => Ok(PayslipKind::Microsoft),
-            "adp_microsoft" | "adp-microsoft" | "adp_msft" | "adp" => {
-                Ok(PayslipKind::AdpMicrosoft)
-            }
+            "adp_microsoft" | "adp-microsoft" | "adp_msft" | "adp" => Ok(PayslipKind::AdpMicrosoft),
             other => Err(anyhow!(
                 "unknown payslip kind {other:?} (expected 'workday', 'microsoft', or 'adp_microsoft')"
             )),
@@ -324,8 +322,8 @@ mod recon_tests {
                 "detect_kind mismatch for {}",
                 f.display()
             );
-            let pages = workday::parse_pdf(f)
-                .unwrap_or_else(|e| panic!("parse {}: {e:#}", f.display()));
+            let pages =
+                workday::parse_pdf(f).unwrap_or_else(|e| panic!("parse {}: {e:#}", f.display()));
             assert!(!pages.is_empty(), "no pages parsed from {}", f.display());
             for p in &pages {
                 // RSU vest pages are routed through the separate

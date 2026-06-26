@@ -163,7 +163,9 @@ pub async fn run_reconcile(config: &Config, args: ReconcileArgs) -> Result<()> {
             .maybe_category_id(transfer_category_id)
             .plaid_account_id(venmo_id)
             .external_id(format!("synthetic-venmo-{}", bt.id))
-            .status(TransactionStatus::Reviewed)
+            // Leave synthetics unreviewed so they surface in the review queue
+            // for the user to eyeball, rather than landing pre-cleared.
+            .status(TransactionStatus::Unreviewed)
             .build();
 
         synthetic_txs.push(insert_obj);
@@ -261,6 +263,11 @@ async fn fetch_all_transactions(
         let query = TransactionQuery::builder()
             .start_date(start_date.to_string())
             .end_date(end_date.to_string())
+            // NOTE: include_group_children surfaces children of grouped/split
+            // transactions. A grouped/split bank transfer could therefore appear
+            // as both a parent and its children, double-counting candidates. This
+            // is very unlikely for Venmo ACH funding rows, so it's left unguarded;
+            // add a split/group-parent filter here if it ever surfaces.
             .include_group_children(true)
             .plaid_account_id(account_id)
             .limit(limit)
@@ -288,6 +295,12 @@ fn is_bank_transfer(t: &Transaction<serde_json::Value, String>, bank_id: PlaidAc
     if !matches_account {
         return false;
     }
+    // Skip pending transactions: a pending transfer may later re-post with a
+    // changed amount/date or disappear entirely. Synthesizing against one risks
+    // orphaning the synthetic, so only reconcile settled transactions.
+    if t.is_pending {
+        return false;
+    }
     if t.amount <= Decimal::ZERO {
         return false;
     }
@@ -308,6 +321,12 @@ fn is_bank_transfer(t: &Transaction<serde_json::Value, String>, bank_id: PlaidAc
 fn is_venmo_transfer(t: &Transaction<serde_json::Value, String>, venmo_id: PlaidAccountId) -> bool {
     let matches_account = t.plaid_account_id == Some(venmo_id);
     if !matches_account {
+        return false;
+    }
+    // Skip pending transactions for symmetry with the bank side: a pending
+    // Venmo inflow could otherwise spuriously "match" a bank transfer and
+    // suppress a synthetic that should be created once it settles.
+    if t.is_pending {
         return false;
     }
     let payee_match = t.payee.to_lowercase().contains("transfer");
