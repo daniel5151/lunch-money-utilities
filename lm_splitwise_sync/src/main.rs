@@ -122,15 +122,14 @@ async fn run() -> anyhow::Result<()> {
 
 pub fn load_config() -> anyhow::Result<config::Config> {
     use anyhow::Context;
-    let filename = "splitwise-lunchmoney.toml";
+    let filename = "lm_splitwise_sync.toml";
 
     // 1. Check current working directory
     let path = std::path::Path::new(filename);
     if path.exists() {
         let content = std::fs::read_to_string(path)
-            .context("Failed to read splitwise-lunchmoney.toml from current working directory")?;
-        let config =
-            toml::from_str(&content).context("Malformed splitwise-lunchmoney.toml file")?;
+            .context("Failed to read lm_splitwise_sync.toml from current working directory")?;
+        let config = toml::from_str(&content).context("Malformed lm_splitwise_sync.toml file")?;
         return Ok(config);
     }
 
@@ -139,18 +138,17 @@ pub fn load_config() -> anyhow::Result<config::Config> {
         if let Some(exe_dir) = exe_path.parent() {
             let candidate = exe_dir.join(filename);
             if candidate.exists() {
-                let content = std::fs::read_to_string(&candidate).context(
-                    "Failed to read splitwise-lunchmoney.toml from executable directory",
-                )?;
+                let content = std::fs::read_to_string(&candidate)
+                    .context("Failed to read lm_splitwise_sync.toml from executable directory")?;
                 let config =
-                    toml::from_str(&content).context("Malformed splitwise-lunchmoney.toml file")?;
+                    toml::from_str(&content).context("Malformed lm_splitwise_sync.toml file")?;
                 return Ok(config);
             }
         }
     }
 
     anyhow::bail!(
-        "Configuration file 'splitwise-lunchmoney.toml' not found in current directory or executable directory.\n\
-        Please run 'splitwise-lunchmoney init' to configure."
+        "Configuration file 'lm_splitwise_sync.toml' not found in current directory or executable directory.\n\
+        Please run 'lm-splitwise-sync init' to configure."
     )
 }

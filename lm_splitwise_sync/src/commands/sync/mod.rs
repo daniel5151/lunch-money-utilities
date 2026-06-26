@@ -365,7 +365,7 @@ impl<'a> SyncOrchestrator<'a> {
                 if !is_valid {
                     anyhow::bail!(
                         "Detected previously imported Splitwise transaction (ID: {}, payee: '{}', date: {}) with missing or malformed custom_metadata.\n\
-                        Please run one or more `splitwise-lunchmoney migrate` commands to repair custom_metadata for all existing transactions.",
+                        Please run one or more `lm-splitwise-sync migrate` commands to repair custom_metadata for all existing transactions.",
                         t.id,
                         t.payee,
                         t.date
@@ -790,19 +790,19 @@ async fn plan_tags(
         (
             backdated_tag_name,
             Some(
-                "(splitwise-lunchmoney) Tag applied to newly inserted backdated transactions or delta adjustments posted on the current day",
+                "(lm-splitwise-sync) Tag applied to newly inserted backdated transactions or delta adjustments posted on the current day",
             ),
         ),
         (
             updated_tag_name,
             Some(
-                "(splitwise-lunchmoney) Tag applied to original/older transactions to flag that they have a newer delta adjustment",
+                "(lm-splitwise-sync) Tag applied to original/older transactions to flag that they have a newer delta adjustment",
             ),
         ),
         (
             orphaned_tag_name,
             Some(
-                "(splitwise-lunchmoney) Tag applied to orphaned delta transactions when their corresponding original transaction has been deleted",
+                "(lm-splitwise-sync) Tag applied to orphaned delta transactions when their corresponding original transaction has been deleted",
             ),
         ),
     ];

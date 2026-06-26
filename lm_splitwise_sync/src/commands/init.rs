@@ -22,7 +22,7 @@ impl std::fmt::Display for SplitwiseUser {
 pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
     let output_path = args
         .file
-        .unwrap_or_else(|| std::path::PathBuf::from("splitwise-lunchmoney.toml"));
+        .unwrap_or_else(|| std::path::PathBuf::from("lm_splitwise_sync.toml"));
 
     if output_path.exists() {
         anyhow::bail!(
@@ -168,7 +168,7 @@ api_key = "{splitwise_api_key}"
 user_id = {splitwise_user_id} # {splitwise_user_name}
 
 # (Optional) Array of Splitwise group IDs or names to ignore
-#  HINT: use `splitwise-lunchmoney query splitwise groups` to list your groups and their IDs
+#  HINT: use `lm-splitwise-sync query splitwise groups` to list your groups and their IDs
 # ignored_groups = [123456, "Test Group"]
 
 [lunch_money]
@@ -189,8 +189,8 @@ orphaned_tag = "{orphaned_tag}"
 
 [categories]
 # Map Splitwise category names/IDs to Lunch Money category names/IDs (optional)
-#  HINT: use `splitwise-lunchmoney query splitwise categories` and
-#  `splitwise-lunchmoney query lunchmoney categories` to find names and IDs.
+#  HINT: use `lm-splitwise-sync query splitwise categories` and
+#  `lm-splitwise-sync query lunchmoney categories` to find names and IDs.
 #
 {categories_toml}
 "#
@@ -203,7 +203,7 @@ orphaned_tag = "{orphaned_tag}"
     println! { "{STYLE_SUCCESS}🎉 Configuration created successfully!{STYLE_SUCCESS:#}" };
     println! { "{STYLE_INFO}Saved to:{STYLE_INFO:#} {}", output_path.display() };
     println! {};
-    println! { "{STYLE_DIM}Run {STYLE_DIM:#}{STYLE_HEADER}splitwise-lunchmoney sync window --window \"3 days\"{STYLE_HEADER:#}{STYLE_DIM} to begin syncing.{STYLE_DIM:#}" };
+    println! { "{STYLE_DIM}Run {STYLE_DIM:#}{STYLE_HEADER}lm-splitwise-sync sync window --window \"3 days\"{STYLE_HEADER:#}{STYLE_DIM} to begin syncing.{STYLE_DIM:#}" };
     println! {};
     Ok(())
 }

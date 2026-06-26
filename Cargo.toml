@@ -2,12 +2,12 @@
 resolver = "3"
 members = [
     "lunch_money",
-    "splitwise_lunchmoney",
     "lm_payslip_importer",
+    "lm_splitwise_sync",
     "lm_venmo_balfixer",
 ]
 default-members = [
-    "splitwise_lunchmoney",
+    "lm_splitwise_sync",
 ]
 
 [workspace.package]

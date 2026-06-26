@@ -1,5 +1,5 @@
 [package]
-name = "splitwise-lunchmoney"
+name = "lm-splitwise-sync"
 version.workspace = true
 edition.workspace = true
 

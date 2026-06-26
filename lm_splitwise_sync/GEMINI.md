@@ -1,23 +1,23 @@
 # GEMINI.md - Context & System Prompt Initializer
 
 ## Project Overview
-`splitwise-lunchmoney` is a Rust CLI application designed to synchronize Splitwise transactions and global outstanding balances into Lunch Money manual accounts. It maps currency codes to specific manual accounts, tracks imported items to prevent duplicate syncs, and facilitates automated runs via `cron`.
+`lm-splitwise-sync` is a Rust CLI application designed to synchronize Splitwise transactions and global outstanding balances into Lunch Money manual accounts. It maps currency codes to specific manual accounts, tracks imported items to prevent duplicate syncs, and facilitates automated runs via `cron`.
 
 ---
 
 ## Project Structure
 - **`src/main.rs`**: Entry point that parses CLI arguments, loads configuration, and dispatches subcommands.
 - **`src/cli.rs`**: CLI command argument parser structures and subcommand definitions (using `clap`).
-- **`src/config.rs`**: Structure and deserialization definitions for `splitwise-lunchmoney.toml`.
+- **`src/config.rs`**: Structure and deserialization definitions for `lm_splitwise_sync.toml`.
 - **`src/style.rs`**: Terminal style configurations and `STYLE_*` color constants.
 - **`src/api/`**: Client endpoints and data schema implementations for external API interactions:
-  - [`lunch_money.rs`](file:///home/daprilik/src/splitwise-lunchmoney/src/api/lunch_money.rs): Developer API client and object models (Transactions, Categories, Tags).
-  - [`splitwise.rs`](file:///home/daprilik/src/splitwise-lunchmoney/src/api/splitwise.rs): Splitwise API client and object models (Expenses, Groups).
+  - [`lunch_money.rs`](./src/api/lunch_money.rs): Developer API client and object models (Transactions, Categories, Tags).
+  - [`splitwise.rs`](./src/api/splitwise.rs): Splitwise API client and object models (Expenses, Groups).
 - **`src/commands/`**: Command runners executing business operations:
-  - [`init.rs`](file:///home/daprilik/src/splitwise-lunchmoney/src/commands/init.rs): Interactive config setup wizard.
-  - [`query.rs`](file:///home/daprilik/src/splitwise-lunchmoney/src/commands/query.rs): Runners for querying and listing data (expenses, groups, categories, tags).
-  - [`sync.rs`](file:///home/daprilik/src/splitwise-lunchmoney/src/commands/sync.rs): Synchronizer for individual transaction logs.
-  - [`sync_balances.rs`](file:///home/daprilik/src/splitwise-lunchmoney/src/commands/sync_balances.rs): Runner for syncing net outstanding balances.
+  - [`init.rs`](./src/commands/init.rs): Interactive config setup wizard.
+  - [`query.rs`](./src/commands/query.rs): Runners for querying and listing data (expenses, groups, categories, tags).
+  - [`sync.rs`](./src/commands/sync.rs): Synchronizer for individual transaction logs.
+  - [`sync_balances.rs`](./src/commands/sync_balances.rs): Runner for syncing net outstanding balances.
 
 ---
 

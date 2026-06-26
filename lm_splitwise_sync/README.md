@@ -1,4 +1,4 @@
-# `splitwise-lunchmoney`
+# `lm-splitwise-sync`
 
 Sync Splitwise transactions (and global outstanding balances) into Lunch Money manual accounts.
 
@@ -58,7 +58,7 @@ Sync Splitwise transactions (and global outstanding balances) into Lunch Money m
   ```bash
   cargo run -- init
   ```
-  Generates `splitwise-lunchmoney.toml` in the current directory.
+  Generates `lm_splitwise_sync.toml` in the current directory.
 
 ### 2. Sync Operations (`sync`)
 - **`sync window <WINDOW>`**: Syncs all transactions within a rolling time window (e.g., `3 days`, `24h`, `1 week`, `30 days`).
@@ -128,9 +128,9 @@ Sync Splitwise transactions (and global outstanding balances) into Lunch Money m
 
 ---
 
-## ⚙️ Configuration File (`splitwise-lunchmoney.toml`)
+## ⚙️ Configuration File (`lm_splitwise_sync.toml`)
 
-Below is an annotated example of `splitwise-lunchmoney.toml`:
+Below is an annotated example of `lm_splitwise_sync.toml`:
 
 ```toml
 [splitwise]
@@ -214,11 +214,11 @@ After=network.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/path/to/splitwise-lunchmoney
-ExecStart=/path/to/splitwise-lunchmoney/target/release/splitwise-lunchmoney sync balances
+WorkingDirectory=/path/to/lm-splitwise-sync
+ExecStart=/path/to/lm-splitwise-sync/target/release/lm-splitwise-sync sync balances
 ```
 > [!NOTE]
-> Replace `/path/to/splitwise-lunchmoney` with the absolute path to your cloned repository (where `splitwise-lunchmoney.toml` and the compiled binary are located). Do not use `~` in unit files as systemd does not perform shell expansion (though systemd specifiers like `%h` can be used to refer to your home directory).
+> Replace `/path/to/lm-splitwise-sync` with the absolute path to your cloned repository (where `lm_splitwise_sync.toml` and the compiled binary are located). Do not use `~` in unit files as systemd does not perform shell expansion (though systemd specifiers like `%h` can be used to refer to your home directory).
 
 Create `~/.config/systemd/user/splitwise-sync-balances.timer`:
 ```ini
@@ -244,8 +244,8 @@ After=network.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/path/to/splitwise-lunchmoney
-ExecStart=/path/to/splitwise-lunchmoney/target/release/splitwise-lunchmoney sync window "1 day"
+WorkingDirectory=/path/to/lm-splitwise-sync
+ExecStart=/path/to/lm-splitwise-sync/target/release/lm-splitwise-sync sync window "1 day"
 ```
 
 Create `~/.config/systemd/user/splitwise-sync-window.timer`:

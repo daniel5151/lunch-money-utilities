@@ -1207,6 +1207,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "lm-splitwise-sync"
+version = "0.1.0"
+dependencies = [
+ "anstream",
+ "anstyle",
+ "anyhow",
+ "bon",
+ "clap",
+ "csv",
+ "humantime",
+ "inquire",
+ "jiff",
+ "lunch_money",
+ "reqwest",
+ "rust_decimal",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tabled",
+ "tokio",
+ "toml",
+]
+
+[[package]]
 name = "lm-venmo-balfixer"
 version = "0.1.0"
 dependencies = [
@@ -2110,30 +2134,6 @@ checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "splitwise-lunchmoney"
-version = "0.1.0"
-dependencies = [
- "anstream",
- "anstyle",
- "anyhow",
- "bon",
- "clap",
- "csv",
- "humantime",
- "inquire",
- "jiff",
- "lunch_money",
- "reqwest",
- "rust_decimal",
- "rustls",
- "serde",
- "serde_json",
- "tabled",
- "tokio",
- "toml",
 ]
 
 [[package]]
