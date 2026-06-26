@@ -25,6 +25,7 @@ foundation... it makes sense to keep 'em all under one roof.
 | [`lunch_money`](lunch_money/)                   | `lunch_money/`          | Lib: Client for interacting with the Lunch Money v2 API                                                                                                                                                               |
 | [`splitwise-lunchmoney`](splitwise_lunchmoney/) | `splitwise_lunchmoney/` | Bin: syncs Splitwise transactions and outstanding balances into Lunch Money manual accounts. See its [README](splitwise_lunchmoney/README.md).                                                                        |
 | [`lm-payslip-importer`](lm_payslip_importer/)   | `lm_payslip_importer/`  | Bin: Imports direct deposits and RSU vests from payslips (primarily tested with Workday, but designed to be generic) into granular transaction lines in Lunch Money. See its [README](lm_payslip_importer/README.md). |
+| [`lm-venmo-balfixer`](lm_venmo_balfixer/)       | `lm_venmo_balfixer/`    | Bin: Fixup Plaid-synced Venmo accounts to follow proper double-entry accounting principles. See its [README](lm_venmo_balfixer/README.md).                                                                            |
 
 Expect more utilities to appear over time...
 

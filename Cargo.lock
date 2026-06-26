@@ -1207,6 +1207,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "lm-venmo-balfixer"
+version = "0.1.0"
+dependencies = [
+ "anstream",
+ "anstyle",
+ "anyhow",
+ "bon",
+ "clap",
+ "humantime",
+ "inquire",
+ "jiff",
+ "lunch_money",
+ "reqwest",
+ "rust_decimal",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"

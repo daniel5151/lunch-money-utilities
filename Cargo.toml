@@ -4,6 +4,7 @@ members = [
     "lunch_money",
     "splitwise_lunchmoney",
     "lm_payslip_importer",
+    "lm_venmo_balfixer",
 ]
 default-members = [
     "splitwise_lunchmoney",
