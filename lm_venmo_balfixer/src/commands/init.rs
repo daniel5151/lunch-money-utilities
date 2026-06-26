@@ -3,8 +3,6 @@ use crate::style::*;
 use anstream::println;
 use anyhow::Context;
 use anyhow::Result;
-use lunch_money::client::Client as LunchMoneyClient;
-use lunch_money::client::TooManyRequestsPolicy;
 use std::fs;
 
 struct PlaidAccountChoice(lunch_money::plaid_accounts::schemas::PlaidAccount);
@@ -56,13 +54,10 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
     println! {};
     println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API to fetch Plaid accounts...{STYLE_INFO:#}" };
     let http_client = reqwest::Client::new();
-    let lm_client = LunchMoneyClient::new(
+    let lm_client = lm_common::lm_client::build(
         http_client,
         api_key.trim().to_string(),
-        TooManyRequestsPolicy::Retry {
-            max_retries: 5,
-            initial_delay: std::time::Duration::from_secs(2),
-        },
+        lm_common::lm_client::RetryConfig::default(),
     );
 
     let plaid_accounts = lm_client

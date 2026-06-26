@@ -2,8 +2,6 @@ use crate::style::*;
 use anstream::eprintln;
 use anstream::println;
 use anyhow::Context;
-use lunch_money::client::Client as LunchMoneyClient;
-use lunch_money::client::TooManyRequestsPolicy;
 use std::fs;
 
 #[derive(Clone)]
@@ -48,13 +46,10 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
         if !lunch_money_api_key.trim().is_empty() {
             println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API to fetch categories...{STYLE_INFO:#}" };
             let http_client = reqwest::Client::new();
-            let lm_client = LunchMoneyClient::new(
+            let lm_client = lm_common::lm_client::build(
                 http_client,
                 lunch_money_api_key.trim().to_string(),
-                TooManyRequestsPolicy::Retry {
-                    max_retries: 5,
-                    initial_delay: std::time::Duration::from_secs(2),
-                },
+                lm_common::lm_client::RetryConfig::default(),
             );
             let cat_query = lunch_money::categories::query_params::CategoryQuery::builder()
                 .format("flattened".to_string())
@@ -133,13 +128,10 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
     println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API...{STYLE_INFO:#}" };
 
     let http_client = reqwest::Client::new();
-    let lm_client = LunchMoneyClient::new(
+    let lm_client = lm_common::lm_client::build(
         http_client.clone(),
         lunch_money_api_key.clone(),
-        TooManyRequestsPolicy::Retry {
-            max_retries: 5,
-            initial_delay: std::time::Duration::from_secs(2),
-        },
+        lm_common::lm_client::RetryConfig::default(),
     );
 
     let plaid_accts = lm_client

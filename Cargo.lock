@@ -1190,7 +1190,11 @@ dependencies = [
  "anstyle",
  "anyhow",
  "clap",
+ "humantime",
+ "lunch_money",
+ "reqwest",
  "rustls",
+ "serde",
 ]
 
 [[package]]

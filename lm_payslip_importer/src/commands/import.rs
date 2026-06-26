@@ -6,7 +6,6 @@ use anyhow::Result;
 use anyhow::anyhow;
 use jiff::civil::Date;
 use lunch_money::client::Client as LunchMoneyClient;
-use lunch_money::client::TooManyRequestsPolicy;
 use lunch_money::core::CategoryId;
 use lunch_money::core::ManualAccountId;
 use lunch_money::core::PlaidAccountId;
@@ -167,13 +166,10 @@ pub(crate) async fn run_import(
     let client = if let Some(api_key) = api_key_opt {
         println! { "Initializing Lunch Money client..." };
         let http = reqwest::Client::new();
-        Some(LunchMoneyClient::new(
+        Some(lm_common::lm_client::build(
             http,
             api_key,
-            TooManyRequestsPolicy::Retry {
-                max_retries: 5,
-                initial_delay: std::time::Duration::from_secs(2),
-            },
+            lm_common::lm_client::RetryConfig::default(),
         ))
     } else {
         None

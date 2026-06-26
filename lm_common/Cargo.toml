@@ -4,11 +4,16 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+lunch_money = { workspace = true, features = ["client"] }
+
 anstream.workspace = true
 anstyle.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+humantime.workspace = true
+reqwest.workspace = true
 rustls.workspace = true
+serde.workspace = true
 
 [lints]
 workspace = true

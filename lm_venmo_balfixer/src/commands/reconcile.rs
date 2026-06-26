@@ -5,7 +5,6 @@ use anstream::println;
 use anyhow::Context;
 use anyhow::Result;
 use lunch_money::client::Client as LunchMoneyClient;
-use lunch_money::client::TooManyRequestsPolicy;
 use lunch_money::core::CategoryId;
 use lunch_money::core::PlaidAccountId;
 use lunch_money::transactions::query_params::TransactionQuery;
@@ -31,13 +30,10 @@ pub async fn run_reconcile(config: &Config, args: ReconcileArgs) -> Result<()> {
     println! { "{STYLE_INFO}Scanning from {} to {}{STYLE_INFO:#}", start_date, end_date };
 
     let http_client = reqwest::Client::new();
-    let lm_client = LunchMoneyClient::new(
+    let lm_client = lm_common::lm_client::build(
         http_client,
         api_key.trim().to_string(),
-        TooManyRequestsPolicy::Retry {
-            max_retries: 5,
-            initial_delay: std::time::Duration::from_secs(2),
-        },
+        lm_common::lm_client::RetryConfig::default(),
     );
 
     // 2. Fetch Plaid Accounts and resolve Bank and Venmo IDs by display name / name

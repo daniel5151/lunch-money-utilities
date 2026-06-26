@@ -6,5 +6,6 @@
 //! printer).
 
 pub mod cli;
+pub mod lm_client;
 pub mod style;
 pub mod term;
