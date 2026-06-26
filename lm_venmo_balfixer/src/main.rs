@@ -1,34 +1,18 @@
-use anstream::eprintln;
-
 mod cli;
 mod commands;
 mod config;
-mod style;
+
+use lm_common::style;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     if let Err(err) = run().await {
-        use crate::style::STYLE_ERROR;
-        eprintln! {};
-        eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} {err}" };
-
-        let mut causes = err.chain().skip(1).peekable();
-        if causes.peek().is_some() {
-            eprintln! {};
-            eprintln! { "Caused by:" };
-            for cause in causes {
-                eprintln! { "  • {cause}" };
-            }
-        }
-        eprintln! {};
-        std::process::exit(1);
+        lm_common::term::report_error_and_exit(&err);
     }
 }
 
 async fn run() -> anyhow::Result<()> {
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .expect("Failed to install rustls crypto provider");
+    lm_common::term::install_crypto_provider();
 
     use clap::Parser;
 

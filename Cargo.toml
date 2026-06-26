@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "lunch_money",
+    "lm_common",
     "lm_payslip_importer",
     "lm_splitwise_sync",
     "lm_venmo_balfixer",
@@ -17,6 +18,7 @@ edition = "2024"
 [workspace.dependencies]
 # Internal crates
 lunch_money = { path = "lunch_money" }
+lm-common = { path = "lm_common" }
 
 regex = "1.10"
 

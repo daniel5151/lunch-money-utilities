@@ -1183,23 +1183,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
-name = "lm-payslip-importer"
+name = "lm-common"
 version = "0.1.0"
 dependencies = [
  "anstream",
  "anstyle",
+ "anyhow",
+ "clap",
+ "rustls",
+]
+
+[[package]]
+name = "lm-payslip-importer"
+version = "0.1.0"
+dependencies = [
+ "anstream",
  "anyhow",
  "bon",
  "clap",
  "csv",
  "inquire",
  "jiff",
+ "lm-common",
  "lunch_money",
  "pdf-extract",
  "regex",
  "reqwest",
  "rust_decimal",
- "rustls",
  "serde",
  "serde_json",
  "tokio",
@@ -1211,7 +1221,6 @@ name = "lm-splitwise-sync"
 version = "0.1.0"
 dependencies = [
  "anstream",
- "anstyle",
  "anyhow",
  "bon",
  "clap",
@@ -1219,10 +1228,10 @@ dependencies = [
  "humantime",
  "inquire",
  "jiff",
+ "lm-common",
  "lunch_money",
  "reqwest",
  "rust_decimal",
- "rustls",
  "serde",
  "serde_json",
  "tabled",
@@ -1235,17 +1244,16 @@ name = "lm-venmo-balfixer"
 version = "0.1.0"
 dependencies = [
  "anstream",
- "anstyle",
  "anyhow",
  "bon",
  "clap",
  "humantime",
  "inquire",
  "jiff",
+ "lm-common",
  "lunch_money",
  "reqwest",
  "rust_decimal",
- "rustls",
  "serde",
  "serde_json",
  "tokio",

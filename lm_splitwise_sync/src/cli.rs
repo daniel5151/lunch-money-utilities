@@ -1,27 +1,7 @@
 use clap::Parser;
 use clap::Subcommand;
 
-fn cli_styles() -> clap::builder::styling::Styles {
-    clap::builder::styling::Styles::styled()
-        .header(
-            clap::builder::styling::Style::new()
-                .bold()
-                .fg_color(Some(clap::builder::styling::AnsiColor::BrightBlue.into())),
-        )
-        .usage(
-            clap::builder::styling::Style::new()
-                .bold()
-                .fg_color(Some(clap::builder::styling::AnsiColor::BrightBlue.into())),
-        )
-        .literal(
-            clap::builder::styling::Style::new()
-                .fg_color(Some(clap::builder::styling::AnsiColor::Cyan.into())),
-        )
-        .placeholder(
-            clap::builder::styling::Style::new()
-                .fg_color(Some(clap::builder::styling::AnsiColor::BrightBlack.into())),
-        )
-}
+use lm_common::cli::cli_styles;
 
 /// Synchronize Splitwise transactions and global outstanding balances into Lunch Money manual accounts
 #[derive(Parser, Debug)]

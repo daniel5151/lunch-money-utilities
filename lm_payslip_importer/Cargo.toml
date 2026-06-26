@@ -5,9 +5,9 @@ edition.workspace = true
 
 [dependencies]
 lunch_money = { workspace = true, features = ["client"] }
+lm-common.workspace = true
 
 anstream.workspace = true
-anstyle.workspace = true
 anyhow.workspace = true
 bon.workspace = true
 clap.workspace = true
@@ -18,7 +18,6 @@ pdf-extract.workspace = true
 regex.workspace = true
 reqwest.workspace = true
 rust_decimal.workspace = true
-rustls.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 tokio.workspace = true
