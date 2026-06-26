@@ -79,6 +79,7 @@ fn confirm_operation() -> Decision {
 }
 
 pub(crate) async fn run_import(
+    cx: &lm_common::tool::ToolContext,
     config: crate::config::Config,
     cli: crate::cli::ImportArgs,
 ) -> Result<()> {
@@ -89,7 +90,7 @@ pub(crate) async fn run_import(
         .or_else(|| env::var("LUNCH_MONEY_API_KEY").ok())
         .filter(|s| !s.trim().is_empty());
 
-    if api_key_opt.is_none() && !cli.dry_run {
+    if api_key_opt.is_none() && !cx.dry_run {
         anyhow::bail!(
             "Lunch Money API key not set in lm_payslip_importer.toml or LUNCH_MONEY_API_KEY environment variable. Please set it or run with --dry-run."
         );
@@ -165,12 +166,7 @@ pub(crate) async fn run_import(
 
     let client = if let Some(api_key) = api_key_opt {
         println! { "Initializing Lunch Money client..." };
-        let http = reqwest::Client::new();
-        Some(lm_common::lm_client::build(
-            http,
-            api_key,
-            lm_common::lm_client::RetryConfig::default(),
-        ))
+        Some(cx.lunch_money(api_key, lm_common::lm_client::RetryConfig::default()))
     } else {
         None
     };
@@ -281,7 +277,7 @@ pub(crate) async fn run_import(
 
             if let Some(tag) = existing_tag {
                 Some(tag.id)
-            } else if cli.dry_run {
+            } else if cx.dry_run {
                 println! { "Tag '{}' does not exist. Would create it in Lunch Money.", tag_name };
                 None
             } else {
@@ -588,8 +584,8 @@ pub(crate) async fn run_import(
                 }
             }
 
-            if cli.dry_run || cli.interactive {
-                let plan_tag = if cli.dry_run { "[Dry Run] " } else { "" };
+            if cx.dry_run || cli.interactive {
+                let plan_tag = if cx.dry_run { "[Dry Run] " } else { "" };
                 println! {
                     "  {STYLE_INFO}ℹ️ {plan_tag}RSU Vest Detected. Creating synthetic transaction in account '{}'.{STYLE_INFO:#}",
                     backend.rsu_account.as_deref().unwrap_or_default()
@@ -624,14 +620,14 @@ pub(crate) async fn run_import(
             // A plain dry run (no interactive prompt) just prints the plan and
             // moves on. With --interactive we still run the prompt so the flow
             // can be exercised, but a confirmed "Yes" is a no-op under dry run.
-            if cli.dry_run && !cli.interactive {
+            if cx.dry_run && !cli.interactive {
                 continue;
             }
 
             if cli.interactive {
                 match confirm_operation() {
                     Decision::Yes => {
-                        if cli.dry_run {
+                        if cx.dry_run {
                             println! { "  {STYLE_INFO}ℹ️ [Dry Run] Confirmed — no changes made.{STYLE_INFO:#}" };
                             continue;
                         }
@@ -831,7 +827,7 @@ pub(crate) async fn run_import(
                 if payslip.net_pay.is_zero() {
                     let account_name = &backend.net_zero_account;
 
-                    if cli.dry_run {
+                    if cx.dry_run {
                         println! {
                             "  {STYLE_INFO}ℹ️ [Dry Run] No match found. Would create synthetic $0.00 transaction for Page {} in account '{}'.{STYLE_INFO:#}",
                             payslip.page_num, account_name
@@ -1115,7 +1111,7 @@ pub(crate) async fn run_import(
             child_transactions: child_txs,
         };
 
-        if cli.dry_run || cli.interactive {
+        if cx.dry_run || cli.interactive {
             if pending_zero_pay.is_some() {
                 println! {
                     "\n  {STYLE_HEADER}Plan: Create synthetic $0.00 transaction (Date: {}, Payee: {}), then split it{STYLE_HEADER:#}",
@@ -1143,14 +1139,14 @@ pub(crate) async fn run_import(
         // A plain dry run (no interactive prompt) just prints the plan and
         // moves on. With --interactive we still run the prompt so the flow
         // can be exercised, but a confirmed "Yes" is a no-op under dry run.
-        if cli.dry_run && !cli.interactive {
+        if cx.dry_run && !cli.interactive {
             continue;
         }
 
         if cli.interactive {
             match confirm_operation() {
                 Decision::Yes => {
-                    if cli.dry_run {
+                    if cx.dry_run {
                         println! { "  {STYLE_INFO}ℹ️ [Dry Run] Confirmed — no changes made.{STYLE_INFO:#}" };
                         continue;
                     }

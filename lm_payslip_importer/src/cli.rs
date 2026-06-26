@@ -1,16 +1,8 @@
-use clap::Parser;
+use clap::Args;
 use clap::Subcommand;
 use std::path::PathBuf;
 
-use lm_common::cli::cli_styles;
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "lm-payslip-importer",
-    about = "Import granular payslip breakdowns into Lunch Money.",
-    version,
-    styles = cli_styles()
-)]
+#[derive(Args, Debug)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -24,16 +16,10 @@ pub enum Commands {
     Init(InitArgs),
 }
 
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct ImportArgs {
     #[arg(help = "Path(s) to the payslip PDF file(s) to import", num_args = 1..)]
     pub payslip_pdfs: Vec<PathBuf>,
-
-    #[arg(
-        long,
-        help = "Do not execute anything in Lunch Money, just show what would be done"
-    )]
-    pub dry_run: bool,
 
     #[arg(
         long,
@@ -56,7 +42,7 @@ pub struct ImportArgs {
     pub from_page: Option<usize>,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct InitArgs {
     /// Path(s) to payslip PDF file(s) to seed the category mapping table
     #[arg(help = "Path(s) to payslip PDF file(s) to seed the [mapping] table")]

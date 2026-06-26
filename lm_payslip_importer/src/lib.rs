@@ -5,35 +5,34 @@ mod commands;
 mod config;
 mod payslip;
 
+pub use cli::Cli;
+
 use lm_common::style;
+use lm_common::tool::Tool;
+use lm_common::tool::ToolContext;
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
-    if let Err(err) = run().await {
-        lm_common::term::report_error_and_exit(&err);
+/// The payslip importer tool.
+pub struct PayslipTool;
+
+impl Tool for PayslipTool {
+    const NAME: &'static str = "payslip-importer";
+    type Cli = Cli;
+
+    async fn run(cx: &ToolContext, cli: Cli) -> anyhow::Result<()> {
+        match cli.command {
+            cli::Commands::Init(init_args) => {
+                commands::init::run_init(init_args).await?;
+            }
+            cli::Commands::Import(import_args) => {
+                let config = load_config()?;
+                commands::import::run_import(cx, config, import_args).await?;
+            }
+        }
+        Ok(())
     }
 }
 
-async fn run() -> anyhow::Result<()> {
-    lm_common::term::install_crypto_provider();
-
-    use clap::Parser;
-
-    let args = cli::Cli::parse();
-
-    match args.command {
-        cli::Commands::Init(init_args) => {
-            commands::init::run_init(init_args).await?;
-        }
-        cli::Commands::Import(import_args) => {
-            let config = load_config()?;
-            commands::import::run_import(config, import_args).await?;
-        }
-    }
-    Ok(())
-}
-
-pub fn load_config() -> anyhow::Result<config::Config> {
+fn load_config() -> anyhow::Result<config::Config> {
     use crate::style::STYLE_WARNING;
     use anyhow::Context;
 
