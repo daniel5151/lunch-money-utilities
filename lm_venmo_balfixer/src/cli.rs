@@ -1,16 +1,8 @@
-use clap::Parser;
+use clap::Args;
 use clap::Subcommand;
 use std::path::PathBuf;
 
-use lm_common::cli::cli_styles;
-
-#[derive(Parser, Debug)]
-#[command(
-    name = "lm-venmo-balfixer",
-    about = "Automatically reconcile Venmo and Bank checking accounts in Lunch Money.",
-    version,
-    styles = cli_styles()
-)]
+#[derive(Args, Debug)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -24,22 +16,18 @@ pub enum Commands {
     Init(InitArgs),
 }
 
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct ReconcileArgs {
     /// Path to the config TOML file
     #[arg(short, long, default_value = "lm_venmo_balfixer.toml")]
     pub config: PathBuf,
-
-    /// Dry run: display what would be done without modifying anything in Lunch Money
-    #[arg(long)]
-    pub dry_run: bool,
 
     /// Time duration from today to scan for transactions (e.g., "30d", "2w", "3mon")
     #[arg(value_name = "TIME_SPAN", value_parser = parse_duration)]
     pub duration: jiff::Span,
 }
 
-#[derive(Parser, Debug)]
+#[derive(Args, Debug)]
 pub struct InitArgs {
     /// Output file path
     #[arg(long, short)]

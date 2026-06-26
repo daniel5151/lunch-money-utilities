@@ -2,32 +2,31 @@ mod cli;
 mod commands;
 mod config;
 
+pub use cli::Cli;
+
 use lm_common::style;
+use lm_common::tool::Tool;
+use lm_common::tool::ToolContext;
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
-    if let Err(err) = run().await {
-        lm_common::term::report_error_and_exit(&err);
-    }
-}
+/// The Venmo balance-fixer tool.
+pub struct VenmoTool;
 
-async fn run() -> anyhow::Result<()> {
-    lm_common::term::install_crypto_provider();
+impl Tool for VenmoTool {
+    const NAME: &'static str = "venmo-balfixer";
+    type Cli = Cli;
 
-    use clap::Parser;
-
-    let args = cli::Cli::parse();
-
-    match args.command {
-        cli::Commands::Init(init_args) => {
-            commands::init::run_init(init_args).await?;
+    async fn run(cx: &ToolContext, cli: Cli) -> anyhow::Result<()> {
+        match cli.command {
+            cli::Commands::Init(init_args) => {
+                commands::init::run_init(init_args).await?;
+            }
+            cli::Commands::Reconcile(reconcile_args) => {
+                let config = load_config(&reconcile_args.config)?;
+                commands::reconcile::run_reconcile(cx, &config, reconcile_args).await?;
+            }
         }
-        cli::Commands::Reconcile(reconcile_args) => {
-            let config = load_config(&reconcile_args.config)?;
-            commands::reconcile::run_reconcile(&config, reconcile_args).await?;
-        }
+        Ok(())
     }
-    Ok(())
 }
 
 fn load_config(config_path: &std::path::Path) -> anyhow::Result<config::Config> {
@@ -58,7 +57,7 @@ fn load_config(config_path: &std::path::Path) -> anyhow::Result<config::Config> 
     }
 
     anyhow::bail!(
-        "Configuration file '{}' not found in current directory or executable directory. Please run the init wizard to generate one: cargo run -p lm-venmo-balfixer -- init",
+        "Configuration file '{}' not found in current directory or executable directory. Please run the init wizard to generate one: lm-utils venmo-balfixer init",
         config_path.display()
     )
 }

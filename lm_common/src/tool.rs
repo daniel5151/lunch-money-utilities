@@ -65,8 +65,8 @@ pub trait Tool {
     /// `"venmo-balfixer"`.
     const NAME: &'static str;
 
-    /// This tool's clap subcommand tree.
-    type Cli: clap::Subcommand;
+    /// This tool's clap argument group (its subcommand tree).
+    type Cli: clap::Args;
 
     /// Run the tool against the shared services and its parsed subcommand.
     fn run(

@@ -14,7 +14,11 @@ use lunch_money::transactions::schemas::TransactionStatus;
 use rust_decimal::Decimal;
 use std::collections::HashSet;
 
-pub async fn run_reconcile(config: &Config, args: ReconcileArgs) -> Result<()> {
+pub async fn run_reconcile(
+    cx: &lm_common::tool::ToolContext,
+    config: &Config,
+    args: ReconcileArgs,
+) -> Result<()> {
     let api_key = &config.lunch_money.api_key;
     if api_key.trim().is_empty() {
         anyhow::bail!("api_key is empty in the configuration file");
@@ -29,9 +33,7 @@ pub async fn run_reconcile(config: &Config, args: ReconcileArgs) -> Result<()> {
     println! { "{STYLE_HEADER}Lunch Money Venmo Balance Fixer (lm-venmo-balfixer){STYLE_HEADER:#}" };
     println! { "{STYLE_INFO}Scanning from {} to {}{STYLE_INFO:#}", start_date, end_date };
 
-    let http_client = reqwest::Client::new();
-    let lm_client = lm_common::lm_client::build(
-        http_client,
+    let lm_client = cx.lunch_money(
         api_key.trim().to_string(),
         lm_common::lm_client::RetryConfig::default(),
     );
@@ -169,7 +171,7 @@ pub async fn run_reconcile(config: &Config, args: ReconcileArgs) -> Result<()> {
 
     if synthetic_txs.is_empty() {
         println! { "{STYLE_SUCCESS}No missing funding events found. Venmo and bank checking are fully reconciled.{STYLE_SUCCESS:#}" };
-    } else if args.dry_run {
+    } else if cx.dry_run {
         println! { "[Dry Run] Would insert {} synthetic transactions:", synthetic_txs.len() };
         for tx in &synthetic_txs {
             let notes_str = tx.notes.as_deref().unwrap_or("");
