@@ -1244,6 +1244,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "lm-utils"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "lm-common",
+ "lm-payslip-importer",
+ "lm-splitwise-sync",
+ "lm-venmo-balfixer",
+ "tokio",
+]
+
+[[package]]
 name = "lm-venmo-balfixer"
 version = "0.1.0"
 dependencies = [

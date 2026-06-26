@@ -1,0 +1,21 @@
+[package]
+name = "lm-utils"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "lm-utils"
+path = "src/main.rs"
+
+[dependencies]
+lm-common.workspace = true
+lm-payslip-importer.workspace = true
+lm-splitwise-sync.workspace = true
+lm-venmo-balfixer.workspace = true
+
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

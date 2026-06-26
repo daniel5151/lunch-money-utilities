@@ -6,9 +6,10 @@ members = [
     "lm_payslip_importer",
     "lm_splitwise_sync",
     "lm_venmo_balfixer",
+    "lm_utils",
 ]
 default-members = [
-    "lm_splitwise_sync",
+    "lm_utils",
 ]
 
 [workspace.package]
@@ -19,6 +20,9 @@ edition = "2024"
 # Internal crates
 lunch_money = { path = "lunch_money" }
 lm-common = { path = "lm_common" }
+lm-payslip-importer = { path = "lm_payslip_importer" }
+lm-splitwise-sync = { path = "lm_splitwise_sync" }
+lm-venmo-balfixer = { path = "lm_venmo_balfixer" }
 
 regex = "1.10"
 
