@@ -495,7 +495,7 @@ pub(crate) async fn run_sync_window(
     let orchestrator = SyncOrchestrator::new(ctx);
     orchestrator
         .execute(SyncOptions {
-            dry_run: sync_args.dry_run,
+            dry_run: ctx.dry_run,
             tag: sync_args.tag,
             no_loan_tag: sync_args.no_loan_tag,
             no_ignore: sync_args.no_ignore,
@@ -529,7 +529,7 @@ pub(crate) async fn run_sync_group(
     let orchestrator = SyncOrchestrator::new(ctx);
     orchestrator
         .execute(SyncOptions {
-            dry_run: sync_args.dry_run,
+            dry_run: ctx.dry_run,
             tag: sync_args.tag,
             no_loan_tag: sync_args.no_loan_tag,
             no_ignore: sync_args.no_ignore,

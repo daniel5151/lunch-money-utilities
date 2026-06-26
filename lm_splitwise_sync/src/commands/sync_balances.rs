@@ -15,7 +15,7 @@ pub(crate) async fn run_sync_balances(
 
     println! {};
     println! { "{STYLE_HEADER}🔄 Syncing Splitwise Balances to Lunch Money{STYLE_HEADER:#}" };
-    if args.dry_run {
+    if ctx.dry_run {
         println! { "{STYLE_WARNING}⚠️  Running in DRY RUN mode. No changes will be made to Lunch Money.{STYLE_WARNING:#}" };
     }
     println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
@@ -113,7 +113,7 @@ pub(crate) async fn run_sync_balances(
 
         if acc.balance != target_balance {
             has_updates = true;
-            if args.dry_run {
+            if ctx.dry_run {
                 println! { "  {} ({})  {}~ Would update balance: {} -> {}{}", acc_name, currency, STYLE_WARNING, acc.balance, target_balance, STYLE_WARNING.render_reset() };
             } else {
                 println! { "  {} ({})  ~ Updating balance: {} -> {}...", acc_name, currency, acc.balance, target_balance };
@@ -180,7 +180,7 @@ pub(crate) async fn run_sync_balances(
     }
 
     println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
-    if args.dry_run {
+    if ctx.dry_run {
         if has_updates {
             println! { "{STYLE_WARNING}⚠️  Dry run complete! Changes would be applied to Lunch Money.{STYLE_WARNING:#}" };
         } else {

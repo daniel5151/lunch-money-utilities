@@ -1,12 +1,10 @@
+use clap::Args;
 use clap::Parser;
 use clap::Subcommand;
 
-use lm_common::cli::cli_styles;
-
 /// Synchronize Splitwise transactions and global outstanding balances into Lunch Money manual accounts
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None, styles = cli_styles())]
-pub struct Args {
+#[derive(Args, Debug)]
+pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -132,10 +130,6 @@ pub enum SyncSubcommands {
 
 #[derive(Parser, Debug)]
 pub struct SyncBalancesArgs {
-    /// Print what would be synced without modifying Lunch Money
-    #[arg(long)]
-    pub dry_run: bool,
-
     /// Path to a new CSV file to dump the sync operations (defaults to balances.csv if omitted)
     #[arg(long, num_args = 0..=1)]
     #[expect(clippy::option_option)]
@@ -159,10 +153,6 @@ pub struct SyncWindowArgs {
     /// Exclude transactions newer than this grace period duration (e.g., "1h", "15m", "2 hours")
     #[arg(long, value_parser = humantime::parse_duration)]
     pub grace_period: Option<std::time::Duration>,
-
-    /// Print what would be synced without modifying Lunch Money
-    #[arg(long)]
-    pub dry_run: bool,
 
     /// Optional tag to associate with imported transactions in Lunch Money
     #[arg(long)]
@@ -189,10 +179,6 @@ pub struct SyncWindowArgs {
 pub struct SyncGroupArgs {
     /// The Splitwise Group ID or name to synchronize
     pub group: String,
-
-    /// Print what would be synced without modifying Lunch Money
-    #[arg(long)]
-    pub dry_run: bool,
 
     /// Optional tag to associate with imported transactions in Lunch Money
     #[arg(long)]
@@ -238,8 +224,4 @@ pub struct MigrateAddMetadataArgs {
     /// Optional end date (YYYY-MM-DD) to scan to (defaults to today)
     #[arg(long)]
     pub end_date: Option<jiff::civil::Date>,
-
-    /// Print what would be migrated without modifying Lunch Money
-    #[arg(long)]
-    pub dry_run: bool,
 }

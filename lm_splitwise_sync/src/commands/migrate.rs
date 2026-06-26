@@ -30,7 +30,7 @@ pub async fn run_migrate_add_metadata(
     let lm_client = &ctx.lunch_money;
     let sw_client = &ctx.splitwise;
 
-    let dry_run_suffix = if args.dry_run {
+    let dry_run_suffix = if ctx.dry_run {
         format!(" {STYLE_WARNING}[DRY RUN]{STYLE_WARNING:#}")
     } else {
         "".to_string()
@@ -220,7 +220,7 @@ pub async fn run_migrate_add_metadata(
     table.with(Style::rounded());
     println! { "{}", table };
 
-    if args.dry_run {
+    if ctx.dry_run {
         println! {};
         println! { "  {STYLE_WARNING}[Dry Run] No changes were written to Lunch Money.{STYLE_WARNING:#}" };
     } else {
