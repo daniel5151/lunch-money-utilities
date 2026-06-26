@@ -11,10 +11,18 @@ cargo build --release --target x86_64-unknown-linux-musl
 
 echo "Preparing release assets in target directory..."
 TARGET_DIR="target/x86_64-unknown-linux-musl/release"
-BINARY_NAME="lm-splitwise-sync-x86_64-unknown-linux-musl"
+BINARY_NAME="lm-utils-x86_64-unknown-linux-musl"
 
-cp "$TARGET_DIR/lm-splitwise-sync" "$TARGET_DIR/$BINARY_NAME"
-cp "$TARGET_DIR/lm-splitwise-sync.dwp" "$TARGET_DIR/${BINARY_NAME}.dwp"
+# Ship the single busybox multiplexer binary. Each former standalone tool is
+# reached either via `lm-utils <tool>` (explicit dispatch) or by symlinking the
+# binary to the tool's name and invoking that (argv0 / busybox dispatch):
+#
+#   ln -s lm-utils payslip-importer
+#   ln -s lm-utils splitwise-sync
+#   ln -s lm-utils venmo-balfixer
+#
+cp "$TARGET_DIR/lm-utils" "$TARGET_DIR/$BINARY_NAME"
+cp "$TARGET_DIR/lm-utils.dwp" "$TARGET_DIR/${BINARY_NAME}.dwp"
 
 echo "Build complete. Created assets in $TARGET_DIR:"
 echo "  - $TARGET_DIR/$BINARY_NAME"

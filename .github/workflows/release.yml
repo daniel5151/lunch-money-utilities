@@ -34,10 +34,10 @@ jobs:
         id: prep
         run: |
           # Extract version from Cargo.toml
-          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="lm-splitwise-sync") | .version')
+          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="lm-utils") | .version')
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "binary=target/x86_64-unknown-linux-musl/release/lm-splitwise-sync-x86_64-unknown-linux-musl" >> $GITHUB_OUTPUT
-          echo "dwp=target/x86_64-unknown-linux-musl/release/lm-splitwise-sync-x86_64-unknown-linux-musl.dwp" >> $GITHUB_OUTPUT
+          echo "binary=target/x86_64-unknown-linux-musl/release/lm-utils-x86_64-unknown-linux-musl" >> $GITHUB_OUTPUT
+          echo "dwp=target/x86_64-unknown-linux-musl/release/lm-utils-x86_64-unknown-linux-musl.dwp" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         env:
