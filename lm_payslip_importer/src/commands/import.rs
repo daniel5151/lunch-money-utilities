@@ -344,14 +344,16 @@ pub(crate) async fn run_import(
                     .end_date(end_date.to_string())
                     .limit(1000)
                     .plaid_account_id(*id)
-                    .maybe_include_split_parents(if cli.dry_run { Some(true) } else { None })
+                    .maybe_include_split_parents(Some(true))
+                    .include_children(true)
                     .build(),
                 ResolvedAccount::Manual(id) => TransactionQuery::builder()
                     .start_date(start_date.to_string())
                     .end_date(end_date.to_string())
                     .limit(1000)
                     .manual_account_id(*id)
-                    .maybe_include_split_parents(if cli.dry_run { Some(true) } else { None })
+                    .maybe_include_split_parents(Some(true))
+                    .include_children(true)
                     .build(),
             };
 
@@ -380,14 +382,16 @@ pub(crate) async fn run_import(
                     .end_date(end_date.to_string())
                     .limit(1000)
                     .plaid_account_id(*id)
-                    .maybe_include_split_parents(if cli.dry_run { Some(true) } else { None })
+                    .maybe_include_split_parents(Some(true))
+                    .include_children(true)
                     .build(),
                 ResolvedAccount::Manual(id) => TransactionQuery::builder()
                     .start_date(start_date.to_string())
                     .end_date(end_date.to_string())
                     .limit(1000)
                     .manual_account_id(*id)
-                    .maybe_include_split_parents(if cli.dry_run { Some(true) } else { None })
+                    .maybe_include_split_parents(Some(true))
+                    .include_children(true)
                     .build(),
             };
 
@@ -481,6 +485,47 @@ pub(crate) async fn run_import(
                 category_name: rsu_cat_name,
             }];
             rsu_components.extend(tax_components);
+
+            // Idempotency (RSU path): on a previous run we create a *synthetic*
+            // compensation transaction in the RSU account and split it. Detect
+            // that here so a re-run skips the page instead of creating a
+            // duplicate synthetic + split. The synthetic parent's payee/notes
+            // may have been edited by hand, so we key only on the RSU account,
+            // a ±3-day window, the parent amount, the split-parent flag, and —
+            // decisively — that its existing children match the splits we would
+            // create (same count, same dollar amounts).
+            if let Some(rsu_acct) = resolved_rsu_acct {
+                let skip_start = payslip
+                    .check_date
+                    .checked_sub(jiff::Span::new().days(3))
+                    .map_err(|e| anyhow!("Failed to subtract days: {}", e))?;
+                let skip_end = payslip
+                    .check_date
+                    .checked_add(jiff::Span::new().days(3))
+                    .map_err(|e| anyhow!("Failed to add days: {}", e))?;
+                let already = rsu_txs.iter().find(|tx| {
+                    let matches_acct = match rsu_acct {
+                        ResolvedAccount::Plaid(id) => tx.plaid_account_id == Some(*id),
+                        ResolvedAccount::Manual(id) => tx.manual_account_id == Some(*id),
+                    };
+                    matches_acct
+                        && tx.is_split_parent.unwrap_or(false)
+                        && tx.date >= skip_start
+                        && tx.date <= skip_end
+                        && (tx.amount - parent_amount).abs() < Decimal::new(1, 2)
+                        && existing_split_matches_components(
+                            &tx.children.iter().map(|c| c.amount).collect::<Vec<_>>(),
+                            &rsu_components,
+                        )
+                });
+                if let Some(tx) = already {
+                    println! {
+                        "  {STYLE_SUCCESS}✅ Page {} already imported (RSU transaction ID {} is already split into {} matching amounts) — skipping.{STYLE_SUCCESS:#}",
+                        payslip.page_num, tx.id, tx.children.len()
+                    };
+                    continue;
+                }
+            }
 
             // Match RSU vest to auto-imported Plaid transaction(s)
             let matched_plaid_rsu_txs = if let Some(rsu_acct) = resolved_rsu_acct {
@@ -721,6 +766,12 @@ pub(crate) async fn run_import(
         // create with once the user approves at the confirmation gate below.
         let mut pending_zero_pay: Option<(ResolvedAccount, CategoryId)> = None;
 
+        // If we match an already-split parent, capture its existing child split
+        // amounts here so that, once we have computed the components we *would*
+        // split into, we can detect a prior import and skip the page instead of
+        // re-splitting (which the API would reject) or creating a duplicate.
+        let mut matched_split_children: Option<Vec<Decimal>> = None;
+
         if let Some(ref client_ref) = client {
             let start_window = payslip
                 .check_date
@@ -767,10 +818,12 @@ pub(crate) async fn run_import(
                     tx.id, tx.date, tx.amount, tx.payee
                 };
                 if tx.is_split_parent.unwrap_or(false) {
-                    println! {
-                        "  {STYLE_WARNING}⚠️ Warning: Transaction ID {} has already been split.{STYLE_WARNING:#}",
-                        tx.id
-                    };
+                    // Already split on a previous run. Defer the skip decision
+                    // until the components for this page are computed, so we can
+                    // confirm the existing split actually corresponds to this
+                    // page (same number of children, same amounts) before
+                    // treating it as already-imported.
+                    matched_split_children = Some(tx.children.iter().map(|c| c.amount).collect());
                 }
 
                 tx_id = tx.id;
@@ -1021,6 +1074,30 @@ pub(crate) async fn run_import(
                 tx_amount,
                 diff
             );
+        }
+
+        // Idempotency: if we matched an already-split parent and its existing
+        // children line up with the split we'd create (same count, same dollar
+        // amounts — payee/notes/category may have been edited by hand and are
+        // ignored), the page has already been imported. Skip it so re-runs are
+        // safe instead of attempting to re-split (which the API rejects) or
+        // creating a duplicate.
+        if let Some(ref existing_children) = matched_split_children {
+            if existing_split_matches_components(existing_children, &components) {
+                println! {
+                    "  {STYLE_SUCCESS}✅ Page {} already imported (transaction ID {} is already split into {} matching amounts) — skipping.{STYLE_SUCCESS:#}",
+                    payslip.page_num, tx_id, existing_children.len()
+                };
+                continue;
+            } else {
+                // Parent is split, but not into the shape we'd produce. Don't
+                // silently skip or blindly re-split; warn and let the existing
+                // confirmation gate below decide.
+                println! {
+                    "  {STYLE_WARNING}⚠️ Transaction ID {} is already split, but its {} child amount(s) do not match the {} split(s) for page {}. Not treating as already-imported.{STYLE_WARNING:#}",
+                    tx_id, existing_children.len(), components.len(), payslip.page_num
+                };
+            }
         }
 
         let mut child_txs: Vec<SplitTransactionObject> = components
@@ -1480,6 +1557,41 @@ fn insert_transaction_for_zero_pay(
         .maybe_manual_account_id(manual_id)
         .maybe_tag_ids(tag_id.map(|id| vec![id]))
         .build())
+}
+
+/// Decide whether an already-split parent transaction matches the split we
+/// would otherwise create for this page, so a re-run can safely skip it.
+///
+/// Idempotency key is intentionally narrow: the *number* of child splits and
+/// their dollar `amount`s (compared as an order-independent multiset). Payee,
+/// notes, and category are deliberately ignored, because the user routinely
+/// recategorizes and renames the children by hand after import; those edits
+/// must not make a previously-imported page look un-imported.
+fn existing_split_matches_components(
+    existing_children: &[Decimal],
+    expected: &[SplitComponent],
+) -> bool {
+    if existing_children.len() != expected.len() {
+        return false;
+    }
+
+    // Match each expected amount to a distinct existing child amount. Amounts
+    // are exact decimals straight from the same arithmetic, but compare with a
+    // sub-cent epsilon to be defensive against any currency rounding.
+    let eps = Decimal::new(1, 2); // 0.01
+    let mut remaining: Vec<Decimal> = existing_children.to_vec();
+    for comp in expected {
+        match remaining
+            .iter()
+            .position(|c| (*c - comp.amount).abs() < eps)
+        {
+            Some(idx) => {
+                remaining.swap_remove(idx);
+            }
+            None => return false,
+        }
+    }
+    remaining.is_empty()
 }
 
 /// Reorders child split transactions in-place so that their f64 floating-point sum
