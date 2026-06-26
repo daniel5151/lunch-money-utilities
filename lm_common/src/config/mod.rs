@@ -26,6 +26,7 @@
 //! [`CommonConfig`] is read via [`common_section`]. The loader itself knows
 //! nothing about any specific tool's section shape.
 
+pub mod editor;
 pub mod loader;
 
 pub use loader::DEFAULT_CONFIG_FILENAME;
