@@ -34,12 +34,7 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
         let per_backend_items = parse_pdfs(&args.pdfs);
 
         // 2. Fetch categories by prompting for the API key
-        let lunch_money_api_key = inquire::Password::new("Lunch Money API Key:")
-            .with_help_message("Your Lunch Money developer API key")
-            .with_display_mode(inquire::PasswordDisplayMode::Masked)
-            .without_confirmation()
-            .prompt()
-            .context("Failed to get Lunch Money API Key")?;
+        let lunch_money_api_key = lm_common::init::prompt_lm_api_key()?;
 
         let mut category_names = Vec::new();
         if !lunch_money_api_key.trim().is_empty() {
@@ -114,12 +109,7 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
     println! { "{STYLE_INFO}This wizard will help you set up {}.{STYLE_INFO:#}", output_path.display() };
     println! {};
 
-    let lunch_money_api_key = inquire::Password::new("Lunch Money API Key:")
-        .with_help_message("Your Lunch Money developer API key")
-        .with_display_mode(inquire::PasswordDisplayMode::Masked)
-        .without_confirmation()
-        .prompt()
-        .context("Failed to get Lunch Money API Key")?;
+    let lunch_money_api_key = lm_common::init::prompt_lm_api_key()?;
 
     println! {};
     println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API...{STYLE_INFO:#}" };

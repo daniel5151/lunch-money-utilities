@@ -4,26 +4,7 @@ use anstream::println;
 use anyhow::Context;
 use anyhow::Result;
 
-struct PlaidAccountChoice(lunch_money::plaid_accounts::schemas::PlaidAccount);
-
-impl std::fmt::Display for PlaidAccountChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(ref disp) = self.0.display_name {
-            if disp != &self.0.name {
-                return write!(f, "{} ({})", disp, self.0.name);
-            }
-            write!(f, "{}", disp)
-        } else {
-            write!(f, "{}", self.0.name)
-        }
-    }
-}
-
-impl Clone for PlaidAccountChoice {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
+use lm_common::init::PlaidAccountChoice;
 
 pub async fn run_init(args: InitArgs) -> Result<()> {
     let output_path = args
@@ -41,12 +22,7 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
     println! { "{STYLE_INFO}This wizard will help you set up {}.{STYLE_INFO:#}", output_path.display() };
     println! {};
 
-    let api_key = inquire::Password::new("Lunch Money API Key:")
-        .with_help_message("Your Lunch Money developer API key")
-        .with_display_mode(inquire::PasswordDisplayMode::Masked)
-        .without_confirmation()
-        .prompt()
-        .context("Failed to get Lunch Money API Key")?;
+    let api_key = lm_common::init::prompt_lm_api_key()?;
 
     println! {};
     println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API to fetch Plaid accounts...{STYLE_INFO:#}" };
@@ -70,25 +46,14 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
         plaid_accounts.into_iter().map(PlaidAccountChoice).collect();
 
     let selected_bank =
-        inquire::Select::new("Select Bank Checking Plaid account:", choices.clone())
-            .prompt()
-            .context("Failed to select Bank checking account")?;
+        lm_common::init::select_plaid_account("Select Bank Checking Plaid account:", choices.clone())?;
 
-    let selected_venmo = inquire::Select::new("Select Venmo Plaid account:", choices)
-        .prompt()
-        .context("Failed to select Venmo account")?;
+    let selected_venmo =
+        lm_common::init::select_plaid_account("Select Venmo Plaid account:", choices)?;
 
     // Determine target name for configuration
-    let bank_name = selected_bank
-        .0
-        .display_name
-        .clone()
-        .unwrap_or(selected_bank.0.name.clone());
-    let venmo_name = selected_venmo
-        .0
-        .display_name
-        .clone()
-        .unwrap_or(selected_venmo.0.name.clone());
+    let bank_name = selected_bank.config_name();
+    let venmo_name = selected_venmo.config_name();
 
     // Build TOML output
     let toml_content = format!(

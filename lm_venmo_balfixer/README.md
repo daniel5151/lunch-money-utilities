@@ -15,20 +15,22 @@ This tool scans your transaction histories across both accounts, identifies unma
 You can easily set up the configuration using the interactive setup wizard:
 
 ```bash
-cargo run -p lm-venmo-balfixer -- init
+lm-utils venmo-balfixer init
 ```
 
 The wizard will:
 1. Retrieve your Lunch Money developer API key interactively.
 2. Connect to the Lunch Money API and query all active Plaid accounts.
 3. Guide you to select the correct Bank checking account and Venmo account.
-4. Save the configuration to `lm_venmo_balfixer.toml` in the following format:
+4. Upsert the `[venmo]` section (and the shared `[common].lm_api_key`) into `lm_utils.toml`, creating the file if needed and leaving any other tools' sections intact. The relevant sections look like:
 
 ```toml
-[lunch_money]
-api_key = "your_lunch_money_api_key_here"
+# Shared settings for every Lunch Money utility tool.
+[common]
+# Your Lunch Money developer API key (shared by every tool).
+lm_api_key = "your_lunch_money_api_key_here"
 
-[accounts]
+[venmo]
 venmo_acct = "Venmo"
 bank_acct = "Bank Checking"
 ```
@@ -42,10 +44,10 @@ The tool exposes the `reconcile` command, which takes a scan duration window
 
 ```bash
 # Dry run: display what would be created without inserting any transactions
-cargo run -p lm-venmo-balfixer -- reconcile 30d --dry-run
+lm-utils venmo-balfixer reconcile 30d --dry-run
 
 # Reconcile and insert synthetic transactions for the last 30 days
-cargo run -p lm-venmo-balfixer -- reconcile 30d
+lm-utils venmo-balfixer reconcile 30d
 ```
 
 ### Behavior notes

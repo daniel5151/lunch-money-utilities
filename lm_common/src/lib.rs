@@ -7,6 +7,7 @@
 
 pub mod cli;
 pub mod config;
+pub mod init;
 pub mod lm_client;
 pub mod style;
 pub mod term;

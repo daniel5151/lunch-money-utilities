@@ -11,6 +11,7 @@ anstyle.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 humantime.workspace = true
+inquire.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
 serde.workspace = true

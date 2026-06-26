@@ -31,7 +31,7 @@ The code may eventually support numerous payslip formats, but at the moment, it'
   - For zero-dollar checks or RSU vests where there isn't a corresponding bank transaction, the tool inserts a synthetic parent transaction on the check date before splitting it.
 - **Imputed Income Handling**:
   - Imputed income represents non-cash compensation that increases taxable income.
-  - Any description starting with an asterisk `*` (e.g., `*Imp GTL`) or exactly matching (case-insensitive) an entry in the `descriptions` list of `[backends.<kind>.imputed_income]` is recognized as imputed income. Only providers that need it (Workday) inject offsets; Microsoft and ADP-Microsoft print both halves inline and reconcile on their own.
+  - Any description starting with an asterisk `*` (e.g., `*Imp GTL`) or exactly matching (case-insensitive) an entry in the `descriptions` list of `[payslip.backends.<kind>.imputed_income]` is recognized as imputed income. Only providers that need it (Workday) inject offsets; Microsoft and ADP-Microsoft print both halves inline and reconcile on their own.
   - To prevent altering the transaction's net cash flow, two split lines are generated: the main benefit line and a matching "Offset" line with the opposite sign.
 - **RSU Vest Processing**:
   - Identifies pages containing "restricted stock" in the earnings section.
@@ -42,14 +42,14 @@ The code may eventually support numerous payslip formats, but at the moment, it'
 
 ## 🔧 Commands & Subcommands
 
-The CLI entrypoint and subcommand dispatching are implemented in [main.rs](./src/main.rs), with the argument definitions in [cli.rs](./src/cli.rs) and the subcommand implementations under [src/commands/](./src/commands/).
+This tool ships as part of the single `lm-utils` binary (invoked as `lm-utils payslip-importer ...`). The argument definitions live in [cli.rs](./src/cli.rs) and the subcommand implementations under [src/commands/](./src/commands/).
 
 ### 1. Configuration Wizard (`init`)
 
 Run the setup wizard to create your config file. Pass one or more payslip PDFs to automatically scan and extract unique payslip line item descriptions:
 
 ```bash
-cargo run --package lm-payslip-importer -- init [PDF_PATHS...]
+lm-utils payslip-importer init [PDF_PATHS...]
 ```
 
 This command executes [run_init](./src/commands/init.rs#L28) in [init.rs](./src/commands/init.rs):
@@ -58,17 +58,17 @@ This command executes [run_init](./src/commands/init.rs#L28) in [init.rs](./src/
 3. Asks you to select a "Net Zero Account" and an "RSU Account".
 4. Parses the provided PDFs to gather the unique earnings, taxes, and deduction descriptions that appeared with a non-zero current amount (YTD-only rows are skipped).
 5. Optionally prints a copy-pasteable LLM prompt to help you map each extracted line item to a Lunch Money category.
-6. Writes the finished configuration to `lm_payslip_importer.toml`.
+6. Upserts the `[payslip]` sections (and the shared `[common].lm_api_key`) into `lm_utils.toml`, creating the file if needed and leaving any other tools' sections intact.
 
 Options:
-- `--file`, `-f`: Specify a custom output path for the configuration file (defaults to `lm_payslip_importer.toml`).
+- `--file`, `-f`: Specify a custom output path for the configuration file (defaults to `lm_utils.toml`).
 
 ### 2. Parse and Import Payslips (`import`)
 
 Processes a payslip PDF (e.g. Workday) and synchronizes the splits/transactions to Lunch Money. This logic is handled by [run_import](./src/commands/import.rs#L39) in [import.rs](./src/commands/import.rs).
 
 ```bash
-cargo run --package lm-payslip-importer -- import <PAYSLIP_PDF> [FLAGS]
+lm-utils payslip-importer import <PAYSLIP_PDF> [FLAGS]
 ```
 
 Flags:
@@ -78,21 +78,24 @@ Flags:
 
 ---
 
-## ⚙️ Configuration File (`lm_payslip_importer.toml`)
+## ⚙️ Configuration File (`lm_utils.toml`)
 
-The configuration structure is defined by [`Config`](./src/config.rs) in [config.rs](./src/config.rs). Provider-independent, account-level settings live under `[lunch_money]`; everything that depends on which payroll provider produced a payslip — the category mapping, the payee stamped on splits, the deposit account, the imputed-income descriptions, and the Workday-only RSU plumbing — lives in a per-provider `[backends.<kind>]` section. At import time the importer fingerprints the PDF (`workday`, `microsoft`, or `adp_microsoft`) and uses the matching backend.
+The configuration structure is defined by [`Config`](./src/config.rs) in [config.rs](./src/config.rs). All tools share one `lm_utils.toml`: the Lunch Money API key lives once under `[common].lm_api_key`, and this tool's settings live under `[payslip]`. An optional `tag` applied to every transaction this importer creates lives directly under `[payslip]`; everything that depends on which payroll provider produced a payslip — the category mapping, the payee stamped on splits, the deposit account, the imputed-income descriptions, and the Workday-only RSU plumbing — lives in a per-provider `[payslip.backends.<kind>]` section. At import time the importer fingerprints the PDF (`workday`, `microsoft`, or `adp_microsoft`) and uses the matching backend.
 
 Below is an annotated example with two providers configured:
 
 ```toml
-[lunch_money]
-# Your Lunch Money developer API key
-api_key = "..."
+# Shared settings for every Lunch Money utility tool.
+[common]
+# Your Lunch Money developer API key (shared by every tool).
+lm_api_key = "..."
+
+[payslip]
 # Optional tag applied to every transaction this importer creates
 tag = "payslip"
 
 # ── Workday (e.g. Meta) ─────────────────────────────────────────────
-[backends.workday]
+[payslip.backends.workday]
 # Account where zero-dollar check matches or direct deposit splits will be posted
 net_zero_account = "Bank of America Checking"
 # Payee for newly created direct deposit / net-zero transactions
@@ -104,7 +107,7 @@ rsu_account = "Equity Awards"
 # (case-insensitive). This is the payee Workday/Plaid assigns to the vest event.
 rsu_payee_match = "$META Vest"
 
-[backends.workday.mapping]
+[payslip.backends.workday.mapping]
 # Maps payslip line descriptions to Lunch Money category names (or category IDs).
 # Use the full, un-truncated description exactly as the parser emits it.
 "Salary" = "Salary"
@@ -122,7 +125,7 @@ rsu_payee_match = "$META Vest"
 "City Tax - NY" = "Taxes"
 "401k Salary" = "Payment, Transfer"
 
-[backends.workday.imputed_income]
+[payslip.backends.workday.imputed_income]
 # Extra line descriptions (exact, case-insensitive match) to treat as imputed
 # income, beyond those detected automatically. Any description starting with an
 # asterisk '*' is always imputed income; list here only the unmarked ones.
@@ -133,11 +136,11 @@ descriptions = [
 # ── Microsoft ───────────────────────────────────────────────────────
 # Microsoft folds stock comp inline as offsetting line items that already
 # reconcile to net pay, so it needs no rsu_account / rsu_payee_match.
-[backends.microsoft]
+[payslip.backends.microsoft]
 net_zero_account = "Bank of America Checking"
 payslip_payee = "Microsoft Payslip"
 
-[backends.microsoft.mapping]
+[payslip.backends.microsoft.mapping]
 "Regular" = "Salary"
 "Federal Income Tax" = "Taxes"
 
@@ -208,10 +211,10 @@ Later, you decide to liquidate that stock:
 
 ## 🛠️ Code Structure
 
-- [main.rs](./src/main.rs): Binary entrypoint; parses CLI args and dispatches to the subcommand implementations.
+- [lib.rs](./src/lib.rs): Implements the `Tool` trait; parses this tool's CLI args and dispatches to the subcommand implementations under the shared `lm-utils` binary.
 - [cli.rs](./src/cli.rs): Command-line argument definitions ([Cli](./src/cli.rs#L34-L37) / [Commands](./src/cli.rs#L40-L45) / [ImportArgs](./src/cli.rs#L48) / [InitArgs](./src/cli.rs#L67)).
 - [payslip.rs](./src/payslip.rs): PDF page text extraction ([convert_pdf_to_pages](./src/payslip.rs#L319)), table token parsing ([parse_page_tables](./src/payslip.rs#L196)), and the [ParsedPage](./src/payslip.rs#L38-L49) / `RowData` data model.
 - [commands/import.rs](./src/commands/import.rs): Lunch Money transaction query/matching, pre-flight validation, and import execution logic ([run_import](./src/commands/import.rs#L39)).
 - [commands/init.rs](./src/commands/init.rs): The interactive configuration setup wizard ([run_init](./src/commands/init.rs#L28)).
-- [config.rs](./src/config.rs): Handles loading the `lm_payslip_importer.toml` configuration (with backwards-compatible loading of `workday_payslip_splitter.toml`) and defines the config structs.
+- [config.rs](./src/config.rs): Defines the config structs deserialized from the `[payslip]` section of the shared `lm_utils.toml`.
 - [style.rs](./src/style.rs): Constants for stylized shell logs (e.g., `STYLE_HEADER`, `STYLE_SUCCESS`, `STYLE_WARNING`, `STYLE_ERROR`).

@@ -56,9 +56,9 @@ Sync Splitwise transactions (and global outstanding balances) into Lunch Money m
 ### 1. Configuration Wizard
 - **`init`**: Runs the interactive configuration setup.
   ```bash
-  cargo run -- init
+  lm-utils splitwise-sync init
   ```
-  Generates `lm_splitwise_sync.toml` in the current directory.
+  Adds the `[splitwise]` sections (and the shared `[common].lm_api_key`) to `lm_utils.toml` in the current directory, creating the file if needed and leaving any other tools' sections intact.
 
 ### 2. Sync Operations (`sync`)
 - **`sync window <WINDOW>`**: Syncs all transactions within a rolling time window (e.g., `3 days`, `24h`, `1 week`, `30 days`).
@@ -70,7 +70,7 @@ Sync Splitwise transactions (and global outstanding balances) into Lunch Money m
   - `--no-loan-tag`: Bypass applying the configured `loan_tag` to synced transactions.
   - `--no-ignore`: Bypass check for ignored groups.
   ```bash
-  cargo run -- sync window "3 days" --dry-run
+  lm-utils splitwise-sync sync window "3 days" --dry-run
   ```
 
 - **`sync group <GROUP>`**: Syncs all transactions associated with a specific Splitwise group.
@@ -82,7 +82,7 @@ Sync Splitwise transactions (and global outstanding balances) into Lunch Money m
   - `--csv [PATH]`: Write operations to a CSV file. If `--csv` is specified without an argument, it defaults to `<group_name>.csv`.
   - `--no-loan-tag`: Bypass applying the configured `loan_tag`.
   ```bash
-  cargo run -- sync group "Roommates" --csv --dry-run
+  lm-utils splitwise-sync sync group "Roommates" --csv --dry-run
   ```
 
 - **`sync balances`**: Syncs global outstanding Splitwise balances to Lunch Money manual accounts.
@@ -90,7 +90,7 @@ Sync Splitwise transactions (and global outstanding balances) into Lunch Money m
   - `--csv [PATH]`: Write balance updates to a CSV file. If `--csv` is specified without an argument, it defaults to `balances.csv`.
   - `--no-loan-tag`: Bypass applying the configured `loan_tag`.
   ```bash
-  cargo run -- sync balances --dry-run
+  lm-utils splitwise-sync sync balances --dry-run
   ```
 
 ### 3. Queries (`query`)
@@ -98,41 +98,47 @@ Sync Splitwise transactions (and global outstanding balances) into Lunch Money m
   - `--from <YYYY-MM-DD>`: Offset date.
   - `--no-groups`: Only show non-group transactions.
   ```bash
-  cargo run -- query splitwise window "7 days"
+  lm-utils splitwise-sync query splitwise window "7 days"
   ```
 - **`query splitwise group <GROUP>`**: Query Splitwise expenses for a specific group.
   - `<GROUP>`: Splitwise group ID or exact name. Can also be `0` or `"non-group"`.
   ```bash
-  cargo run -- query splitwise group "Roommates"
+  lm-utils splitwise-sync query splitwise group "Roommates"
   ```
 - **`query splitwise groups`**: List all Splitwise groups you belong to, including IDs, names, and outstanding balances.
   ```bash
-  cargo run -- query splitwise groups
+  lm-utils splitwise-sync query splitwise groups
   ```
 - **`query splitwise categories`**: List all Splitwise transaction categories (parent and subcategories).
   ```bash
-  cargo run -- query splitwise categories
+  lm-utils splitwise-sync query splitwise categories
   ```
 - **`query lunchmoney categories`**: List active categories configured in Lunch Money.
   ```bash
-  cargo run -- query lunchmoney categories
+  lm-utils splitwise-sync query lunchmoney categories
   ```
 - **`query lunchmoney tags`**: List active tags configured in Lunch Money.
   ```bash
-  cargo run -- query lunchmoney tags
+  lm-utils splitwise-sync query lunchmoney tags
   ```
 - **`query lunchmoney accounts`**: List active manual accounts configured in Lunch Money.
   ```bash
-  cargo run -- query lunchmoney accounts
+  lm-utils splitwise-sync query lunchmoney accounts
   ```
 
 ---
 
-## ⚙️ Configuration File (`lm_splitwise_sync.toml`)
+## ⚙️ Configuration File (`lm_utils.toml`)
 
-Below is an annotated example of `lm_splitwise_sync.toml`:
+All tools share one `lm_utils.toml`. Below is an annotated example of the
+shared Lunch Money API key (under `[common]`) plus the sections this tool reads:
 
 ```toml
+# Shared settings for every Lunch Money utility tool.
+[common]
+# Your Lunch Money developer API key (shared by every tool).
+lm_api_key = "391e53..."
+
 [splitwise]
 # Your personal Splitwise API key
 api_key = "Zg8TzP..."
@@ -146,18 +152,14 @@ ignored_groups = [
     "Roommates"
 ]
 
-[lunch_money]
-# Your Lunch Money developer API key
-api_key = "391e53..."
-
 # (Optional) Map currencies to custom manual account IDs in Lunch Money.
 # By default, the tool will try to find accounts named "Splitwise {CURRENCY}" (e.g. "Splitwise USD").
 # Use this section if you use custom names.
-[lunch_money.custom_accounts]
+[splitwise.custom_accounts]
 USD = 123456
 CAD = 789012
 
-[sync]
+[splitwise.sync]
 # (Optional) Extra tag to associate with transactions representing a loan/liability.
 # This makes it easy to spot splitwise transactions to manually group with your credit card transaction in Lunch Money.
 loan_tag = "💵 Splitwise"
@@ -171,7 +173,7 @@ updated_tag = "🧾⏫ Splitwise Updated"
 # Tag applied to orphaned delta transactions when their corresponding original transaction has been deleted
 orphaned_tag = "🧾⚠️ Splitwise Orphaned"
 
-[categories]
+[splitwise.categories]
 # Map Splitwise category names/IDs to Lunch Money category names/IDs (optional)
 "Payment" = "Payment, Transfer"
 "Utilities:Electricity" = "Utilities"
@@ -182,6 +184,7 @@ orphaned_tag = "🧾⚠️ Splitwise Orphaned"
 "Home:Rent" = "Rent"
 "Transportation:Taxi" = "Ridesharing"
 ```
+
 
 ---
 
@@ -214,11 +217,11 @@ After=network.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/path/to/lm-splitwise-sync
-ExecStart=/path/to/lm-splitwise-sync/target/release/lm-splitwise-sync sync balances
+WorkingDirectory=/path/to/lm-utils
+ExecStart=/path/to/lm-utils/target/release/lm-utils splitwise-sync sync balances
 ```
 > [!NOTE]
-> Replace `/path/to/lm-splitwise-sync` with the absolute path to your cloned repository (where `lm_splitwise_sync.toml` and the compiled binary are located). Do not use `~` in unit files as systemd does not perform shell expansion (though systemd specifiers like `%h` can be used to refer to your home directory).
+> Replace `/path/to/lm-utils` with the absolute path to your cloned repository (where `lm_utils.toml` and the compiled `lm-utils` binary are located). Do not use `~` in unit files as systemd does not perform shell expansion (though systemd specifiers like `%h` can be used to refer to your home directory).
 
 Create `~/.config/systemd/user/splitwise-sync-balances.timer`:
 ```ini
@@ -244,8 +247,8 @@ After=network.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/path/to/lm-splitwise-sync
-ExecStart=/path/to/lm-splitwise-sync/target/release/lm-splitwise-sync sync window "1 day"
+WorkingDirectory=/path/to/lm-utils
+ExecStart=/path/to/lm-utils/target/release/lm-utils splitwise-sync sync window "1 day"
 ```
 
 Create `~/.config/systemd/user/splitwise-sync-window.timer`:
