@@ -273,7 +273,7 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
         if !target_accounts.contains_key(&expense.parsed.currency_code) {
             anyhow::bail!(
                 "No manual account configured for currency '{}'.\n\
-                Please set up an active 'Splitwise {}' manual account in Lunch Money or configure [lunch_money.custom_accounts].",
+                Please set up an active 'Splitwise {}' manual account in Lunch Money or configure [splitwise.custom_accounts].",
                 expense.parsed.currency_code,
                 expense.parsed.currency_code
             );
@@ -567,13 +567,9 @@ mod tests {
     use rust_decimal::Decimal;
 
     const CONFIG_STR: &str = r#"
-        [splitwise]
         api_key = "dummy"
         user_id = 123
         ignored_groups = []
-
-        [lunch_money]
-        api_key = "dummy"
         custom_accounts = { USD = 999 }
 
         [sync]
@@ -1224,7 +1220,6 @@ mod tests {
 
         let mut env = TestEnv::new();
         env.config
-            .lunch_money
             .custom_accounts
             .insert(Currency::new("CAD"), ManualAccountId(888));
         env.target_accounts
@@ -1294,7 +1289,6 @@ mod tests {
 
         let mut env = TestEnv::new();
         env.config
-            .lunch_money
             .custom_accounts
             .insert(Currency::new("CAD"), ManualAccountId(888));
         env.target_accounts
@@ -1399,7 +1393,6 @@ mod tests {
 
         let mut env = TestEnv::new();
         env.config
-            .lunch_money
             .custom_accounts
             .insert(Currency::new("CAD"), ManualAccountId(888));
         env.target_accounts

@@ -28,6 +28,22 @@ use toml_edit::DocumentMut;
 use toml_edit::Item;
 use toml_edit::Table;
 
+/// Reads `path` into an editable document, or returns a fresh empty one.
+///
+/// The entry point for an `init` wizard: if the unified config already exists
+/// it is parsed (so `upsert_section` edits it in place, preserving sibling
+/// sections and comments); otherwise a new empty document is returned.
+pub fn read_or_new(path: &Path) -> anyhow::Result<DocumentMut> {
+    if !path.exists() {
+        return Ok(DocumentMut::new());
+    }
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read {}", path.display()))?;
+    content
+        .parse::<DocumentMut>()
+        .with_context(|| format!("Malformed config file {}", path.display()))
+}
+
 /// Inserts or replaces the section named `name` in `doc` from a rendered TOML
 /// fragment, preserving the fragment's inline comments.
 ///
@@ -46,6 +62,13 @@ pub fn upsert_section(doc: &mut DocumentMut, name: &str, section_toml: &str) -> 
 
     // Replace any existing section of the same name (upsert semantics).
     doc.as_table_mut().remove(name);
+
+    // Before appending, re-home the host document's own trailing comment-only
+    // lines onto the section they currently follow. On re-parse, a prior
+    // section's trailing pointer comments become *document* trivia; without
+    // this they would float past the section we are about to append and end up
+    // stranded at the bottom of the file.
+    rehome_doc_trailing(doc);
 
     let item = parsed
         .as_table()
@@ -112,6 +135,36 @@ fn set_owner_only_permissions(path: &Path) -> std::io::Result<()> {
 #[cfg(not(unix))]
 fn set_owner_only_permissions(_path: &Path) -> std::io::Result<()> {
     Ok(())
+}
+
+/// Re-homes the document's trailing comment-only lines onto its last section.
+///
+/// When `upsert_section` re-parses an existing file, comment lines that trailed
+/// the final section (e.g. the commented example rows under
+/// `[splitwise.categories]`) are exposed as *document* trailing trivia rather
+/// than as content of that section. Appending a new section would then leave
+/// those comments stranded at the very bottom of the file, detached from the
+/// section they document. Before appending, move that trivia onto the current
+/// last top-level table's deepest last subtable so it stays in place.
+fn rehome_doc_trailing(doc: &mut DocumentMut) {
+    let trailing = doc.trailing().as_str().unwrap_or_default().to_string();
+    if trailing.trim().is_empty() {
+        return;
+    }
+
+    let last_top = doc
+        .as_table()
+        .iter()
+        .filter(|(_, item)| item.is_table())
+        .map(|(key, _)| key.to_string())
+        .last();
+
+    if let Some(key) = last_top {
+        if let Some(Item::Table(table)) = doc.as_table_mut().get_mut(&key) {
+            attach_trailing(table, &trailing);
+            doc.set_trailing("");
+        }
+    }
 }
 
 /// Reassigns table positions in depth-first declaration order.

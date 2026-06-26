@@ -2,7 +2,6 @@ use crate::style::*;
 use anstream::println;
 use anyhow::Context;
 use std::collections::HashMap;
-use std::fs;
 
 struct SplitwiseUser(crate::api::splitwise::schema::User);
 
@@ -22,14 +21,12 @@ impl std::fmt::Display for SplitwiseUser {
 pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
     let output_path = args
         .file
-        .unwrap_or_else(|| std::path::PathBuf::from("lm_splitwise_sync.toml"));
+        .unwrap_or_else(|| std::path::PathBuf::from(lm_common::config::DEFAULT_CONFIG_FILENAME));
 
-    if output_path.exists() {
-        anyhow::bail!(
-            "{} already exists in this directory.",
-            output_path.display()
-        );
-    }
+    // Load the unified config if it already exists so we upsert the [splitwise]
+    // section (and the shared [common] key) in place, preserving every other
+    // tool's section and all inline comments.
+    let mut doc = lm_common::config::editor::read_or_new(&output_path)?;
 
     println! {};
     println! { "{STYLE_HEADER}⚙️  Configuring Splitwise & Lunch Money Integration{STYLE_HEADER:#}" };
@@ -168,42 +165,39 @@ api_key = "{splitwise_api_key}"
 user_id = {splitwise_user_id} # {splitwise_user_name}
 
 # (Optional) Array of Splitwise group IDs or names to ignore
-#  HINT: use `lm-splitwise-sync query splitwise groups` to list your groups and their IDs
+#  HINT: use `lm-utils splitwise-sync query splitwise groups` to list your groups and their IDs
 # ignored_groups = [123456, "Test Group"]
-
-[lunch_money]
-# Your Lunch Money developer API key
-api_key = "{lunch_money_api_key}"
 
 # (Optional) Map currencies to custom manual account IDs in Lunch Money
 #  For folks who really don't like the `Splitwise - {{currency}}` naming convention
-# [lunch_money.custom_accounts]
+# [splitwise.custom_accounts]
 # USD = 123456
 # GBP = 789012
 
-[sync]
+[splitwise.sync]
 backdated_tag = "{backdated_tag}"
 updated_tag = "{updated_tag}"
 orphaned_tag = "{orphaned_tag}"
 {loan_tag_line}
 
-[categories]
+[splitwise.categories]
 # Map Splitwise category names/IDs to Lunch Money category names/IDs (optional)
-#  HINT: use `lm-splitwise-sync query splitwise categories` and
-#  `lm-splitwise-sync query lunchmoney categories` to find names and IDs.
+#  HINT: use `lm-utils splitwise-sync query splitwise categories` and
+#  `lm-utils splitwise-sync query lunchmoney categories` to find names and IDs.
 #
 {categories_toml}
 "#
     );
 
-    fs::write(&output_path, template)
-        .context(format!("Failed to write {}", output_path.display()))?;
+    lm_common::config::editor::upsert_section(&mut doc, "splitwise", &template)?;
+    lm_common::config::editor::ensure_common_section(&mut doc, lunch_money_api_key.trim());
+    lm_common::config::editor::write_secure(&output_path, &doc)?;
 
     println! {};
     println! { "{STYLE_SUCCESS}🎉 Configuration created successfully!{STYLE_SUCCESS:#}" };
     println! { "{STYLE_INFO}Saved to:{STYLE_INFO:#} {}", output_path.display() };
     println! {};
-    println! { "{STYLE_DIM}Run {STYLE_DIM:#}{STYLE_HEADER}lm-splitwise-sync sync window --window \"3 days\"{STYLE_HEADER:#}{STYLE_DIM} to begin syncing.{STYLE_DIM:#}" };
+    println! { "{STYLE_DIM}Run {STYLE_DIM:#}{STYLE_HEADER}lm-utils splitwise-sync sync window --window \"3 days\"{STYLE_HEADER:#}{STYLE_DIM} to begin syncing.{STYLE_DIM:#}" };
     println! {};
     Ok(())
 }

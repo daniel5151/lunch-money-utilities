@@ -2,7 +2,6 @@ use crate::style::*;
 use anstream::eprintln;
 use anstream::println;
 use anyhow::Context;
-use std::fs;
 
 #[derive(Clone)]
 struct LunchMoneyAccount {
@@ -102,14 +101,12 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
     let output_path = args
         .file
         .clone()
-        .unwrap_or_else(|| std::path::PathBuf::from("lm_payslip_importer.toml"));
+        .unwrap_or_else(|| std::path::PathBuf::from(lm_common::config::DEFAULT_CONFIG_FILENAME));
 
-    if output_path.exists() {
-        anyhow::bail!(
-            "{} already exists in this directory.",
-            output_path.display()
-        );
-    }
+    // Load the unified config if it already exists so we upsert the [payslip]
+    // section (and the shared [common] key) in place, preserving every other
+    // tool's section and all inline comments.
+    let mut doc = lm_common::config::editor::read_or_new(&output_path)?;
 
     println! {};
     println! { "{STYLE_HEADER}⚙️  Configuring Lunch Money Payslip Importer{STYLE_HEADER:#}" };
@@ -341,7 +338,7 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
         // emitting the section for them would only produce a config the
         // validator rejects.
         let imputed_section = if kind.injects_imputed_offsets() {
-            "\n[backends.{kind}.imputed_income]\n\
+            "\n[payslip.backends.{kind}.imputed_income]\n\
              # Extra line descriptions (exact, case-insensitive) to treat as imputed\n\
              # income, beyond those detected automatically. Any description starting\n\
              # with '*' is always imputed income; list here only the unmarked ones.\n\
@@ -355,13 +352,13 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
 
         backend_sections.push_str(&format!(
             r#"
-[backends.{kind}]
+[payslip.backends.{kind}]
 # Account where zero-dollar check matches or direct deposit splits will be posted
 net_zero_account = "{net_zero}"
 # Payee for newly created direct deposit / net-zero transactions
 payslip_payee = "{payee}"
 {rsu_account_line}{rsu_payee_line}
-[backends.{kind}.mapping]
+[payslip.backends.{kind}.mapping]
 # Map payslip item names to Lunch Money category names or IDs.
 # Please manually modify this section to map each item to the correct category.
 # TIP: Large Language Models (LLMs) are very good at filling in this categorization!
@@ -373,22 +370,21 @@ payslip_payee = "{payee}"
         ));
     }
 
-    let template = format!(
-        r#"[lunch_money]
-# Your Lunch Money developer API key
-api_key = "{lunch_money_api_key}"
+    let section_toml = format!(
+        r#"[payslip]
 {tag_line}
 {backend_sections}"#
     );
 
-    fs::write(&output_path, template)
-        .context(format!("Failed to write {}", output_path.display()))?;
+    lm_common::config::editor::upsert_section(&mut doc, "payslip", &section_toml)?;
+    lm_common::config::editor::ensure_common_section(&mut doc, lunch_money_api_key.trim());
+    lm_common::config::editor::write_secure(&output_path, &doc)?;
 
     println! {};
     println! { "{STYLE_SUCCESS}🎉 Configuration created successfully!{STYLE_SUCCESS:#}" };
     println! { "{STYLE_INFO}Saved to:{STYLE_INFO:#} {}", output_path.display() };
     println! {};
-    println! { "{STYLE_DIM}Run {STYLE_DIM:#}{STYLE_HEADER}lm-payslip-importer import <payslip_pdf>{STYLE_HEADER:#}{STYLE_DIM} to import your payslip.{STYLE_DIM:#}" };
+    println! { "{STYLE_DIM}Run {STYLE_DIM:#}{STYLE_HEADER}lm-utils payslip-importer import <payslip_pdf>{STYLE_HEADER:#}{STYLE_DIM} to import your payslip.{STYLE_DIM:#}" };
 
     let total_seeded: usize = per_backend_items.values().map(|s| s.len()).sum();
     if total_seeded > 0 {
@@ -516,7 +512,7 @@ fn print_llm_prompt(
         if items.is_empty() {
             continue;
         }
-        mapping_sections.push_str(&format!("\n[backends.{}.mapping]\n", kind.as_str()));
+        mapping_sections.push_str(&format!("\n[payslip.backends.{}.mapping]\n", kind.as_str()));
         for entry in items {
             mapping_sections.push_str(&format!("\"{}\" = \"...\"\n", entry.replace('"', "\\\"")));
         }

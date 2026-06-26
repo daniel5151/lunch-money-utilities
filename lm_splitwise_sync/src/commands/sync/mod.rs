@@ -246,7 +246,7 @@ impl<'a> SyncOrchestrator<'a> {
         let manual_accounts = lm_client.fetch_manual_accounts().await?;
         let target_accounts = crate::commands::resolve_target_accounts(
             &manual_accounts,
-            &self.ctx.config.lunch_money.custom_accounts,
+            &self.ctx.config.custom_accounts,
         );
         verify_target_accounts(&target_accounts, &manual_accounts)?;
 
@@ -548,7 +548,7 @@ fn verify_target_accounts(
 ) -> anyhow::Result<()> {
     if target_accounts.is_empty() {
         anyhow::bail!(
-            "No active manual accounts found. Please set up an active 'Splitwise <CURRENCY>' manual account (e.g. 'Splitwise USD') in Lunch Money or configure [lunch_money.custom_accounts]."
+            "No active manual accounts found. Please set up an active 'Splitwise <CURRENCY>' manual account (e.g. 'Splitwise USD') in Lunch Money or configure [splitwise.custom_accounts]."
         );
     }
 

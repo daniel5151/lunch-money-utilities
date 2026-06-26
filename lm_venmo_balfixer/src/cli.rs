@@ -12,16 +12,12 @@ pub struct Cli {
 pub enum Commands {
     /// Reconcile Venmo and Bank checking accounts
     Reconcile(ReconcileArgs),
-    /// Run the interactive setup wizard to configure lm_venmo_balfixer.toml
+    /// Run the interactive setup wizard to configure lm_utils.toml
     Init(InitArgs),
 }
 
 #[derive(Args, Debug)]
 pub struct ReconcileArgs {
-    /// Path to the config TOML file
-    #[arg(short, long, default_value = "lm_venmo_balfixer.toml")]
-    pub config: PathBuf,
-
     /// Time duration from today to scan for transactions (e.g., "30d", "2w", "3mon")
     #[arg(value_name = "TIME_SPAN", value_parser = parse_duration)]
     pub duration: jiff::Span,

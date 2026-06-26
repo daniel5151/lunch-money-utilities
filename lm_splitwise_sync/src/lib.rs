@@ -37,15 +37,21 @@ impl Tool for SplitwiseTool {
                 commands::init::run_init(init_args).await?;
             }
             cmd => {
-                let config = load_config()?;
+                let (doc, _path) = lm_common::config::load_document()?;
+                let common = lm_common::config::common_section(&doc)?;
+                let config: config::Config =
+                    lm_common::config::deserialize_section(&doc, "splitwise")?;
+                let lm_api_key = common.lm_api_key.clone().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Missing [common].lm_api_key in lm_utils.toml. Run \
+                         `lm-utils splitwise-sync init` to configure it."
+                    )
+                })?;
                 let splitwise = api::splitwise::Client::new(
                     cx.http.clone(),
                     config.splitwise.api_key.clone(),
                 );
-                let lunch_money = api::lunch_money::Client::new(
-                    cx.http.clone(),
-                    config.lunch_money.api_key.clone(),
-                );
+                let lunch_money = api::lunch_money::Client::new(cx.http.clone(), lm_api_key);
                 let ctx = AppContext {
                     config,
                     http: cx.http.clone(),
@@ -114,35 +120,3 @@ impl Tool for SplitwiseTool {
     }
 }
 
-pub fn load_config() -> anyhow::Result<config::Config> {
-    use anyhow::Context;
-    let filename = "lm_splitwise_sync.toml";
-
-    // 1. Check current working directory
-    let path = std::path::Path::new(filename);
-    if path.exists() {
-        let content = std::fs::read_to_string(path)
-            .context("Failed to read lm_splitwise_sync.toml from current working directory")?;
-        let config = toml::from_str(&content).context("Malformed lm_splitwise_sync.toml file")?;
-        return Ok(config);
-    }
-
-    // 2. Check directory of the running executable
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            let candidate = exe_dir.join(filename);
-            if candidate.exists() {
-                let content = std::fs::read_to_string(&candidate)
-                    .context("Failed to read lm_splitwise_sync.toml from executable directory")?;
-                let config =
-                    toml::from_str(&content).context("Malformed lm_splitwise_sync.toml file")?;
-                return Ok(config);
-            }
-        }
-    }
-
-    anyhow::bail!(
-        "Configuration file 'lm_splitwise_sync.toml' not found in current directory or executable directory.\n\
-        Please run 'lm-utils splitwise-sync init' to configure."
-    )
-}

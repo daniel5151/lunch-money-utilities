@@ -17,11 +17,12 @@ use std::collections::HashSet;
 pub async fn run_reconcile(
     cx: &lm_common::tool::ToolContext,
     config: &Config,
+    lm_api_key: &str,
     args: ReconcileArgs,
 ) -> Result<()> {
-    let api_key = &config.lunch_money.api_key;
+    let api_key = lm_api_key;
     if api_key.trim().is_empty() {
-        anyhow::bail!("api_key is empty in the configuration file");
+        anyhow::bail!("lm_api_key is empty in the configuration file");
     }
 
     // Calculate dates
@@ -46,23 +47,23 @@ pub async fn run_reconcile(
         .context("Failed to fetch Plaid accounts")?;
 
     let venmo_id =
-        resolve_account_id(&plaid_accounts, &config.accounts.venmo_acct).ok_or_else(|| {
+        resolve_account_id(&plaid_accounts, &config.venmo_acct).ok_or_else(|| {
             anyhow::anyhow!(
                 "Could not resolve Venmo account with name '{}' from Plaid accounts.",
-                config.accounts.venmo_acct
+                config.venmo_acct
             )
         })?;
 
     let bank_id =
-        resolve_account_id(&plaid_accounts, &config.accounts.bank_acct).ok_or_else(|| {
+        resolve_account_id(&plaid_accounts, &config.bank_acct).ok_or_else(|| {
             anyhow::anyhow!(
                 "Could not resolve Bank account with name '{}' from Plaid accounts.",
-                config.accounts.bank_acct
+                config.bank_acct
             )
         })?;
 
-    println! { "  Bank Checking Account ID: {} (resolved from '{}')", bank_id, config.accounts.bank_acct };
-    println! { "  Venmo Account ID:         {} (resolved from '{}')", venmo_id, config.accounts.venmo_acct };
+    println! { "  Bank Checking Account ID: {} (resolved from '{}')", bank_id, config.bank_acct };
+    println! { "  Venmo Account ID:         {} (resolved from '{}')", venmo_id, config.venmo_acct };
 
     // 3. Fetch categories and resolve Transfer category ID
     let cat_query = lunch_money::categories::query_params::CategoryQuery::builder()

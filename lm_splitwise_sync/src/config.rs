@@ -1,9 +1,21 @@
 use serde::Deserialize;
 
+/// The `[splitwise]` section of the unified `lm_utils.toml`.
+///
+/// The Splitwise-identity fields (`api_key`, `user_id`, `ignored_groups`) are
+/// flattened to the section root via [`SplitwiseConfig`], so existing
+/// `config.splitwise.*` access paths keep working, while `custom_accounts`,
+/// `sync`, and `categories` live as `[splitwise.*]` subtables. The shared Lunch
+/// Money API key is no longer here — it moved to `[common].lm_api_key`
+/// ([`lm_common::config::CommonConfig`]).
 #[derive(Deserialize, Clone)]
 pub struct Config {
+    #[serde(flatten)]
     pub splitwise: SplitwiseConfig,
-    pub lunch_money: LunchMoneyConfig,
+    /// Optional currency → manual-account overrides (was `[lunch_money.custom_accounts]`).
+    #[serde(default)]
+    pub custom_accounts:
+        std::collections::HashMap<crate::api::Currency, lunch_money::core::ManualAccountId>,
     #[serde(default)]
     pub categories: std::collections::HashMap<String, CategoryValue>,
     pub sync: SyncConfig,
@@ -53,7 +65,6 @@ impl IgnoredGroup {
 }
 
 #[derive(Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
 pub struct SplitwiseConfig {
     pub api_key: String,
     pub user_id: u64,
@@ -65,13 +76,4 @@ impl SplitwiseConfig {
     pub fn is_group_ignored(&self, id: u64, name: Option<&str>) -> bool {
         self.ignored_groups.iter().any(|ig| ig.matches(id, name))
     }
-}
-
-#[derive(Deserialize, Clone)]
-#[serde(deny_unknown_fields)]
-pub struct LunchMoneyConfig {
-    pub api_key: String,
-    #[serde(default)]
-    pub custom_accounts:
-        std::collections::HashMap<crate::api::Currency, lunch_money::core::ManualAccountId>,
 }

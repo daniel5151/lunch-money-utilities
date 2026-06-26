@@ -12,7 +12,7 @@ pub struct Cli {
 pub enum Commands {
     /// Import granular payslip breakdowns into Lunch Money.
     Import(ImportArgs),
-    /// Run the interactive setup wizard to configure lm_payslip_importer.toml
+    /// Run the interactive setup wizard to configure lm_utils.toml
     Init(InitArgs),
 }
 
@@ -48,7 +48,7 @@ pub struct InitArgs {
     #[arg(help = "Path(s) to payslip PDF file(s) to seed the [mapping] table")]
     pub pdfs: Vec<PathBuf>,
 
-    /// Output file path (defaults to lm_payslip_importer.toml)
+    /// Output file path (defaults to lm_utils.toml)
     #[arg(long, short)]
     pub file: Option<PathBuf>,
 

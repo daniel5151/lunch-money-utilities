@@ -4,43 +4,37 @@ use std::collections::HashMap;
 
 /// Importer configuration.
 ///
-/// Account-level settings that do not depend on the payroll provider live in
-/// [`GlobalConfig`] (the `[lunch_money]` table); everything that is
+/// The shared Lunch Money API key now lives in `[common].lm_api_key`
+/// ([`lm_common::config::CommonConfig`]); this `[payslip]` section holds the
+/// importer's own provider-independent `tag` plus everything that is
 /// intrinsically provider-specific — the category mapping, the payee stamped on
 /// splits, the deposit account, the imputed-income exceptions, and the
-/// Workday-only RSU plumbing — lives in a per-provider [`BackendConfig`], keyed
-/// by [`PayslipKind`] under `[backends.<kind>]`. The importer selects the
+/// Workday-only RSU plumbing — in a per-provider [`BackendConfig`], keyed by
+/// [`PayslipKind`] under `[payslip.backends.<kind>]`. The importer selects the
 /// backend matching the PDF it detected.
 ///
 /// ```toml
-/// [lunch_money]
-/// api_key = "..."
+/// [common]
+/// lm_api_key = "..."
+///
+/// [payslip]
 /// tag = "payslip"
 ///
-/// [backends.workday]
+/// [payslip.backends.workday]
 /// net_zero_account = "Checking"
 /// payslip_payee = "Meta Payslip"
 /// rsu_account = "Equity Awards"
 /// rsu_payee_match = "$META Vest"
-/// [backends.workday.mapping]
+/// [payslip.backends.workday.mapping]
 /// "Salary" = "Salary"
 /// ```
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    #[serde(rename = "lunch_money")]
-    pub global: GlobalConfig,
-    pub backends: HashMap<PayslipKind, BackendConfig>,
-}
-
-/// Provider-independent, account-level settings (the `[lunch_money]` table).
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct GlobalConfig {
-    #[serde(default)]
-    pub api_key: Option<String>,
+    /// Optional tag stamped on transactions created by the importer.
     #[serde(default)]
     pub tag: Option<String>,
+    pub backends: HashMap<PayslipKind, BackendConfig>,
 }
 
 /// All settings that depend on which payroll provider produced a payslip.
@@ -87,13 +81,23 @@ pub struct ImputedIncomeConfig {
 
 impl Config {
     /// Parse and validate a TOML config.
+    #[cfg(test)]
     pub fn from_toml_str(s: &str) -> anyhow::Result<Self> {
         let config: Config =
             toml::from_str(s).map_err(|e| anyhow::anyhow!("Malformed configuration: {e}"))?;
-        for (kind, backend) in &config.backends {
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Enforce per-backend provider invariants.
+    ///
+    /// Run after deserializing the `[payslip]` section out of the unified
+    /// document (serde alone does not invoke [`BackendConfig::validate`]).
+    pub fn validate(&self) -> anyhow::Result<()> {
+        for (kind, backend) in &self.backends {
             backend.validate(*kind)?;
         }
-        Ok(config)
+        Ok(())
     }
 
     /// The backend configuration for `kind`, or a helpful error if the user has
@@ -156,8 +160,6 @@ mod tests {
     #[test]
     fn modern_multi_backend_parses() {
         let toml = r#"
-[lunch_money]
-api_key = "k"
 tag = "payslip"
 
 [backends.workday]
@@ -177,8 +179,7 @@ payslip_payee = "Microsoft Payslip"
 "Regular" = "Salary"
 "#;
         let cfg = Config::from_toml_str(toml).unwrap();
-        assert_eq!(cfg.global.api_key.as_deref(), Some("k"));
-        assert_eq!(cfg.global.tag.as_deref(), Some("payslip"));
+        assert_eq!(cfg.tag.as_deref(), Some("payslip"));
         let wd = cfg.backend(PayslipKind::Workday).unwrap();
         assert_eq!(wd.net_zero_account, "Checking");
         assert_eq!(wd.rsu_account.as_deref(), Some("Equity Awards"));
@@ -194,9 +195,6 @@ payslip_payee = "Microsoft Payslip"
     #[test]
     fn backend_without_mapping_or_imputed_income_defaults_empty() {
         let toml = r#"
-[lunch_money]
-api_key = "k"
-
 [backends.microsoft]
 net_zero_account = "Checking"
 payslip_payee = "Microsoft Payslip"
@@ -210,9 +208,6 @@ payslip_payee = "Microsoft Payslip"
     #[test]
     fn workday_backend_requires_rsu_fields() {
         let toml = r#"
-[lunch_money]
-api_key = "k"
-
 [backends.workday]
 net_zero_account = "Checking"
 payslip_payee = "Meta Payslip"
@@ -224,9 +219,6 @@ payslip_payee = "Meta Payslip"
     #[test]
     fn microsoft_backend_needs_no_rsu_fields() {
         let toml = r#"
-[lunch_money]
-api_key = "k"
-
 [backends.microsoft]
 net_zero_account = "Checking"
 payslip_payee = "Microsoft Payslip"
@@ -246,9 +238,6 @@ payslip_payee = "Microsoft Payslip"
         // inject imputed offsets; configuring imputed descriptions for it is a
         // mistake the validator must catch.
         let toml = r#"
-[lunch_money]
-api_key = "k"
-
 [backends.microsoft]
 net_zero_account = "Checking"
 payslip_payee = "Microsoft Payslip"
@@ -266,9 +255,6 @@ descriptions = ["Some Line"]
     #[test]
     fn unknown_field_is_rejected() {
         let toml = r#"
-[lunch_money]
-api_key = "k"
-
 [backends.workday]
 net_zero_account = "Checking"
 payslip_payee = "Meta Payslip"
@@ -282,8 +268,7 @@ bogus_field = "x"
     #[test]
     fn missing_backends_table_is_rejected() {
         let toml = r#"
-[lunch_money]
-api_key = "k"
+tag = "payslip"
 "#;
         assert!(Config::from_toml_str(toml).is_err());
     }

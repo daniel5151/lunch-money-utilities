@@ -58,7 +58,7 @@ pub(crate) async fn run_sync_balances(
 
     let target_accounts = crate::commands::resolve_target_accounts(
         &manual_accounts,
-        &config.lunch_money.custom_accounts,
+        &config.custom_accounts,
     );
 
     let mut has_updates = false;

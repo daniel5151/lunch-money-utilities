@@ -81,18 +81,16 @@ fn confirm_operation() -> Decision {
 pub(crate) async fn run_import(
     cx: &lm_common::tool::ToolContext,
     config: crate::config::Config,
+    lm_api_key: Option<String>,
     cli: crate::cli::ImportArgs,
 ) -> Result<()> {
-    let api_key_opt = config
-        .global
-        .api_key
-        .clone()
+    let api_key_opt = lm_api_key
         .or_else(|| env::var("LUNCH_MONEY_API_KEY").ok())
         .filter(|s| !s.trim().is_empty());
 
     if api_key_opt.is_none() && !cx.dry_run {
         anyhow::bail!(
-            "Lunch Money API key not set in lm_payslip_importer.toml or LUNCH_MONEY_API_KEY environment variable. Please set it or run with --dry-run."
+            "Lunch Money API key not set as [common].lm_api_key in lm_utils.toml or the LUNCH_MONEY_API_KEY environment variable. Please set it or run with --dry-run."
         );
     }
 
@@ -263,7 +261,7 @@ pub(crate) async fn run_import(
 
     preflight_validate(&pages_to_process, &resolved_backends)?;
 
-    let resolved_tag_id = if let Some(ref tag_name) = config.global.tag {
+    let resolved_tag_id = if let Some(ref tag_name) = config.tag {
         if let Some(ref client_ref) = client {
             println! { "Resolving Lunch Money tag '{}'...", tag_name };
             let lm_tags = client_ref
@@ -1374,7 +1372,7 @@ fn preflight_validate(
 
     for (kind, desc) in &unmapped {
         problems.push(format!(
-            "No Lunch Money category mapping found for payslip item '{desc}' (provider: {kind}). Add it to the [backends.{kind}.mapping] section of lm_payslip_importer.toml."
+            "No Lunch Money category mapping found for payslip item '{desc}' (provider: {kind}). Add it to the [payslip.backends.{kind}.mapping] section of lm_utils.toml."
         ));
     }
 
@@ -1417,7 +1415,7 @@ fn map_category(
 ) -> Result<(String, CategoryId)> {
     lookup_category(desc, resolved_mapping).ok_or_else(|| {
         anyhow!(
-            "No Lunch Money category mapping found for payslip item '{}'. Please add it to the [mapping] section of lm_payslip_importer.toml.",
+            "No Lunch Money category mapping found for payslip item '{}'. Please add it to the [payslip.backends.<provider>.mapping] section of lm_utils.toml.",
             desc
         )
     })

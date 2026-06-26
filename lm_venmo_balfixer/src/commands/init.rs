@@ -3,7 +3,6 @@ use crate::style::*;
 use anstream::println;
 use anyhow::Context;
 use anyhow::Result;
-use std::fs;
 
 struct PlaidAccountChoice(lunch_money::plaid_accounts::schemas::PlaidAccount);
 
@@ -29,14 +28,12 @@ impl Clone for PlaidAccountChoice {
 pub async fn run_init(args: InitArgs) -> Result<()> {
     let output_path = args
         .file
-        .unwrap_or_else(|| std::path::PathBuf::from("lm_venmo_balfixer.toml"));
+        .unwrap_or_else(|| std::path::PathBuf::from(lm_common::config::DEFAULT_CONFIG_FILENAME));
 
-    if output_path.exists() {
-        anyhow::bail!(
-            "{} already exists in this directory.",
-            output_path.display()
-        );
-    }
+    // Load the unified config if it already exists so we upsert the [venmo]
+    // section (and the shared [common] key) in place, preserving every other
+    // tool's section and all inline comments.
+    let mut doc = lm_common::config::editor::read_or_new(&output_path)?;
 
     println! {};
     println! { "{STYLE_HEADER}⚙️  Configuring Lunch Money Venmo Balance Fixer{STYLE_HEADER:#}" };
@@ -95,28 +92,21 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
 
     // Build TOML output
     let toml_content = format!(
-        r#"# Lunch Money Venmo Balance Fixer Configuration
-
-[lunch_money]
-api_key = "{}"
-
-[accounts]
+        r#"# Lunch Money Venmo Balance Fixer settings
+[venmo]
 venmo_acct = "{}"
 bank_acct = "{}"
 "#,
-        api_key.trim(),
-        venmo_name,
-        bank_name
+        venmo_name, bank_name
     );
 
-    fs::write(&output_path, toml_content).context(format!(
-        "Failed to write config to {}",
-        output_path.display()
-    ))?;
+    lm_common::config::editor::upsert_section(&mut doc, "venmo", &toml_content)?;
+    lm_common::config::editor::ensure_common_section(&mut doc, api_key.trim());
+    lm_common::config::editor::write_secure(&output_path, &doc)?;
 
     println! {};
     println! { "{STYLE_SUCCESS}🎉 Configuration successfully written to {}{STYLE_SUCCESS:#}", output_path.display() };
-    println! { "You can now run: cargo run -p lm-venmo-balfixer -- reconcile 30d" };
+    println! { "You can now run: lm-utils venmo-balfixer reconcile 30d" };
 
     Ok(())
 }
