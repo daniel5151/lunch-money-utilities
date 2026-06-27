@@ -14,6 +14,25 @@ use crate::api::lunch_money::schema::TagId;
 use crate::api::lunch_money::schema::TransactionId;
 use crate::style::*;
 
+/// Whether the given manual account is a loan.
+fn is_loan_account(manual_accounts: &[ManualAccount], account_id: ManualAccountId) -> bool {
+    manual_accounts
+        .iter()
+        .any(|acc| acc.id == account_id && acc.account_type == AccountType::Loan)
+}
+
+/// Whether the manual account targeted by `currency` (via the target-accounts
+/// map) is a loan.
+fn is_loan_by_currency(
+    manual_accounts: &[ManualAccount],
+    target_accounts: &HashMap<crate::api::Currency, ManualAccountId>,
+    currency: &crate::api::Currency,
+) -> bool {
+    target_accounts
+        .get(currency)
+        .is_some_and(|&id| is_loan_account(manual_accounts, id))
+}
+
 #[derive(Tabled)]
 struct RecoveryRecord {
     #[tabled(rename = "Action")]
@@ -76,11 +95,7 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
         for chunk in plan.updates.chunks(500) {
             let mut chunk_txs = chunk.to_vec();
             for u in &mut chunk_txs {
-                let is_loan = manual_accounts
-                    .iter()
-                    .find(|acc| target_accounts.get(&u.currency).copied() == Some(acc.id))
-                    .map(|acc| acc.account_type == AccountType::Loan)
-                    .unwrap_or(false);
+                let is_loan = is_loan_by_currency(manual_accounts, target_accounts, &u.currency);
                 if is_loan {
                     u.amount = -u.amount;
                 }
@@ -97,11 +112,7 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
         for chunk in plan.inserts.chunks(500) {
             let mut chunk_txs = chunk.to_vec();
             for ins in &mut chunk_txs {
-                let is_loan = manual_accounts
-                    .iter()
-                    .find(|acc| acc.id == ins.manual_account_id)
-                    .map(|acc| acc.account_type == AccountType::Loan)
-                    .unwrap_or(false);
+                let is_loan = is_loan_account(manual_accounts, ins.manual_account_id);
                 if is_loan {
                     ins.amount = -ins.amount;
                 }
@@ -119,9 +130,7 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                     let mut tx = inserted_tx.clone();
                     let is_loan = tx
                         .manual_account_id
-                        .and_then(|acc_id| manual_accounts.iter().find(|acc| acc.id == acc_id))
-                        .map(|acc| acc.account_type == AccountType::Loan)
-                        .unwrap_or(false);
+                        .is_some_and(|id| is_loan_account(manual_accounts, id));
                     if is_loan {
                         tx.amount = -tx.amount;
                     }
@@ -165,11 +174,7 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                             };
                             let is_loan = existing_lm
                                 .manual_account_id
-                                .and_then(|acc_id| {
-                                    manual_accounts.iter().find(|acc| acc.id == acc_id)
-                                })
-                                .map(|acc| acc.account_type == AccountType::Loan)
-                                .unwrap_or(false);
+                                .is_some_and(|id| is_loan_account(manual_accounts, id));
                             if is_loan {
                                 existing_lm.amount = -existing_lm.amount;
                             }
@@ -365,13 +370,8 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                     for chunk in extra_updates.chunks(500) {
                         let mut chunk_txs = chunk.to_vec();
                         for u in &mut chunk_txs {
-                            let is_loan = manual_accounts
-                                .iter()
-                                .find(|acc| {
-                                    target_accounts.get(&u.currency).copied() == Some(acc.id)
-                                })
-                                .map(|acc| acc.account_type == AccountType::Loan)
-                                .unwrap_or(false);
+                            let is_loan =
+                                is_loan_by_currency(manual_accounts, target_accounts, &u.currency);
                             if is_loan {
                                 u.amount = -u.amount;
                             }
@@ -384,11 +384,7 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                     for chunk in extra_inserts.chunks(500) {
                         let mut chunk_txs = chunk.to_vec();
                         for ins in &mut chunk_txs {
-                            let is_loan = manual_accounts
-                                .iter()
-                                .find(|acc| acc.id == ins.manual_account_id)
-                                .map(|acc| acc.account_type == AccountType::Loan)
-                                .unwrap_or(false);
+                            let is_loan = is_loan_account(manual_accounts, ins.manual_account_id);
                             if is_loan {
                                 ins.amount = -ins.amount;
                             }
@@ -406,11 +402,7 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                                 let mut tx = inserted_tx.clone();
                                 let is_loan = tx
                                     .manual_account_id
-                                    .and_then(|acc_id| {
-                                        manual_accounts.iter().find(|acc| acc.id == acc_id)
-                                    })
-                                    .map(|acc| acc.account_type == AccountType::Loan)
-                                    .unwrap_or(false);
+                                    .is_some_and(|id| is_loan_account(manual_accounts, id));
                                 if is_loan {
                                     tx.amount = -tx.amount;
                                 }
@@ -657,11 +649,8 @@ pub async fn apply_sync_plan(args: ApplySyncPlanArgs<'_>) -> anyhow::Result<()> 
                 for chunk in linkage_updates.chunks(500) {
                     let mut chunk_txs = chunk.to_vec();
                     for u in &mut chunk_txs {
-                        let is_loan = manual_accounts
-                            .iter()
-                            .find(|acc| target_accounts.get(&u.currency).copied() == Some(acc.id))
-                            .map(|acc| acc.account_type == AccountType::Loan)
-                            .unwrap_or(false);
+                        let is_loan =
+                            is_loan_by_currency(manual_accounts, target_accounts, &u.currency);
                         if is_loan {
                             u.amount = -u.amount;
                         }
