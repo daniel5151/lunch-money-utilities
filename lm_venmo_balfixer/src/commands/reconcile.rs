@@ -251,39 +251,23 @@ async fn fetch_all_transactions(
     start_date: jiff::civil::Date,
     end_date: jiff::civil::Date,
 ) -> Result<Vec<Transaction<serde_json::Value, String>>> {
-    let mut transactions = Vec::new();
-    let mut offset = 0;
-    let limit = 1000;
+    let query = TransactionQuery::builder()
+        .start_date(start_date.to_string())
+        .end_date(end_date.to_string())
+        // NOTE: include_group_children surfaces children of grouped/split
+        // transactions. A grouped/split bank transfer could therefore appear
+        // as both a parent and its children, double-counting candidates. This
+        // is very unlikely for Venmo ACH funding rows, so it's left unguarded;
+        // add a split/group-parent filter here if it ever surfaces.
+        .include_group_children(true)
+        .plaid_account_id(account_id)
+        .build();
 
-    loop {
-        let query = TransactionQuery::builder()
-            .start_date(start_date.to_string())
-            .end_date(end_date.to_string())
-            // NOTE: include_group_children surfaces children of grouped/split
-            // transactions. A grouped/split bank transfer could therefore appear
-            // as both a parent and its children, double-counting candidates. This
-            // is very unlikely for Venmo ACH funding rows, so it's left unguarded;
-            // add a split/group-parent filter here if it ever surfaces.
-            .include_group_children(true)
-            .plaid_account_id(account_id)
-            .limit(limit)
-            .offset(offset)
-            .build();
+    let response = client
+        .fetch_transactions::<serde_json::Value, String>(&query, true)
+        .await?;
 
-        let response = client
-            .fetch_transactions::<serde_json::Value, String>(&query)
-            .await?;
-        let len = response.transactions.len();
-        transactions.extend(response.transactions);
-
-        if response.has_more && len > 0 {
-            offset += len as u32;
-        } else {
-            break;
-        }
-    }
-
-    Ok(transactions)
+    Ok(response.transactions)
 }
 
 fn is_bank_transfer(t: &Transaction<serde_json::Value, String>, bank_id: PlaidAccountId) -> bool {

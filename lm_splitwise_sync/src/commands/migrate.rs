@@ -81,6 +81,7 @@ pub async fn run_migrate_add_metadata(
                     .include_split_parents(true)
                     .include_metadata(true)
                     .build(),
+                true,
             )
             .await?;
         lm_transactions.extend(txs);

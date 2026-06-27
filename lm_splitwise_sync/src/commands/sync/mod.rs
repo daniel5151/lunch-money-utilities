@@ -596,16 +596,19 @@ async fn fetch_lunch_money_transactions(
     let mut lm_transactions = Vec::new();
     for &account_id in target_accounts.values() {
         let mut txs = lm_client
-            .fetch_transactions(&TransactionQuery {
-                start_date: start_date_str.to_string(),
-                end_date: end_date_str.to_string(),
-                manual_account_id: account_id,
-                limit: Some(1000),
-                include_group_children: Some(true),
-                include_split_parents: Some(true),
-                include_metadata: Some(true),
-                tag_id: None,
-            })
+            .fetch_transactions(
+                &TransactionQuery {
+                    start_date: start_date_str.to_string(),
+                    end_date: end_date_str.to_string(),
+                    manual_account_id: account_id,
+                    limit: Some(1000),
+                    include_group_children: Some(true),
+                    include_split_parents: Some(true),
+                    include_metadata: Some(true),
+                    tag_id: None,
+                },
+                true,
+            )
             .await?;
         let is_loan = manual_accounts
             .iter()
@@ -855,16 +858,19 @@ async fn chase_missing_delta_chains(
         println! { "  {STYLE_DIM}Pre-fetching backdated transactions...{STYLE_DIM:#}" };
         for &account_id in target_accounts.values() {
             let mut txs = lm_client
-                .fetch_transactions(&TransactionQuery {
-                    start_date: "2000-01-01".to_string(),
-                    end_date: end_date_str.to_string(),
-                    manual_account_id: account_id,
-                    limit: Some(1000),
-                    include_group_children: Some(true),
-                    include_split_parents: Some(true),
-                    include_metadata: Some(true),
-                    tag_id: Some(bt_id),
-                })
+                .fetch_transactions(
+                    &TransactionQuery {
+                        start_date: "2000-01-01".to_string(),
+                        end_date: end_date_str.to_string(),
+                        manual_account_id: account_id,
+                        limit: Some(1000),
+                        include_group_children: Some(true),
+                        include_split_parents: Some(true),
+                        include_metadata: Some(true),
+                        tag_id: Some(bt_id),
+                    },
+                    true,
+                )
                 .await?;
 
             let is_loan = manual_accounts
@@ -888,16 +894,19 @@ async fn chase_missing_delta_chains(
         println! { "  {STYLE_DIM}Pre-fetching orphaned transactions...{STYLE_DIM:#}" };
         for &account_id in target_accounts.values() {
             let mut txs = lm_client
-                .fetch_transactions(&TransactionQuery {
-                    start_date: "2000-01-01".to_string(),
-                    end_date: end_date_str.to_string(),
-                    manual_account_id: account_id,
-                    limit: Some(1000),
-                    include_group_children: Some(true),
-                    include_split_parents: Some(true),
-                    include_metadata: Some(true),
-                    tag_id: Some(ot_id),
-                })
+                .fetch_transactions(
+                    &TransactionQuery {
+                        start_date: "2000-01-01".to_string(),
+                        end_date: end_date_str.to_string(),
+                        manual_account_id: account_id,
+                        limit: Some(1000),
+                        include_group_children: Some(true),
+                        include_split_parents: Some(true),
+                        include_metadata: Some(true),
+                        tag_id: Some(ot_id),
+                    },
+                    true,
+                )
                 .await?;
 
             let is_loan = manual_accounts
@@ -954,16 +963,19 @@ async fn chase_missing_delta_chains(
         let date_str = date.to_string();
         for &account_id in target_accounts.values() {
             let mut txs = lm_client
-                .fetch_transactions(&TransactionQuery {
-                    start_date: date_str.clone(),
-                    end_date: date_str.clone(),
-                    manual_account_id: account_id,
-                    limit: Some(100),
-                    include_group_children: Some(true),
-                    include_split_parents: Some(true),
-                    include_metadata: Some(true),
-                    tag_id: None,
-                })
+                .fetch_transactions(
+                    &TransactionQuery {
+                        start_date: date_str.clone(),
+                        end_date: date_str.clone(),
+                        manual_account_id: account_id,
+                        limit: Some(100),
+                        include_group_children: Some(true),
+                        include_split_parents: Some(true),
+                        include_metadata: Some(true),
+                        tag_id: None,
+                    },
+                    true,
+                )
                 .await?;
 
             let is_loan = manual_accounts

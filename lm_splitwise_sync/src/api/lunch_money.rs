@@ -52,6 +52,7 @@ impl Client {
     pub async fn fetch_transactions(
         &self,
         query: &TransactionQuery,
+        auto_paginate: bool,
     ) -> anyhow::Result<Vec<schema::Transaction>> {
         let lib_query = lunch_money::transactions::query_params::TransactionQuery::builder()
             .start_date(query.start_date.clone())
@@ -63,7 +64,11 @@ impl Client {
             .maybe_include_metadata(query.include_metadata)
             .maybe_tag_id(query.tag_id)
             .build();
-        Ok(self.0.fetch_transactions(&lib_query).await?.transactions)
+        Ok(self
+            .0
+            .fetch_transactions(&lib_query, auto_paginate)
+            .await?
+            .transactions)
     }
 
     pub async fn fetch_transaction_by_id(

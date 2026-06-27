@@ -189,15 +189,39 @@ impl Client {
     /// Fetches transactions matching the specified query parameters.
     ///
     /// Returns the full response including pagination metadata (`has_more`).
+    ///
+    /// If `auto_paginate` is true, all matching transactions will be fetched
+    /// automatically, paginating using `limit` and `offset` parameters, and
+    /// `has_more` in the returned response will be set to `false`.
     pub async fn fetch_transactions<T, E>(
         &self,
         query: &TransactionQuery,
+        auto_paginate: bool,
     ) -> anyhow::Result<TransactionsResponse<T, E>>
     where
         T: serde::de::DeserializeOwned,
         E: serde::de::DeserializeOwned,
     {
-        self.fetch("transactions", query).await
+        if auto_paginate {
+            let mut all_transactions = Vec::new();
+            let mut query = query.clone();
+            loop {
+                let res: TransactionsResponse<T, E> = self.fetch("transactions", &query).await?;
+                let len = res.transactions.len();
+                all_transactions.extend(res.transactions);
+                if res.has_more && len > 0 {
+                    query.offset = Some(query.offset.unwrap_or(0) + len as u32);
+                } else {
+                    break;
+                }
+            }
+            Ok(TransactionsResponse {
+                transactions: all_transactions,
+                has_more: false,
+            })
+        } else {
+            self.fetch("transactions", query).await
+        }
     }
 
     /// Fetches a single transaction by its unique ID. Returns `None` if the transaction is not found.
