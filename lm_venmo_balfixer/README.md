@@ -60,3 +60,75 @@ lm-utils venmo-balfixer reconcile 30d
 - Each synthetic carries a stable `external_id` (`synthetic-venmo-<bank-tx-id>`),
   so re-running over an overlapping window won't create duplicates — the API
   reports those as skipped duplicates.
+
+---
+
+## ⏰ Automated Scheduling (Systemd Timers)
+
+To keep Lunch Money up-to-date automatically, you can schedule the reconciliation task using a `systemd` user timer. Running this task as a user service is highly recommended: it requires no root (`sudo`) privileges, runs under your local user session, and logs directly to `journald`.
+
+I suggest setting up a daily timer with a `30d` (30 days) rolling window to capture settled bank transfers and insert synthetic Venmo transactions.
+
+### Step-by-Step Installation
+
+#### 1. Create the Systemd User Directory
+Ensure your systemd user configuration directory exists:
+```bash
+mkdir -p ~/.config/systemd/user
+```
+
+#### 2. Define the Service
+Create `~/.config/systemd/user/venmo-balfixer.service`:
+```ini
+[Unit]
+Description=Reconcile Venmo Balances to Lunch Money (30 day window)
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/lm-utils
+ExecStart=/path/to/lm-utils/target/release/lm-utils venmo-balfixer reconcile 30d
+```
+> [!NOTE]
+> Replace `/path/to/lm-utils` with the absolute path to your cloned repository (where `lm_utils.toml` and the compiled `lm-utils` binary are located). Do not use `~` in unit files as systemd does not perform shell expansion (though systemd specifiers like `%h` can be used to refer to your home directory).
+
+#### 3. Define the Timer
+Create `~/.config/systemd/user/venmo-balfixer.timer`:
+```ini
+[Unit]
+Description=Run venmo-balfixer daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+#### 4. Load and Enable the Timer
+Tell systemd to reload its configuration, then enable and start the timer:
+```bash
+# Reload the systemd user daemon to register the new units
+systemctl --user daemon-reload
+
+# Enable and start the timer immediately
+systemctl --user enable --now venmo-balfixer.timer
+```
+
+#### 5. Verify the Installation
+You can verify that the timer is active and see when it is next scheduled to run:
+```bash
+systemctl --user list-timers
+```
+
+#### 6. View Logs and Debugging
+To view the output/logs of the reconciliation execution, use `journald`'s query tool:
+```bash
+# View logs for the venmo-balfixer service
+journalctl --user -u venmo-balfixer.service
+
+# Stream logs in real-time
+journalctl --user -u venmo-balfixer.service -f
+```
+
