@@ -147,35 +147,27 @@ async fn run() -> anyhow::Result<()> {
 
     match cli.tool {
         ToolCmd::PayslipImporter(args) => {
-            let tool_cfg = match &doc_opt {
-                Some(doc) => lm_common::config::optional_section::<<PayslipTool as Tool>::Config>(
-                    doc,
-                    PayslipTool::CONFIG_SECTION,
-                )?,
-                None => None,
-            };
+            let tool_cfg = tool_section::<PayslipTool>(&doc_opt)?;
             PayslipTool::run(&cx, args, resolved_path, common_config, tool_cfg).await
         }
         ToolCmd::SplitwiseSync(args) => {
-            let tool_cfg =
-                match &doc_opt {
-                    Some(doc) => lm_common::config::optional_section::<
-                        <SplitwiseTool as Tool>::Config,
-                    >(doc, SplitwiseTool::CONFIG_SECTION)?,
-                    None => None,
-                };
+            let tool_cfg = tool_section::<SplitwiseTool>(&doc_opt)?;
             SplitwiseTool::run(&cx, args, resolved_path, common_config, tool_cfg).await
         }
         ToolCmd::VenmoBalfixer(args) => {
-            let tool_cfg = match &doc_opt {
-                Some(doc) => lm_common::config::optional_section::<<VenmoTool as Tool>::Config>(
-                    doc,
-                    VenmoTool::CONFIG_SECTION,
-                )?,
-                None => None,
-            };
+            let tool_cfg = tool_section::<VenmoTool>(&doc_opt)?;
             VenmoTool::run(&cx, args, resolved_path, common_config, tool_cfg).await
         }
+    }
+}
+
+/// Extract a tool's config section from the parsed document, if present.
+fn tool_section<T: Tool>(
+    doc_opt: &Option<toml_edit::DocumentMut>,
+) -> anyhow::Result<Option<T::Config>> {
+    match doc_opt {
+        Some(doc) => lm_common::config::optional_section::<T::Config>(doc, T::CONFIG_SECTION),
+        None => Ok(None),
     }
 }
 
