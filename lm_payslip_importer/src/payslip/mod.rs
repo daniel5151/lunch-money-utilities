@@ -43,11 +43,12 @@ impl RowData {
 /// One payslip (one page of a PDF), reduced to the four line-item sections plus
 /// header metadata. Produced by every backend; consumed by the importer.
 #[derive(Debug, Clone)]
-#[expect(dead_code)]
 pub struct ParsedPage {
     pub page_num: usize,
     pub check_date: Date,
+    #[expect(dead_code)]
     pub period_begin: Date,
+    #[expect(dead_code)]
     pub period_end: Date,
     pub net_pay: Decimal,
     pub earnings: Vec<RowData>,

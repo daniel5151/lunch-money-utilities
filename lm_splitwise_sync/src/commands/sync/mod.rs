@@ -38,16 +38,6 @@ pub struct SyncPlan {
     pub tags_to_create: Vec<String>,
 }
 
-impl SyncPlan {
-    #[expect(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.inserts.is_empty()
-            && self.updates.is_empty()
-            && self.deletes.is_empty()
-            && self.tags_to_create.is_empty()
-    }
-}
-
 pub enum SyncMode {
     Window {
         window: std::time::Duration,
