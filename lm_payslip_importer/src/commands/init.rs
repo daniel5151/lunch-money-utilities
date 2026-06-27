@@ -50,36 +50,20 @@ pub(crate) async fn run_init(
             None => lm_common::init::prompt_lm_api_key()?,
         };
         let retry_policy = common_cfg.retry.clone();
-
-        let mut category_names = Vec::new();
-        if !lunch_money_api_key.trim().is_empty() {
+        let lm_client = if !lunch_money_api_key.trim().is_empty() {
             println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API to fetch categories...{STYLE_INFO:#}" };
             let http_client = reqwest::Client::new();
-            let lm_client = lunch_money::client::Client::new(
+            Some(lunch_money::client::Client::new(
                 http_client,
                 lunch_money_api_key.trim().to_string(),
                 retry_policy.into(),
-            );
-            let cat_query = lunch_money::categories::query_params::CategoryQuery::builder()
-                .format("flattened".to_string())
-                .build();
-            match lm_client.fetch_categories(&cat_query).await {
-                Ok(lm_categories) => {
-                    category_names = lm_categories
-                        .iter()
-                        .filter(|c| !c.archived && !c.is_group)
-                        .map(|c| c.name.clone())
-                        .collect();
-                    category_names.sort();
-                }
-                Err(e) => {
-                    eprintln! { "{STYLE_WARNING}⚠️  Warning: Failed to fetch categories from Lunch Money API: {}{STYLE_WARNING:#}", e };
-                }
-            }
-        }
+            ))
+        } else {
+            None
+        };
 
         // 3. Print LLM prompt
-        print_llm_prompt(&category_names, &per_backend_items);
+        print_llm_prompt(lm_client.as_ref(), &per_backend_items).await;
 
         return Ok(());
     }
@@ -147,14 +131,6 @@ pub(crate) async fn run_init(
         .fetch_manual_accounts()
         .await
         .context("Failed to fetch manual accounts")?;
-
-    let cat_query = lunch_money::categories::query_params::CategoryQuery::builder()
-        .format("flattened".to_string())
-        .build();
-    let lm_categories = lm_client
-        .fetch_categories(&cat_query)
-        .await
-        .context("Failed to fetch Lunch Money categories")?;
 
     let lm_tags = lm_client
         .fetch_tags()
@@ -404,13 +380,7 @@ payslip_payee = "{payee}"
             .context("Failed to get prompt printing preference")?;
 
         if print_prompt {
-            let mut category_names: Vec<String> = lm_categories
-                .iter()
-                .filter(|c| !c.archived && !c.is_group)
-                .map(|c| c.name.clone())
-                .collect();
-            category_names.sort();
-            print_llm_prompt(&category_names, &per_backend_items);
+            print_llm_prompt(Some(&lm_client), &per_backend_items).await;
         }
     }
 
@@ -500,13 +470,49 @@ fn parse_pdfs(
 }
 
 /// Print the copy-pasteable LLM prompt to stdout.
-fn print_llm_prompt(
-    category_names: &[String],
+async fn print_llm_prompt(
+    lm_client: Option<&lunch_money::client::Client>,
     per_backend_items: &std::collections::BTreeMap<
         crate::payslip::PayslipKind,
         std::collections::BTreeSet<String>,
     >,
 ) {
+    let mut category_names = Vec::new();
+    if let Some(lm_client) = lm_client {
+        let cat_query = lunch_money::categories::query_params::CategoryQuery::builder()
+            .format("flattened".to_string())
+            .build();
+        match lm_client.fetch_categories(&cat_query).await {
+            Ok(lm_categories) => {
+                category_names = lm_categories
+                    .iter()
+                    .filter(|c| !c.archived && !c.is_group)
+                    .map(|c| {
+                        let mut flags = Vec::new();
+                        if c.is_income {
+                            flags.push("treat as income");
+                        }
+                        if c.exclude_from_budget {
+                            flags.push("exclude from budget");
+                        }
+                        if c.exclude_from_totals {
+                            flags.push("exclude from totals");
+                        }
+                        if flags.is_empty() {
+                            c.name.clone()
+                        } else {
+                            format!("{} ({})", c.name, flags.join(", "))
+                        }
+                    })
+                    .collect();
+                category_names.sort();
+            }
+            Err(e) => {
+                eprintln! { "{STYLE_WARNING}⚠️  Warning: Failed to fetch categories from Lunch Money API: {}{STYLE_WARNING:#}", e };
+            }
+        }
+    }
+
     let categories_list = if category_names.is_empty() {
         "[Insert your Lunch Money categories here]".to_string()
     } else {
@@ -516,6 +522,7 @@ fn print_llm_prompt(
     // One prompt block per backend, each with that provider's mapping
     // header so the LLM output drops straight into the right section.
     let mut mapping_sections = String::new();
+    let mut imputed_instructions = String::new();
     for (kind, items) in per_backend_items {
         if items.is_empty() {
             continue;
@@ -524,17 +531,48 @@ fn print_llm_prompt(
         for entry in items {
             mapping_sections.push_str(&format!("\"{}\" = \"...\"\n", entry.replace('"', "\\\"")));
         }
+
+        if kind.injects_imputed_offsets() {
+            if imputed_instructions.is_empty() {
+                imputed_instructions.push_str("\nAdditionally:\n");
+            }
+            imputed_instructions.push_str(&format!(
+                "- If the `{}` payslip has unmarked imputed income items (taxable non-cash benefits that do NOT start with the backend's standard marker), please identify them and suggest adding their exact descriptions to the imputed income configuration block:\n\
+                 ```toml\n\
+                 [payslip.backends.{}.imputed_income]\n\
+                 descriptions = [\n\
+                     # list unmarked imputed income descriptions here\n\
+                 ]\n\
+                 ```\n",
+                kind.as_str(),
+                kind.as_str()
+            ));
+        }
     }
 
     let prompt_text = format!(
         r#"I need help mapping my payslip items to Lunch Money categories.
 
-Here is the list of available Lunch Money categories:
+Here is the list of available Lunch Money categories (with flags indicating if they are treated as income, excluded from budget, or excluded from totals):
 - {}
 
-Please map each of the following payslip items to the most appropriate Lunch Money category from the list above. The items are grouped by payroll provider. Return ONLY the completed TOML mapping entries, preserving each provider's section header exactly like this:
+Please map each of the following payslip items to the most appropriate Lunch Money category from the list above. The items are grouped by payroll provider.
+
+When choosing or recommending categories, keep these payroll rules in mind:
+1. **Tax Withholdings**: Map taxes (federal/state/local withholdings, FICA/OASDI/Medicare, SDI, PFL) to dedicated expense categories (e.g. "Taxes" or similar).
+2. **Imputed Income & Offsets**: Imputed income (taxable non-cash benefits like "*Imp GTL" or "Relocation Tax Ben") and their corresponding offset companion lines must share the exact same category, so their net cash flow impact is zero.
+3. **Retirement & Transfers**: Pre-tax retirement deductions (e.g., 401k Salary) should be mapped to transfers/savings (e.g., "Payment, Transfer" or a dedicated "401k Transfer" category).
+4. **RSU/Stock Vests**: Gross stock comp value (e.g., "Restricted Stock Units" or "STOCK AWARD INCOME") should map to gross income (e.g., "Salary" or a dedicated "Stock Vest" income category), while the matching Plaid transaction of $0.00 should map to a Transfer category (like a dedicated "Stock Vest" or "Stock Awards" transfer category) to keep the vest->sale story coherent and avoid double-counting.
+5. **Deductions**: Pre-tax health deductions (e.g., Medical FSA, Pretax Dental, Pretax Medical) should map to appropriate benefit/insurance categories.{}
+
+**CRITICAL INSTRUCTION**:
+Prior to outputting the proposed TOML mapping, you MUST first:
+1. List any suggested new categories that I should create (including their suggested names, group/type like Income/Expense/Transfer, specific settings like treat as income/exclude from budget/exclude from totals, and a brief justification based on the rules above).
+2. Interactively ask me if I wish to stick to my existing categories (as best as possible) or if I want to use the new categories that you suggested.
+
+Do NOT output the proposed TOML block until I reply to this question. Once I respond with my choice, you should then output the completed TOML mapping entries, preserving each provider's section header exactly like this (though, please organize the key-value pairs in the TOML mapping grouped by the Lunch Money category they are mapped to, rather than in alphabetical order by the payslip item names):
 {}"#,
-        categories_list, mapping_sections
+        categories_list, imputed_instructions, mapping_sections
     );
 
     println! {};
