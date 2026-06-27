@@ -1,4 +1,5 @@
 use anyhow::Context;
+use serde::Deserialize;
 
 pub struct Client {
     http: reqwest::Client,
@@ -11,7 +12,7 @@ pub struct Expense {
     pub parsed: schema::Expense,
 }
 
-impl<'de> serde::Deserialize<'de> for Expense {
+impl<'de> Deserialize<'de> for Expense {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -75,12 +76,10 @@ impl Client {
 
         let mut expenses = Vec::with_capacity(raw_expenses.len());
         for val in raw_expenses {
+            let raw = val.clone();
             let parsed: schema::Expense =
-                serde_json::from_value(val.clone()).context("Failed to parse Splitwise expense")?;
-            expenses.push(Expense {
-                raw: val.clone(),
-                parsed,
-            });
+                schema::Expense::deserialize(val).context("Failed to parse Splitwise expense")?;
+            expenses.push(Expense { raw, parsed });
         }
         Ok(expenses)
     }
@@ -92,12 +91,10 @@ impl Client {
         let val = res
             .get("expense")
             .context("Expected 'expense' key in Splitwise response")?;
+        let raw = val.clone();
         let parsed: schema::Expense =
-            serde_json::from_value(val.clone()).context("Failed to parse Splitwise expense")?;
-        Ok(Expense {
-            raw: val.clone(),
-            parsed,
-        })
+            schema::Expense::deserialize(val).context("Failed to parse Splitwise expense")?;
+        Ok(Expense { raw, parsed })
     }
 
     pub async fn fetch_friends(&self) -> anyhow::Result<Vec<schema::Friend>> {
