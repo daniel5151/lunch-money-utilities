@@ -174,6 +174,14 @@ pub(crate) async fn run_import(
         }
     }
 
+    pages_to_process.sort_by(|a, b| {
+        a.page
+            .check_date
+            .cmp(&b.page.check_date)
+            .then_with(|| a.pdf_path.cmp(&b.pdf_path))
+            .then_with(|| a.page.page_num.cmp(&b.page.page_num))
+    });
+
     println! { "Parsed {} pages across {} files.", pages_to_process.len(), cli.payslip_pdfs.len() };
     if pages_to_process.is_empty() {
         return Ok(());
@@ -345,25 +353,6 @@ pub(crate) async fn run_import(
     let mut checking_txs = Vec::new();
     if let Some(ref client_ref) = client {
         for checking_acct in &unique_net_zero_accounts {
-            let query = match checking_acct {
-                ResolvedAccount::Plaid(id) => TransactionQuery::builder()
-                    .start_date(start_date.to_string())
-                    .end_date(end_date.to_string())
-                    .limit(1000)
-                    .plaid_account_id(*id)
-                    .maybe_include_split_parents(Some(true))
-                    .include_children(true)
-                    .build(),
-                ResolvedAccount::Manual(id) => TransactionQuery::builder()
-                    .start_date(start_date.to_string())
-                    .end_date(end_date.to_string())
-                    .limit(1000)
-                    .manual_account_id(*id)
-                    .maybe_include_split_parents(Some(true))
-                    .include_children(true)
-                    .build(),
-            };
-
             let acct_name = resolved_backends
                 .values()
                 .find(|rb| rb.resolved_net_zero_acct == Some(*checking_acct))
@@ -371,37 +360,47 @@ pub(crate) async fn run_import(
                 .unwrap_or("unknown");
 
             println! { "Fetching transactions for net-zero account '{}' between {} and {}...", acct_name, start_date, end_date };
-            let tx_response = client_ref
-                .fetch_transactions::<serde_json::Value, String>(&query)
-                .await
-                .context("Failed to fetch checking transactions")?;
-            println! { "Fetched {} checking transactions.", tx_response.transactions.len() };
-            checking_txs.extend(tx_response.transactions);
+            let mut offset = 0;
+            loop {
+                let query = match checking_acct {
+                    ResolvedAccount::Plaid(id) => TransactionQuery::builder()
+                        .start_date(start_date.to_string())
+                        .end_date(end_date.to_string())
+                        .limit(1000)
+                        .offset(offset)
+                        .plaid_account_id(*id)
+                        .maybe_include_split_parents(Some(true))
+                        .include_children(true)
+                        .build(),
+                    ResolvedAccount::Manual(id) => TransactionQuery::builder()
+                        .start_date(start_date.to_string())
+                        .end_date(end_date.to_string())
+                        .limit(1000)
+                        .offset(offset)
+                        .manual_account_id(*id)
+                        .maybe_include_split_parents(Some(true))
+                        .include_children(true)
+                        .build(),
+                };
+
+                let tx_response = client_ref
+                    .fetch_transactions::<serde_json::Value, String>(&query)
+                    .await
+                    .context("Failed to fetch checking transactions")?;
+                let count = tx_response.transactions.len();
+                checking_txs.extend(tx_response.transactions);
+                if count < 1000 {
+                    break;
+                }
+                offset += 1000;
+            }
+            println! { "Fetched {} checking transactions total.", checking_txs.len() };
         }
     }
 
     let mut rsu_txs = Vec::new();
     if let Some(ref client_ref) = client {
         for rsu_acct in &unique_rsu_accounts {
-            let query = match rsu_acct {
-                ResolvedAccount::Plaid(id) => TransactionQuery::builder()
-                    .start_date(start_date.to_string())
-                    .end_date(end_date.to_string())
-                    .limit(1000)
-                    .plaid_account_id(*id)
-                    .maybe_include_split_parents(Some(true))
-                    .include_children(true)
-                    .build(),
-                ResolvedAccount::Manual(id) => TransactionQuery::builder()
-                    .start_date(start_date.to_string())
-                    .end_date(end_date.to_string())
-                    .limit(1000)
-                    .manual_account_id(*id)
-                    .maybe_include_split_parents(Some(true))
-                    .include_children(true)
-                    .build(),
-            };
-
             let acct_name = resolved_backends
                 .values()
                 .find(|rb| rb.resolved_rsu_acct == Some(*rsu_acct))
@@ -409,12 +408,41 @@ pub(crate) async fn run_import(
                 .unwrap_or("unknown");
 
             println! { "Fetching transactions for RSU account '{}' between {} and {}...", acct_name, start_date, end_date };
-            let tx_response = client_ref
-                .fetch_transactions::<serde_json::Value, String>(&query)
-                .await
-                .context("Failed to fetch RSU transactions")?;
-            println! { "Fetched {} RSU transactions.", tx_response.transactions.len() };
-            rsu_txs.extend(tx_response.transactions);
+            let mut offset = 0;
+            loop {
+                let query = match rsu_acct {
+                    ResolvedAccount::Plaid(id) => TransactionQuery::builder()
+                        .start_date(start_date.to_string())
+                        .end_date(end_date.to_string())
+                        .limit(1000)
+                        .offset(offset)
+                        .plaid_account_id(*id)
+                        .maybe_include_split_parents(Some(true))
+                        .include_children(true)
+                        .build(),
+                    ResolvedAccount::Manual(id) => TransactionQuery::builder()
+                        .start_date(start_date.to_string())
+                        .end_date(end_date.to_string())
+                        .limit(1000)
+                        .offset(offset)
+                        .manual_account_id(*id)
+                        .maybe_include_split_parents(Some(true))
+                        .include_children(true)
+                        .build(),
+                };
+
+                let tx_response = client_ref
+                    .fetch_transactions::<serde_json::Value, String>(&query)
+                    .await
+                    .context("Failed to fetch RSU transactions")?;
+                let count = tx_response.transactions.len();
+                rsu_txs.extend(tx_response.transactions);
+                if count < 1000 {
+                    break;
+                }
+                offset += 1000;
+            }
+            println! { "Fetched {} RSU transactions total.", rsu_txs.len() };
         }
     }
 
