@@ -21,9 +21,63 @@ impl std::fmt::Display for SplitwiseUser {
 }
 
 pub(crate) async fn run_init(
-    _args: crate::cli::InitArgs,
+    args: crate::cli::InitArgs,
     output_path: std::path::PathBuf,
 ) -> anyhow::Result<()> {
+    if args.just_categorize {
+        let doc = lm_common::config::editor::read_or_new(&output_path)?;
+
+        let splitwise_api_key = doc
+            .get("splitwise")
+            .and_then(|s| s.get("api_key"))
+            .and_then(|k| k.as_str())
+            .map(|s| s.to_string());
+
+        let splitwise_api_key = match splitwise_api_key {
+            Some(key) => key,
+            None => inquire::Password::new("Splitwise API Key:")
+                .with_help_message("Your Splitwise personal API key / Bearer token")
+                .with_display_mode(inquire::PasswordDisplayMode::Masked)
+                .without_confirmation()
+                .prompt()
+                .context("Failed to get Splitwise API Key")?,
+        };
+
+        let common_cfg = lm_common::config::common_section(&doc)?;
+        let lunch_money_api_key = match common_cfg
+            .lm_api_key
+            .clone()
+            .filter(|k| !k.trim().is_empty())
+        {
+            Some(key) => key,
+            None => lm_common::init::prompt_lm_api_key()?,
+        };
+        let retry_policy = common_cfg.retry.clone();
+
+        println! {};
+        println! { "{STYLE_INFO}🔗 Connecting to Splitwise API to fetch categories...{STYLE_INFO:#}" };
+        let http_client = reqwest::Client::new();
+        let sw_client =
+            crate::api::splitwise::Client::new(http_client.clone(), splitwise_api_key.clone());
+        let sw_categories = sw_client.fetch_categories().await?;
+
+        let lm_client = if !lunch_money_api_key.trim().is_empty() {
+            println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API to fetch categories...{STYLE_INFO:#}" };
+            Some(crate::api::lunch_money::Client::new(
+                http_client,
+                lunch_money_api_key.trim().to_string(),
+                retry_policy.into(),
+            ))
+        } else {
+            None
+        };
+
+        // 3. Print LLM prompt
+        print_llm_prompt(lm_client.as_ref(), &sw_categories).await;
+
+        return Ok(());
+    }
+
     // Load the unified config if it already exists so we upsert the [splitwise]
     // section (and the shared [common] key) in place, preserving every other
     // tool's section and all inline comments.
@@ -156,8 +210,8 @@ pub(crate) async fn run_init(
 
     let mut categories_toml = String::new();
     categories_toml.push_str("# \"Payment\" = \"...\"\n");
-    for parent in sw_categories {
-        for sub in parent.subcategories {
+    for parent in &sw_categories {
+        for sub in &parent.subcategories {
             categories_toml.push_str(&format!("# \"{}:{}\" = \"...\"\n", parent.name, sub.name));
         }
     }
@@ -206,5 +260,103 @@ orphaned_tag = "{orphaned_tag}"
     println! {};
     println! { "{STYLE_DIM}Run {STYLE_DIM:#}{STYLE_HEADER}lm-utils splitwise-sync sync window --window \"3 days\"{STYLE_HEADER:#}{STYLE_DIM} to begin syncing.{STYLE_DIM:#}" };
     println! {};
+
+    if !sw_categories.is_empty() {
+        println! {};
+        let print_prompt = inquire::Confirm::new("Would you like to print a copy-pasteable LLM prompt to help you fill in these mappings?")
+            .with_default(true)
+            .with_help_message("This prompt lists your Lunch Money categories and the Splitwise categories, making it easy for an LLM to categorize them.")
+            .prompt()
+            .context("Failed to get prompt printing preference")?;
+
+        if print_prompt {
+            print_llm_prompt(Some(&lm_client), &sw_categories).await;
+        }
+    }
+
     Ok(())
+}
+
+/// Print the copy-pasteable LLM prompt to stdout.
+async fn print_llm_prompt(
+    lm_client: Option<&crate::api::lunch_money::Client>,
+    sw_categories: &[crate::api::splitwise::schema::ParentCategory],
+) {
+    let mut category_names = Vec::new();
+    if let Some(lm_client) = lm_client {
+        match lm_client.fetch_categories(Some("flattened")).await {
+            Ok(lm_categories) => {
+                category_names = lm_categories
+                    .iter()
+                    .filter(|c| !c.archived && !c.is_group)
+                    .map(|c| {
+                        let mut flags = Vec::new();
+                        if c.is_income {
+                            flags.push("treat as income");
+                        }
+                        if c.exclude_from_budget {
+                            flags.push("exclude from budget");
+                        }
+                        if c.exclude_from_totals {
+                            flags.push("exclude from totals");
+                        }
+                        if flags.is_empty() {
+                            c.name.clone()
+                        } else {
+                            format!("{} ({})", c.name, flags.join(", "))
+                        }
+                    })
+                    .collect();
+                category_names.sort();
+            }
+            Err(e) => {
+                eprintln! { "{STYLE_WARNING}⚠️  Warning: Failed to fetch categories from Lunch Money API: {}{STYLE_WARNING:#}", e };
+            }
+        }
+    }
+
+    let categories_list = if category_names.is_empty() {
+        "[Insert your Lunch Money categories here]".to_string()
+    } else {
+        category_names.join("\n- ")
+    };
+
+    let mut sw_categories_list = String::new();
+    sw_categories_list.push_str("\"Payment\" = \"...\"\n");
+    for parent in sw_categories {
+        for sub in &parent.subcategories {
+            sw_categories_list.push_str(&format!("\"{}:{}\" = \"...\"\n", parent.name, sub.name));
+        }
+    }
+
+    let prompt_text = format!(
+        r#"I need help mapping my Splitwise categories to Lunch Money categories.
+
+Here is the list of available Lunch Money categories (with flags indicating if they are treated as income, excluded from budget, or excluded from totals):
+- {}
+
+Please map each of the following Splitwise categories to the most appropriate Lunch Money category from the list above.
+
+When choosing or recommending categories, keep these guidelines in mind:
+1. **Expenses**: Splitwise expenses should be mapped to the most appropriate expense categories in Lunch Money.
+2. **Payments & Transfers**: Splitwise payments (represented by "Payment") should typically be mapped to a Transfer or payment category in Lunch Money (such as "Payment, Transfer").
+
+**CRITICAL INSTRUCTION**:
+Prior to outputting the proposed TOML mapping, you MUST first:
+1. List any suggested new categories that I should create (including their suggested names, group/type like Income/Expense/Transfer, specific settings like treat as income/exclude from budget/exclude from totals, and a brief justification).
+2. Interactively ask me if I wish to stick to my existing categories (as best as possible) or if I want to use the new categories that you suggested.
+
+Do NOT output the proposed TOML block until I reply to this question. Once I respond with my choice, you should then output the completed TOML mapping entries, preserving the section header exactly like this (please organize the key-value pairs in the TOML mapping grouped by the Lunch Money category they are mapped to, rather than in alphabetical order by the Splitwise category names. If any category has no reasonable clean mapping to any category, you may comment it out by prefixing the line with `#`):
+
+[splitwise.categories]
+{}"#,
+        categories_list, sw_categories_list
+    );
+
+    println! {};
+    println! { "{STYLE_HEADER}📋 Copy-Pasteable LLM Prompt:{STYLE_HEADER:#}" };
+    println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
+    println! { "{prompt_text}" };
+    println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
+    println! {};
 }

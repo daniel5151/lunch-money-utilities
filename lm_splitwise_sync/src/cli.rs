@@ -21,8 +21,12 @@ pub enum Commands {
     Migrate(MigrateArgs),
 }
 
-#[derive(Parser, Debug)]
-pub struct InitArgs {}
+#[derive(Args, Debug)]
+pub struct InitArgs {
+    /// Skip interactive logic and just print the LLM prompt for categorizing sections
+    #[arg(long)]
+    pub just_categorize: bool,
+}
 
 #[derive(Parser, Debug)]
 pub struct QueryArgs {
