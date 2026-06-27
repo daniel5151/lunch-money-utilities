@@ -4,9 +4,9 @@
 //! selected one of two ways:
 //!
 //! 1. **argv0 (busybox) dispatch** — when the binary is invoked through a
-//!    symlink whose basename matches a tool's stable name (e.g.
-//!    `payslip-importer`, `splitwise-sync`, `venmo-balfixer`), that tool runs
-//!    directly, exactly as the former standalone binaries did.
+//!    symlink whose basename starts with `lm-` followed by a tool's stable name
+//!    (e.g. `lm-payslip-importer`, `lm-splitwise-sync`, `lm-venmo-balfixer`),
+//!    that tool runs directly, exactly as the former standalone binaries did.
 //! 2. **explicit dispatch** — `lm-utils <tool> ...` selects the tool by
 //!    subcommand.
 //!
@@ -105,10 +105,10 @@ async fn run() -> anyhow::Result<()> {
 
 /// Rewrites the process argv for busybox dispatch.
 ///
-/// If the binary was invoked through a symlink whose basename is a known tool
-/// name, the tool name is spliced in as the first argument so the unified clap
-/// parser routes to that tool's subcommand. Otherwise argv is returned
-/// unchanged for ordinary `lm-utils <tool> ...` parsing.
+/// If the binary was invoked through a symlink whose basename is `lm-` followed
+/// by a known tool name, the tool name is spliced in as the first argument so
+/// the unified clap parser routes to that tool's subcommand. Otherwise argv is
+/// returned unchanged for ordinary `lm-utils <tool> ...` parsing.
 fn busybox_argv() -> Vec<std::ffi::OsString> {
     let mut args: Vec<std::ffi::OsString> = std::env::args_os().collect();
 
@@ -118,12 +118,14 @@ fn busybox_argv() -> Vec<std::ffi::OsString> {
         .map(|s| s.to_string_lossy().into_owned());
 
     if let Some(basename) = basename {
-        if TOOL_NAMES.contains(&basename.as_str()) {
-            // Splice the resolved tool name in as the subcommand, and normalize
-            // argv[0] to the unified binary name so clap's usage/help reads as
-            // `lm-utils <tool> ...` rather than doubling the symlink basename.
-            args[0] = std::ffi::OsString::from("lm-utils");
-            args.insert(1, std::ffi::OsString::from(basename));
+        if let Some(tool_name) = basename.strip_prefix("lm-") {
+            if TOOL_NAMES.contains(&tool_name) {
+                // Splice the resolved tool name in as the subcommand, and normalize
+                // argv[0] to the unified binary name so clap's usage/help reads as
+                // `lm-utils <tool> ...` rather than doubling the symlink basename.
+                args[0] = std::ffi::OsString::from("lm-utils");
+                args.insert(1, std::ffi::OsString::from(tool_name));
+            }
         }
     }
 

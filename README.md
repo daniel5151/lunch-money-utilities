@@ -39,16 +39,16 @@ $ lm-utils venmo-balfixer reconcile 30d
 ### Subcommand aliases via `argv[0]`
 
 Like [busybox](https://busybox.net/), `lm-utils` also dispatches based on the
-name it was invoked under. Symlink (or hardlink) it to a recognized tool name
-and it behaves as that tool:
+name it was invoked under. Symlink (or hardlink) it to `lm-<tool>` (e.g.
+`lm-splitwise-sync`) and it behaves as that tool:
 
 ```console
-$ ln -s lm-utils splitwise-sync
-$ ./splitwise-sync sync window --window "3 days"   # == lm-utils splitwise-sync ...
+$ ln -s lm-utils lm-splitwise-sync
+$ ./lm-splitwise-sync sync window --window "3 days"   # == lm-utils splitwise-sync ...
 ```
 
-Recognized argv[0] names are the tool subcommand names themselves:
-`splitwise-sync`, `payslip-importer`, and `venmo-balfixer`.
+Recognized argv[0] names must be prefixed with `lm-` followed by the tool subcommand names:
+`lm-splitwise-sync`, `lm-payslip-importer`, and `lm-venmo-balfixer`.
 
 ## Support Crates
 

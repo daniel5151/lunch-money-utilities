@@ -17,9 +17,9 @@ BINARY_NAME="lm-utils-x86_64-unknown-linux-musl"
 # reached either via `lm-utils <tool>` (explicit dispatch) or by symlinking the
 # binary to the tool's name and invoking that (argv0 / busybox dispatch):
 #
-#   ln -s lm-utils payslip-importer
-#   ln -s lm-utils splitwise-sync
-#   ln -s lm-utils venmo-balfixer
+#   ln -s lm-utils lm-payslip-importer
+#   ln -s lm-utils lm-splitwise-sync
+#   ln -s lm-utils lm-venmo-balfixer
 #
 cp "$TARGET_DIR/lm-utils" "$TARGET_DIR/$BINARY_NAME"
 cp "$TARGET_DIR/lm-utils.dwp" "$TARGET_DIR/${BINARY_NAME}.dwp"
