@@ -70,9 +70,10 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
     println! { "  {STYLE_DIM}Fetching Splitwise categories for seeding config...{STYLE_DIM:#}" };
     let sw_categories = sw_client.fetch_categories().await?;
 
-    let lunch_money_api_key = match lm_common::config::common_section(&doc)
-        .ok()
-        .and_then(|c| c.lm_api_key)
+    let common_cfg = lm_common::config::common_section(&doc)?;
+    let lunch_money_api_key = match common_cfg
+        .lm_api_key
+        .clone()
         .filter(|k| !k.trim().is_empty())
     {
         Some(key) => key,
@@ -81,8 +82,11 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
 
     println! {};
     println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API...{STYLE_INFO:#}" };
-    let lm_client =
-        crate::api::lunch_money::Client::new(http_client.clone(), lunch_money_api_key.clone());
+    let lm_client = crate::api::lunch_money::Client::new(
+        http_client.clone(),
+        lunch_money_api_key.clone(),
+        common_cfg.retry.into(),
+    );
     let manual_accounts = lm_client.fetch_manual_accounts().await?;
 
     let inferred = crate::commands::resolve_target_accounts(&manual_accounts, &HashMap::new());

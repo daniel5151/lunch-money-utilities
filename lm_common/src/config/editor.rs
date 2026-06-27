@@ -70,11 +70,10 @@ pub fn upsert_section(doc: &mut DocumentMut, name: &str, section_toml: &str) -> 
     // stranded at the bottom of the file.
     rehome_doc_trailing(doc);
 
-    let item = parsed
-        .as_table()
-        .get(name)
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("internal error: rendered section is missing [{name}]"))?;
+    let item =
+        parsed.as_table().get(name).cloned().ok_or_else(|| {
+            anyhow::anyhow!("internal error: rendered section is missing [{name}]")
+        })?;
     doc.as_table_mut().insert(name, item);
 
     // Re-home the section's trailing comment-only lines (lost as document

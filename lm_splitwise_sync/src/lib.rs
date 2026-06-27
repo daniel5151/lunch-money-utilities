@@ -47,11 +47,10 @@ impl Tool for SplitwiseTool {
                          `lm-utils splitwise-sync init` to configure it."
                     )
                 })?;
-                let splitwise = api::splitwise::Client::new(
-                    cx.http.clone(),
-                    config.splitwise.api_key.clone(),
-                );
-                let lunch_money = api::lunch_money::Client::new(cx.http.clone(), lm_api_key);
+                let splitwise =
+                    api::splitwise::Client::new(cx.http.clone(), config.splitwise.api_key.clone());
+                let lunch_money =
+                    api::lunch_money::Client::new(cx.http.clone(), lm_api_key, common.retry.into());
                 let ctx = AppContext {
                     config,
                     http: cx.http.clone(),
@@ -119,4 +118,3 @@ impl Tool for SplitwiseTool {
         Ok(())
     }
 }
-

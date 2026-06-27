@@ -33,30 +33,31 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
         // 1. Parse PDFs to gather unique items
         let per_backend_items = parse_pdfs(&args.pdfs);
 
-        let output_path = args
-            .file
-            .clone()
-            .unwrap_or_else(|| std::path::PathBuf::from(lm_common::config::DEFAULT_CONFIG_FILENAME));
+        let output_path = args.file.clone().unwrap_or_else(|| {
+            std::path::PathBuf::from(lm_common::config::DEFAULT_CONFIG_FILENAME)
+        });
         let doc = lm_common::config::editor::read_or_new(&output_path)?;
 
         // 2. Fetch categories by prompting for the API key if not in config
-        let lunch_money_api_key = match lm_common::config::common_section(&doc)
-            .ok()
-            .and_then(|c| c.lm_api_key)
+        let common_cfg = lm_common::config::common_section(&doc)?;
+        let lunch_money_api_key = match common_cfg
+            .lm_api_key
+            .clone()
             .filter(|k| !k.trim().is_empty())
         {
             Some(key) => key,
             None => lm_common::init::prompt_lm_api_key()?,
         };
+        let retry_policy = common_cfg.retry.clone();
 
         let mut category_names = Vec::new();
         if !lunch_money_api_key.trim().is_empty() {
             println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API to fetch categories...{STYLE_INFO:#}" };
             let http_client = reqwest::Client::new();
-            let lm_client = lm_common::lm_client::build(
+            let lm_client = lunch_money::client::Client::new(
                 http_client,
                 lunch_money_api_key.trim().to_string(),
-                lm_common::lm_client::RetryConfig::default(),
+                retry_policy.into(),
             );
             let cat_query = lunch_money::categories::query_params::CategoryQuery::builder()
                 .format("flattened".to_string())
@@ -122,9 +123,10 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
     println! { "{STYLE_INFO}This wizard will help you set up {}.{STYLE_INFO:#}", output_path.display() };
     println! {};
 
-    let lunch_money_api_key = match lm_common::config::common_section(&doc)
-        .ok()
-        .and_then(|c| c.lm_api_key)
+    let common_cfg = lm_common::config::common_section(&doc)?;
+    let lunch_money_api_key = match common_cfg
+        .lm_api_key
+        .clone()
         .filter(|k| !k.trim().is_empty())
     {
         Some(key) => key,
@@ -135,10 +137,10 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
     println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API...{STYLE_INFO:#}" };
 
     let http_client = reqwest::Client::new();
-    let lm_client = lm_common::lm_client::build(
+    let lm_client = lunch_money::client::Client::new(
         http_client.clone(),
         lunch_money_api_key.clone(),
-        lm_common::lm_client::RetryConfig::default(),
+        common_cfg.retry.into(),
     );
 
     let plaid_accts = lm_client

@@ -56,10 +56,8 @@ pub async fn run_migrate_add_metadata(
 
     // Fetch manual accounts and target accounts
     let manual_accounts = lm_client.fetch_manual_accounts().await?;
-    let target_accounts = crate::commands::resolve_target_accounts(
-        &manual_accounts,
-        &ctx.config.custom_accounts,
-    );
+    let target_accounts =
+        crate::commands::resolve_target_accounts(&manual_accounts, &ctx.config.custom_accounts);
 
     if target_accounts.is_empty() {
         println! { "No manual accounts mapped. Nothing to migrate." };

@@ -22,9 +22,10 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
     println! { "{STYLE_INFO}This wizard will help you set up {}.{STYLE_INFO:#}", output_path.display() };
     println! {};
 
-    let api_key = match lm_common::config::common_section(&doc)
-        .ok()
-        .and_then(|c| c.lm_api_key)
+    let common_cfg = lm_common::config::common_section(&doc)?;
+    let api_key = match common_cfg
+        .lm_api_key
+        .clone()
         .filter(|k| !k.trim().is_empty())
     {
         Some(key) => key,
@@ -34,10 +35,10 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
     println! {};
     println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API to fetch Plaid accounts...{STYLE_INFO:#}" };
     let http_client = reqwest::Client::new();
-    let lm_client = lm_common::lm_client::build(
+    let lm_client = lunch_money::client::Client::new(
         http_client,
         api_key.trim().to_string(),
-        lm_common::lm_client::RetryConfig::default(),
+        common_cfg.retry.into(),
     );
 
     let plaid_accounts = lm_client
@@ -52,8 +53,10 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
     let choices: Vec<PlaidAccountChoice> =
         plaid_accounts.into_iter().map(PlaidAccountChoice).collect();
 
-    let selected_bank =
-        lm_common::init::select_plaid_account("Select Bank Checking Plaid account:", choices.clone())?;
+    let selected_bank = lm_common::init::select_plaid_account(
+        "Select Bank Checking Plaid account:",
+        choices.clone(),
+    )?;
 
     let selected_venmo =
         lm_common::init::select_plaid_account("Select Venmo Plaid account:", choices)?;

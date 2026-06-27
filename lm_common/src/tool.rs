@@ -10,8 +10,6 @@ use std::future::Future;
 use lunch_money::client::Client as LunchMoneyClient;
 use lunch_money::client::TooManyRequestsPolicy;
 
-use crate::lm_client;
-
 /// Shared services handed to every tool's [`Tool::run`].
 ///
 /// This is the generalization of Splitwise's former `AppContext`, reduced to
@@ -46,12 +44,8 @@ impl ToolContext {
     /// key, and a 429 retry policy (accepts a
     /// [`RetryConfig`](crate::lm_client::RetryConfig) or a
     /// [`TooManyRequestsPolicy`]).
-    pub fn lunch_money(
-        &self,
-        api_key: String,
-        retry: impl Into<TooManyRequestsPolicy>,
-    ) -> LunchMoneyClient {
-        lm_client::build(self.http.clone(), api_key, retry)
+    pub fn lunch_money(&self, api_key: String, retry: TooManyRequestsPolicy) -> LunchMoneyClient {
+        lunch_money::client::Client::new(self.http.clone(), api_key, retry)
     }
 }
 
@@ -69,8 +63,5 @@ pub trait Tool {
     type Cli: clap::Args;
 
     /// Run the tool against the shared services and its parsed subcommand.
-    fn run(
-        cx: &ToolContext,
-        cli: Self::Cli,
-    ) -> impl Future<Output = anyhow::Result<()>>;
+    fn run(cx: &ToolContext, cli: Self::Cli) -> impl Future<Output = anyhow::Result<()>>;
 }

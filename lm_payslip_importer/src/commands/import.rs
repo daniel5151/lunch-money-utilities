@@ -82,6 +82,7 @@ pub(crate) async fn run_import(
     cx: &lm_common::tool::ToolContext,
     config: crate::config::Config,
     lm_api_key: Option<String>,
+    retry: lm_common::config::RetryConfig,
     cli: crate::cli::ImportArgs,
 ) -> Result<()> {
     let api_key_opt = lm_api_key
@@ -164,7 +165,7 @@ pub(crate) async fn run_import(
 
     let client = if let Some(api_key) = api_key_opt {
         println! { "Initializing Lunch Money client..." };
-        Some(cx.lunch_money(api_key, lm_common::lm_client::RetryConfig::default()))
+        Some(cx.lunch_money(api_key, retry.into()))
     } else {
         None
     };

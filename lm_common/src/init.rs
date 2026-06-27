@@ -1,11 +1,4 @@
 //! Shared `init` wizard prompt helpers.
-//!
-//! Every tool's `init` wizard previously hand-rolled the same
-//! [`inquire::Password`] prompt for the Lunch Money developer API key, and both
-//! venmo and (historically) splitwise wrapped [`lunch_money`]'s Plaid-account
-//! type in a private `Display` newtype to drive an [`inquire::Select`] picker.
-//! Those duplicates live here now so each wizard only expresses its own
-//! tool-specific prompts.
 
 use anyhow::Context;
 use lunch_money::plaid_accounts::schemas::PlaidAccount;

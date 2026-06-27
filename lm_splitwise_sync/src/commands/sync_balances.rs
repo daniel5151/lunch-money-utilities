@@ -56,10 +56,8 @@ pub(crate) async fn run_sync_balances(
     println! { "  {STYLE_DIM}Fetching Lunch Money manual accounts...{STYLE_DIM:#}" };
     let manual_accounts = lm_client.fetch_manual_accounts().await?;
 
-    let target_accounts = crate::commands::resolve_target_accounts(
-        &manual_accounts,
-        &config.custom_accounts,
-    );
+    let target_accounts =
+        crate::commands::resolve_target_accounts(&manual_accounts, &config.custom_accounts);
 
     let mut has_updates = false;
     let mut csv_rows = Vec::new();

@@ -27,7 +27,14 @@ impl Tool for PayslipTool {
                 let config: config::Config =
                     lm_common::config::deserialize_section(&doc, "payslip")?;
                 config.validate()?;
-                commands::import::run_import(cx, config, common.lm_api_key, import_args).await?;
+                commands::import::run_import(
+                    cx,
+                    config,
+                    common.lm_api_key,
+                    common.retry,
+                    import_args,
+                )
+                .await?;
             }
         }
         Ok(())

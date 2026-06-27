@@ -18,6 +18,7 @@ pub async fn run_reconcile(
     cx: &lm_common::tool::ToolContext,
     config: &Config,
     lm_api_key: &str,
+    retry: lm_common::config::RetryConfig,
     args: ReconcileArgs,
 ) -> Result<()> {
     let api_key = lm_api_key;
@@ -34,10 +35,7 @@ pub async fn run_reconcile(
     println! { "{STYLE_HEADER}Lunch Money Venmo Balance Fixer (lm-venmo-balfixer){STYLE_HEADER:#}" };
     println! { "{STYLE_INFO}Scanning from {} to {}{STYLE_INFO:#}", start_date, end_date };
 
-    let lm_client = cx.lunch_money(
-        api_key.trim().to_string(),
-        lm_common::lm_client::RetryConfig::default(),
-    );
+    let lm_client = cx.lunch_money(api_key.trim().to_string(), retry.into());
 
     // 2. Fetch Plaid Accounts and resolve Bank and Venmo IDs by display name / name
     println! { "Fetching Plaid accounts..." };
@@ -46,21 +44,19 @@ pub async fn run_reconcile(
         .await
         .context("Failed to fetch Plaid accounts")?;
 
-    let venmo_id =
-        resolve_account_id(&plaid_accounts, &config.venmo_acct).ok_or_else(|| {
-            anyhow::anyhow!(
-                "Could not resolve Venmo account with name '{}' from Plaid accounts.",
-                config.venmo_acct
-            )
-        })?;
+    let venmo_id = resolve_account_id(&plaid_accounts, &config.venmo_acct).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Could not resolve Venmo account with name '{}' from Plaid accounts.",
+            config.venmo_acct
+        )
+    })?;
 
-    let bank_id =
-        resolve_account_id(&plaid_accounts, &config.bank_acct).ok_or_else(|| {
-            anyhow::anyhow!(
-                "Could not resolve Bank account with name '{}' from Plaid accounts.",
-                config.bank_acct
-            )
-        })?;
+    let bank_id = resolve_account_id(&plaid_accounts, &config.bank_acct).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Could not resolve Bank account with name '{}' from Plaid accounts.",
+            config.bank_acct
+        )
+    })?;
 
     println! { "  Bank Checking Account ID: {} (resolved from '{}')", bank_id, config.bank_acct };
     println! { "  Venmo Account ID:         {} (resolved from '{}')", venmo_id, config.venmo_acct };
