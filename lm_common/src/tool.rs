@@ -38,11 +38,9 @@ impl ToolContext {
     }
 
     /// Build a Lunch Money client from the shared HTTP client, the given API
-    /// key, and a 429 retry policy (accepts a
-    /// [`RetryConfig`](crate::lm_client::RetryConfig) or a
-    /// [`TooManyRequestsPolicy`]).
+    /// key, and a [`TooManyRequestsPolicy`] for 429 retries.
     pub fn lunch_money(&self, api_key: String, retry: TooManyRequestsPolicy) -> LunchMoneyClient {
-        lunch_money::client::Client::new(self.http.clone(), api_key, retry)
+        lunch_money::client::Client::new(self.http.clone(), api_key.trim().to_string(), retry)
     }
 }
 

@@ -19,11 +19,10 @@ use crate::style::*;
 pub async fn run_reconcile(
     cx: &lm_common::tool::ToolContext,
     config: &Config,
-    lm_api_key: &str,
+    api_key: &str,
     retry: lm_common::config::RetryConfig,
     args: ReconcileArgs,
 ) -> Result<()> {
-    let api_key = lm_api_key;
     if api_key.trim().is_empty() {
         anyhow::bail!("lm_api_key is empty in the configuration file");
     }
@@ -37,7 +36,7 @@ pub async fn run_reconcile(
     println! { "{STYLE_HEADER}Lunch Money Venmo Balance Fixer (lm-venmo-balfixer){STYLE_HEADER:#}" };
     println! { "{STYLE_INFO}Scanning from {} to {}{STYLE_INFO:#}", start_date, end_date };
 
-    let lm_client = cx.lunch_money(api_key.trim().to_string(), retry.into());
+    let lm_client = cx.lunch_money(api_key.to_string(), retry.into());
 
     // 2. Fetch Plaid Accounts and resolve Bank and Venmo IDs by display name / name
     println! { "Fetching Plaid accounts..." };
