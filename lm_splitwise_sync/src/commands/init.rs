@@ -70,7 +70,14 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
     println! { "  {STYLE_DIM}Fetching Splitwise categories for seeding config...{STYLE_DIM:#}" };
     let sw_categories = sw_client.fetch_categories().await?;
 
-    let lunch_money_api_key = lm_common::init::prompt_lm_api_key()?;
+    let lunch_money_api_key = match lm_common::config::common_section(&doc)
+        .ok()
+        .and_then(|c| c.lm_api_key)
+        .filter(|k| !k.trim().is_empty())
+    {
+        Some(key) => key,
+        None => lm_common::init::prompt_lm_api_key()?,
+    };
 
     println! {};
     println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API...{STYLE_INFO:#}" };

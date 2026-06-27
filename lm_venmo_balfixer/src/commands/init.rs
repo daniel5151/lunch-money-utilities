@@ -22,7 +22,14 @@ pub async fn run_init(args: InitArgs) -> Result<()> {
     println! { "{STYLE_INFO}This wizard will help you set up {}.{STYLE_INFO:#}", output_path.display() };
     println! {};
 
-    let api_key = lm_common::init::prompt_lm_api_key()?;
+    let api_key = match lm_common::config::common_section(&doc)
+        .ok()
+        .and_then(|c| c.lm_api_key)
+        .filter(|k| !k.trim().is_empty())
+    {
+        Some(key) => key,
+        None => lm_common::init::prompt_lm_api_key()?,
+    };
 
     println! {};
     println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API to fetch Plaid accounts...{STYLE_INFO:#}" };

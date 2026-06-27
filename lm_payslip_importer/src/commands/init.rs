@@ -33,8 +33,21 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
         // 1. Parse PDFs to gather unique items
         let per_backend_items = parse_pdfs(&args.pdfs);
 
-        // 2. Fetch categories by prompting for the API key
-        let lunch_money_api_key = lm_common::init::prompt_lm_api_key()?;
+        let output_path = args
+            .file
+            .clone()
+            .unwrap_or_else(|| std::path::PathBuf::from(lm_common::config::DEFAULT_CONFIG_FILENAME));
+        let doc = lm_common::config::editor::read_or_new(&output_path)?;
+
+        // 2. Fetch categories by prompting for the API key if not in config
+        let lunch_money_api_key = match lm_common::config::common_section(&doc)
+            .ok()
+            .and_then(|c| c.lm_api_key)
+            .filter(|k| !k.trim().is_empty())
+        {
+            Some(key) => key,
+            None => lm_common::init::prompt_lm_api_key()?,
+        };
 
         let mut category_names = Vec::new();
         if !lunch_money_api_key.trim().is_empty() {
@@ -109,7 +122,14 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
     println! { "{STYLE_INFO}This wizard will help you set up {}.{STYLE_INFO:#}", output_path.display() };
     println! {};
 
-    let lunch_money_api_key = lm_common::init::prompt_lm_api_key()?;
+    let lunch_money_api_key = match lm_common::config::common_section(&doc)
+        .ok()
+        .and_then(|c| c.lm_api_key)
+        .filter(|k| !k.trim().is_empty())
+    {
+        Some(key) => key,
+        None => lm_common::init::prompt_lm_api_key()?,
+    };
 
     println! {};
     println! { "{STYLE_INFO}🔗 Connecting to Lunch Money API...{STYLE_INFO:#}" };
