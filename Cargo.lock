@@ -1194,7 +1194,6 @@ dependencies = [
  "inquire",
  "lunch_money",
  "reqwest",
- "rustls",
  "serde",
  "toml_edit",
 ]
@@ -1249,12 +1248,14 @@ dependencies = [
 name = "lm-utils"
 version = "0.1.0"
 dependencies = [
+ "anstream",
  "anyhow",
  "clap",
  "lm-common",
  "lm-payslip-importer",
  "lm-splitwise-sync",
  "lm-venmo-balfixer",
+ "rustls",
  "tokio",
 ]
 

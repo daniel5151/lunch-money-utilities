@@ -4,5 +4,4 @@ pub mod cli;
 pub mod config;
 pub mod init;
 pub mod style;
-pub mod term;
 pub mod tool;

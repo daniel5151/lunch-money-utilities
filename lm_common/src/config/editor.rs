@@ -1,10 +1,10 @@
 //! Comment-preserving, in-place edits to the unified `lm_utils.toml` document.
 //!
-//! `init` no longer regenerates the whole file from a string template; instead
-//! it upserts only the section it owns, leaving every other section — and all
-//! of the inline comment pointers the wizards author — intact. The helpers here
-//! splice a freshly-rendered section into an existing [`DocumentMut`] while
-//! keeping comments and producing stable, readable output.
+//! `init` flows only upsert sections they owns, leaving every other section —
+//! and all of the inline comment pointers the wizards author — intact. The
+//! helpers here splice a freshly-rendered section into an existing
+//! [`DocumentMut`] while keeping comments and producing stable, readable
+//! output.
 //!
 //! Two `toml_edit` quirks are handled so spliced sections render correctly:
 //!

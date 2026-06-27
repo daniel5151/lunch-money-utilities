@@ -12,22 +12,19 @@ use lunch_money::client::TooManyRequestsPolicy;
 
 /// Shared services handed to every tool's [`Tool::run`].
 ///
-/// This is the generalization of Splitwise's former `AppContext`, reduced to
-/// only the genuinely cross-tool pieces: a shared [`reqwest::Client`] (so
-/// connection pooling/config is shared across tools), the global `--dry-run`
-/// flag, and a factory for the Lunch Money client.
-///
 /// Deliberately tool-agnostic: it holds **no** tool-specific client. A tool
 /// that needs a bespoke client (e.g. Splitwise's `splitwise::Client`, or
 /// Splitwise's curated Lunch Money wrapper) constructs it inside its own
-/// `run()` from [`ToolContext::http`]. The Lunch Money client is exposed as a
-/// *factory* ([`ToolContext::lunch_money`]) rather than a pre-built client
-/// because not every invocation has a key available (the payslip importer runs
-/// keyless under `--dry-run`) and some tools want their own wrapper around it.
+/// `run()` from [`ToolContext::http`].
+///
+/// The Lunch Money client is exposed as a *factory*
+/// ([`ToolContext::lunch_money`]) rather than a pre-built client because not
+/// every invocation will have a lunch money key available (e.g: when using
+/// `--dry-run`).
 pub struct ToolContext {
     /// Shared HTTP client, reused by every tool and every API client.
     pub http: reqwest::Client,
-    /// Whether the run is a dry run (the hoisted, uniform `--dry-run` flag).
+    /// Whether the run is a dry run
     pub dry_run: bool,
 }
 

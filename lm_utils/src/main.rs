@@ -16,6 +16,7 @@
 //! shared `--dry-run` flag is hoisted to the top level (global) and flows into
 //! every tool through the [`ToolContext`].
 
+use anstream::eprintln;
 use clap::Parser;
 use clap::Subcommand;
 
@@ -71,17 +72,30 @@ const TOOL_NAMES: &[&str] = &[PayslipTool::NAME, SplitwiseTool::NAME, VenmoTool:
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     if let Err(err) = run().await {
-        lm_common::term::report_error_and_exit(&err);
+        use lm_common::style::STYLE_ERROR;
+        eprintln! {};
+        eprintln! { "{STYLE_ERROR}❌ Error:{STYLE_ERROR:#} {err}" };
+
+        let mut causes = err.chain().skip(1).peekable();
+        if causes.peek().is_some() {
+            eprintln! {};
+            eprintln! { "Caused by:" };
+            for cause in causes {
+                eprintln! { "  • {cause}" };
+            }
+        }
+        eprintln! {};
+        std::process::exit(1);
     }
 }
 
 async fn run() -> anyhow::Result<()> {
-    lm_common::term::install_crypto_provider();
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
 
     let cli = Cli::parse_from(busybox_argv());
-
     let cx = ToolContext::new(cli.dry_run);
-
     match cli.tool {
         ToolCmd::PayslipImporter(args) => PayslipTool::run(&cx, args).await,
         ToolCmd::SplitwiseSync(args) => SplitwiseTool::run(&cx, args).await,

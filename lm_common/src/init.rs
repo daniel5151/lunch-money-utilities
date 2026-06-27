@@ -4,10 +4,6 @@ use anyhow::Context;
 use lunch_money::plaid_accounts::schemas::PlaidAccount;
 
 /// Prompts for the shared Lunch Money developer API key.
-///
-/// A masked, single-entry [`inquire::Password`] prompt — the same one every
-/// tool's `init` wizard used before the key was unified into
-/// `[common].lm_api_key`.
 pub fn prompt_lm_api_key() -> anyhow::Result<String> {
     inquire::Password::new("Lunch Money API Key:")
         .with_help_message("Your Lunch Money developer API key")

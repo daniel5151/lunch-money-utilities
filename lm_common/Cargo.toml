@@ -13,7 +13,6 @@ clap.workspace = true
 humantime.workspace = true
 inquire.workspace = true
 reqwest.workspace = true
-rustls.workspace = true
 serde.workspace = true
 toml_edit.workspace = true
 
