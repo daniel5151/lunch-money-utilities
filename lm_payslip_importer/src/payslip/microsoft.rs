@@ -265,14 +265,32 @@ fn parse_page(page: &str, page_num: usize) -> Result<Option<ParsedPage>> {
 
         if amount.is_sign_positive() {
             // Income / imputed add-back.
-            earnings.push(row(desc, amount));
+            let final_desc = if desc == "STOCK AWARD TAXES" {
+                "STOCK AWARD TAXES Offset".to_string()
+            } else if desc == "DISABILITY INS" {
+                "DISABILITY INS Imputed Income".to_string()
+            } else {
+                desc
+            };
+            earnings.push(row(final_desc, amount));
         } else {
             // Deduction: store positive magnitude, routed by block.
             let mag = -amount;
+            // Microsoft prints both the earning and offset halves of RSU vests with the
+            // exact same description: "STOCK AWARD INCOME". To allow mapping the offset
+            // half to a Transfer category while mapping the earning half to an Income
+            // category, we append " Offset" to the deduction description here.
+            let final_desc = if desc == "STOCK AWARD INCOME" {
+                "STOCK AWARD INCOME Offset".to_string()
+            } else if desc == "DISABILITY INS" {
+                "DISABILITY INS Offset".to_string()
+            } else {
+                desc
+            };
             match block {
-                Block::GrossAndAdjust => pre_tax_deductions.push(row(desc, mag)),
-                Block::Taxes => employee_taxes.push(row(desc, mag)),
-                Block::AfterTax => post_tax_deductions.push(row(desc, mag)),
+                Block::GrossAndAdjust => pre_tax_deductions.push(row(final_desc, mag)),
+                Block::Taxes => employee_taxes.push(row(final_desc, mag)),
+                Block::AfterTax => post_tax_deductions.push(row(final_desc, mag)),
             }
         }
     }

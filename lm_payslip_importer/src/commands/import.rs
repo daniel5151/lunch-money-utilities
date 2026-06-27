@@ -80,6 +80,20 @@ fn confirm_operation() -> Decision {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum MatchKey {
+    Transaction(TransactionId),
+    Synthetic { date: Date, account: String },
+}
+
+#[derive(Debug, Clone)]
+struct MatchedTransactionRecord {
+    pdf_filename: String,
+    page_num: usize,
+    split_amounts: Vec<Decimal>,
+    total_amount: Decimal,
+}
+
 pub(crate) async fn run_import(
     cx: &lm_common::tool::ToolContext,
     config: crate::config::Config,
@@ -296,7 +310,7 @@ pub(crate) async fn run_import(
         None
     };
 
-    let mut matched_tx_ids = HashSet::new();
+    let mut matched_tx_records: HashMap<MatchKey, MatchedTransactionRecord> = HashMap::new();
 
     let mut min_date = pages_to_process[0].page.check_date;
     let mut max_date = pages_to_process[0].page.check_date;
@@ -520,6 +534,89 @@ pub(crate) async fn run_import(
                 }
             }
 
+            let mut overlap_rsu_record = None;
+            if let Some(rsu_acct) = resolved_rsu_acct {
+                let start_window = payslip
+                    .check_date
+                    .checked_sub(jiff::Span::new().days(3))
+                    .map_err(|e| anyhow!("Failed to subtract days: {}", e))?;
+                let end_window = payslip
+                    .check_date
+                    .checked_add(jiff::Span::new().days(3))
+                    .map_err(|e| anyhow!("Failed to add days: {}", e))?;
+
+                for tx in &rsu_txs {
+                    let matches_acct = match rsu_acct {
+                        ResolvedAccount::Plaid(id) => tx.plaid_account_id == Some(*id),
+                        ResolvedAccount::Manual(id) => tx.manual_account_id == Some(*id),
+                    };
+                    if matches_acct
+                        && tx.date >= start_window
+                        && tx.date <= end_window
+                        && tx.amount.is_zero()
+                        && tx.payee.eq_ignore_ascii_case(
+                            backend.rsu_payee_match.as_deref().unwrap_or_default(),
+                        )
+                    {
+                        if let Some(record) = matched_tx_records.get(&MatchKey::Transaction(tx.id))
+                        {
+                            overlap_rsu_record = Some(record.clone());
+                            break;
+                        }
+                    }
+                }
+
+                if overlap_rsu_record.is_none() {
+                    let acct_name = backend
+                        .rsu_account
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_string();
+                    let key = MatchKey::Synthetic {
+                        date: payslip.check_date,
+                        account: acct_name,
+                    };
+                    if let Some(record) = matched_tx_records.get(&key) {
+                        overlap_rsu_record = Some(record.clone());
+                    }
+                }
+            }
+
+            if let Some(ref prev_record) = overlap_rsu_record {
+                let mut current_amounts: Vec<Decimal> =
+                    rsu_components.iter().map(|c| c.amount).collect();
+                let mut prev_amounts = prev_record.split_amounts.clone();
+                current_amounts.sort();
+                prev_amounts.sort();
+
+                let total_current: Decimal = current_amounts.iter().sum();
+
+                if current_amounts.len() != prev_amounts.len()
+                    || current_amounts != prev_amounts
+                    || total_current != prev_record.total_amount
+                {
+                    anyhow::bail!(
+                        "Sanity check failed: Overlapping RSU vest payslip page {} of file '{}' and page {} of file '{}' match the same RSU transaction/date, but their proposed splits do not match.\n\
+                         Current splits ({:?}): {:?}\n\
+                         Previous splits ({:?}): {:?}",
+                        payslip.page_num,
+                        pdf_filename,
+                        prev_record.page_num,
+                        prev_record.pdf_filename,
+                        current_amounts.len(),
+                        current_amounts,
+                        prev_amounts.len(),
+                        prev_amounts
+                    );
+                }
+
+                println! {
+                    "  {STYLE_WARNING}⚠️ Warning: Skipping duplicate RSU payslip page {} of file '{}' (already matched by Page {} of '{}') due to overlap.{STYLE_WARNING:#}",
+                    payslip.page_num, pdf_filename, prev_record.page_num, prev_record.pdf_filename
+                };
+                continue;
+            }
+
             // Match RSU vest to auto-imported Plaid transaction(s)
             let matched_plaid_rsu_txs = if let Some(rsu_acct) = resolved_rsu_acct {
                 let start_window = payslip
@@ -534,11 +631,7 @@ pub(crate) async fn run_import(
                 rsu_txs
                     .iter()
                     .filter(|tx| {
-                        // Respect cross-page dedup: a Plaid RSU transaction
-                        // already claimed by an earlier page must not be matched
-                        // again (overlapping ±3-day windows across pages/files
-                        // would otherwise reference the same companion tx twice).
-                        if matched_tx_ids.contains(&tx.id) {
+                        if matched_tx_records.contains_key(&MatchKey::Transaction(tx.id)) {
                             return false;
                         }
                         let matches_acct = match rsu_acct {
@@ -565,7 +658,15 @@ pub(crate) async fn run_import(
                 // Claim these transactions so a later page cannot match the same
                 // companion tx (mirrors the net-zero path's dedup).
                 for tx in &matched_plaid_rsu_txs {
-                    matched_tx_ids.insert(tx.id);
+                    matched_tx_records.insert(
+                        MatchKey::Transaction(tx.id),
+                        MatchedTransactionRecord {
+                            pdf_filename: pdf_filename.to_string(),
+                            page_num: payslip.page_num,
+                            split_amounts: rsu_components.iter().map(|c| c.amount).collect(),
+                            total_amount: parent_amount,
+                        },
+                    );
                 }
                 let matched_ids: Vec<String> = matched_plaid_rsu_txs
                     .iter()
@@ -582,6 +683,26 @@ pub(crate) async fn run_import(
                             tx.id
                         };
                     }
+                }
+            } else {
+                if resolved_rsu_acct.is_some() {
+                    let acct_name = backend
+                        .rsu_account
+                        .as_deref()
+                        .unwrap_or_default()
+                        .to_string();
+                    matched_tx_records.insert(
+                        MatchKey::Synthetic {
+                            date: payslip.check_date,
+                            account: acct_name,
+                        },
+                        MatchedTransactionRecord {
+                            pdf_filename: pdf_filename.to_string(),
+                            page_num: payslip.page_num,
+                            split_amounts: rsu_components.iter().map(|c| c.amount).collect(),
+                            total_amount: parent_amount,
+                        },
+                    );
                 }
             }
 
@@ -765,6 +886,8 @@ pub(crate) async fn run_import(
         // re-splitting (which the API would reject) or creating a duplicate.
         let mut matched_split_children: Option<Vec<Decimal>> = None;
 
+        let mut overlap_match = None;
+
         if let Some(ref client_ref) = client {
             let start_window = payslip
                 .check_date
@@ -777,10 +900,6 @@ pub(crate) async fn run_import(
 
             let mut best_match = None;
             for tx in &checking_txs {
-                if matched_tx_ids.contains(&tx.id) {
-                    continue;
-                }
-
                 if tx.date < start_window || tx.date > end_window {
                     continue;
                 }
@@ -799,13 +918,18 @@ pub(crate) async fn run_import(
                 let tx_amount_abs = tx.amount.abs();
 
                 if (tx_amount_abs - net_pay).abs() < Decimal::new(1, 2) {
-                    best_match = Some(tx);
-                    break;
+                    if matched_tx_records.contains_key(&MatchKey::Transaction(tx.id)) {
+                        if overlap_match.is_none() {
+                            overlap_match = Some(tx);
+                        }
+                    } else {
+                        best_match = Some(tx);
+                        break;
+                    }
                 }
             }
 
             if let Some(tx) = best_match {
-                matched_tx_ids.insert(tx.id);
                 println! {
                     "  {STYLE_SUCCESS}✅ Matched to Lunch Money transaction: ID = {}, Date = {}, Amount = {}, Payee = \"{}\"{STYLE_SUCCESS:#}",
                     tx.id, tx.date, tx.amount, tx.payee
@@ -823,12 +947,26 @@ pub(crate) async fn run_import(
                 tx_date = tx.date;
                 tx_amount = tx.amount;
                 tx_payee = tx.payee.clone();
+            } else if let Some(tx) = overlap_match {
+                tx_id = tx.id;
+                tx_date = tx.date;
+                tx_amount = tx.amount;
+                tx_payee = tx.payee.clone();
             } else {
                 // If no matching transaction is found and this is a net-zero check, create a synthetic transaction
                 if payslip.net_pay.is_zero() {
                     let account_name = &backend.net_zero_account;
+                    let synthetic_key = MatchKey::Synthetic {
+                        date: payslip.check_date,
+                        account: account_name.clone(),
+                    };
 
-                    if cx.dry_run {
+                    if matched_tx_records.contains_key(&synthetic_key) {
+                        tx_id = TransactionId(0);
+                        tx_date = payslip.check_date;
+                        tx_amount = Decimal::ZERO;
+                        tx_payee = backend.payslip_payee.clone();
+                    } else if cx.dry_run {
                         println! {
                             "  {STYLE_INFO}ℹ️ [Dry Run] No match found. Would create synthetic $0.00 transaction for Page {} in account '{}'.{STYLE_INFO:#}",
                             payslip.page_num, account_name
@@ -1066,6 +1204,73 @@ pub(crate) async fn run_import(
                 comp_sum,
                 tx_amount,
                 diff
+            );
+        }
+
+        // Overlap sanity check and skip
+        let match_key = if tx_id.0 != 0 {
+            Some(MatchKey::Transaction(tx_id))
+        } else if payslip.net_pay.is_zero() {
+            Some(MatchKey::Synthetic {
+                date: payslip.check_date,
+                account: backend.net_zero_account.clone(),
+            })
+        } else {
+            None
+        };
+
+        if let Some(ref key) = match_key {
+            if let Some(prev_record) = matched_tx_records.get(key) {
+                let mut current_amounts: Vec<Decimal> =
+                    components.iter().map(|c| c.amount).collect();
+                let mut prev_amounts = prev_record.split_amounts.clone();
+                current_amounts.sort();
+                prev_amounts.sort();
+
+                let total_current: Decimal = current_amounts.iter().sum();
+
+                if current_amounts.len() != prev_amounts.len()
+                    || current_amounts != prev_amounts
+                    || total_current != prev_record.total_amount
+                {
+                    anyhow::bail!(
+                        "Sanity check failed: Overlapping payslip page {} of file '{}' and page {} of file '{}' match the same transaction/date, but their proposed splits do not match.\n\
+                         Current splits ({:?}): {:?}\n\
+                         Previous splits ({:?}): {:?}",
+                        payslip.page_num,
+                        pdf_filename,
+                        prev_record.page_num,
+                        prev_record.pdf_filename,
+                        current_amounts.len(),
+                        current_amounts,
+                        prev_amounts.len(),
+                        prev_amounts
+                    );
+                }
+
+                let descriptor = if tx_id.0 != 0 {
+                    format!("transaction ID {}", tx_id)
+                } else {
+                    format!("synthetic transaction on {}", payslip.check_date)
+                };
+
+                println! {
+                    "  {STYLE_WARNING}⚠️ Warning: Skipping duplicate payslip for {} (already matched by Page {} of '{}') due to overlap.{STYLE_WARNING:#}",
+                    descriptor, prev_record.page_num, prev_record.pdf_filename
+                };
+                continue;
+            }
+        }
+
+        if let Some(key) = match_key {
+            matched_tx_records.insert(
+                key,
+                MatchedTransactionRecord {
+                    pdf_filename: pdf_filename.to_string(),
+                    page_num: payslip.page_num,
+                    split_amounts: components.iter().map(|c| c.amount).collect(),
+                    total_amount: tx_amount,
+                },
             );
         }
 
