@@ -1,6 +1,5 @@
 use clap::Args;
 use clap::Subcommand;
-use std::path::PathBuf;
 
 #[derive(Args, Debug)]
 pub struct Cli {
@@ -24,11 +23,7 @@ pub struct ReconcileArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct InitArgs {
-    /// Output file path
-    #[arg(long, short)]
-    pub file: Option<PathBuf>,
-}
+pub struct InitArgs {}
 
 fn parse_duration(s: &str) -> Result<jiff::Span, String> {
     let duration = humantime::parse_duration(s).map_err(|e| format!("invalid duration: {}", e))?;

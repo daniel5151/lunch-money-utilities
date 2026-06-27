@@ -1,5 +1,5 @@
 mod api;
-mod cli;
+pub mod cli;
 mod commands;
 mod config;
 mod metadata;
@@ -29,19 +29,29 @@ pub struct SplitwiseTool;
 
 impl Tool for SplitwiseTool {
     const NAME: &'static str = "splitwise-sync";
+    const CONFIG_SECTION: &'static str = "splitwise";
     type Cli = Cli;
+    type Config = config::Config;
 
-    async fn run(cx: &ToolContext, cli: Cli) -> anyhow::Result<()> {
+    async fn run(
+        cx: &ToolContext,
+        cli: Cli,
+        config_path: std::path::PathBuf,
+        common_config: lm_common::config::CommonConfig,
+        tool_config: Option<Self::Config>,
+    ) -> anyhow::Result<()> {
         match cli.command {
             cli::Commands::Init(init_args) => {
-                commands::init::run_init(init_args).await?;
+                commands::init::run_init(init_args, config_path).await?;
             }
             cmd => {
-                let (doc, _path) = lm_common::config::load_document()?;
-                let common = lm_common::config::common_section(&doc)?;
-                let config: config::Config =
-                    lm_common::config::deserialize_section(&doc, "splitwise")?;
-                let lm_api_key = common.lm_api_key.clone().ok_or_else(|| {
+                let config = tool_config.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Missing [splitwise] section in lm_utils.toml. Run \
+                         `lm-utils splitwise-sync init` to configure it."
+                    )
+                })?;
+                let lm_api_key = common_config.lm_api_key.clone().ok_or_else(|| {
                     anyhow::anyhow!(
                         "Missing [common].lm_api_key in lm_utils.toml. Run \
                          `lm-utils splitwise-sync init` to configure it."
@@ -49,8 +59,11 @@ impl Tool for SplitwiseTool {
                 })?;
                 let splitwise =
                     api::splitwise::Client::new(cx.http.clone(), config.splitwise.api_key.clone());
-                let lunch_money =
-                    api::lunch_money::Client::new(cx.http.clone(), lm_api_key, common.retry.into());
+                let lunch_money = api::lunch_money::Client::new(
+                    cx.http.clone(),
+                    lm_api_key,
+                    common_config.retry.into(),
+                );
                 let ctx = AppContext {
                     config,
                     http: cx.http.clone(),

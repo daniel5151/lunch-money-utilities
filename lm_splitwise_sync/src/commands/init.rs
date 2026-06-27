@@ -18,11 +18,10 @@ impl std::fmt::Display for SplitwiseUser {
     }
 }
 
-pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
-    let output_path = args
-        .file
-        .unwrap_or_else(|| std::path::PathBuf::from(lm_common::config::DEFAULT_CONFIG_FILENAME));
-
+pub(crate) async fn run_init(
+    _args: crate::cli::InitArgs,
+    output_path: std::path::PathBuf,
+) -> anyhow::Result<()> {
     // Load the unified config if it already exists so we upsert the [splitwise]
     // section (and the shared [common] key) in place, preserving every other
     // tool's section and all inline comments.

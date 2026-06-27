@@ -22,7 +22,10 @@ impl std::fmt::Display for LunchMoneyAccount {
     }
 }
 
-pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
+pub(crate) async fn run_init(
+    args: crate::cli::InitArgs,
+    output_path: std::path::PathBuf,
+) -> anyhow::Result<()> {
     if args.just_categorize {
         if args.pdfs.is_empty() {
             anyhow::bail!(
@@ -33,9 +36,6 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
         // 1. Parse PDFs to gather unique items
         let per_backend_items = parse_pdfs(&args.pdfs);
 
-        let output_path = args.file.clone().unwrap_or_else(|| {
-            std::path::PathBuf::from(lm_common::config::DEFAULT_CONFIG_FILENAME)
-        });
         let doc = lm_common::config::editor::read_or_new(&output_path)?;
 
         // 2. Fetch categories by prompting for the API key if not in config
@@ -106,11 +106,6 @@ pub(crate) async fn run_init(args: crate::cli::InitArgs) -> anyhow::Result<()> {
             return Ok(());
         }
     }
-
-    let output_path = args
-        .file
-        .clone()
-        .unwrap_or_else(|| std::path::PathBuf::from(lm_common::config::DEFAULT_CONFIG_FILENAME));
 
     // Load the unified config if it already exists so we upsert the [payslip]
     // section (and the shared [common] key) in place, preserving every other

@@ -1,4 +1,4 @@
-mod cli;
+pub mod cli;
 mod commands;
 mod config;
 
@@ -13,18 +13,29 @@ pub struct VenmoTool;
 
 impl Tool for VenmoTool {
     const NAME: &'static str = "venmo-balfixer";
+    const CONFIG_SECTION: &'static str = "venmo";
     type Cli = Cli;
+    type Config = config::Config;
 
-    async fn run(cx: &ToolContext, cli: Cli) -> anyhow::Result<()> {
+    async fn run(
+        cx: &ToolContext,
+        cli: Cli,
+        config_path: std::path::PathBuf,
+        common_config: lm_common::config::CommonConfig,
+        tool_config: Option<Self::Config>,
+    ) -> anyhow::Result<()> {
         match cli.command {
             cli::Commands::Init(init_args) => {
-                commands::init::run_init(init_args).await?;
+                commands::init::run_init(init_args, config_path).await?;
             }
             cli::Commands::Reconcile(reconcile_args) => {
-                let (doc, _path) = lm_common::config::load_document()?;
-                let common = lm_common::config::common_section(&doc)?;
-                let config: config::Config = lm_common::config::deserialize_section(&doc, "venmo")?;
-                let lm_api_key = common.lm_api_key.clone().ok_or_else(|| {
+                let config = tool_config.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Missing [venmo] section in lm_utils.toml. Run \
+                         `lm-utils venmo-balfixer init` to configure it."
+                    )
+                })?;
+                let lm_api_key = common_config.lm_api_key.clone().ok_or_else(|| {
                     anyhow::anyhow!(
                         "Missing [common].lm_api_key in lm_utils.toml. Run \
                          `lm-utils venmo-balfixer init` to configure it."
@@ -34,7 +45,7 @@ impl Tool for VenmoTool {
                     cx,
                     &config,
                     &lm_api_key,
-                    common.retry,
+                    common_config.retry,
                     reconcile_args,
                 )
                 .await?;

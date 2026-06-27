@@ -6,11 +6,7 @@ use anyhow::Result;
 
 use lm_common::init::PlaidAccountChoice;
 
-pub async fn run_init(args: InitArgs) -> Result<()> {
-    let output_path = args
-        .file
-        .unwrap_or_else(|| std::path::PathBuf::from(lm_common::config::DEFAULT_CONFIG_FILENAME));
-
+pub async fn run_init(_args: InitArgs, output_path: std::path::PathBuf) -> Result<()> {
     // Load the unified config if it already exists so we upsert the [venmo]
     // section (and the shared [common] key) in place, preserving every other
     // tool's section and all inline comments.

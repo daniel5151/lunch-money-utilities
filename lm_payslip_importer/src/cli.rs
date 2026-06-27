@@ -48,10 +48,6 @@ pub struct InitArgs {
     #[arg(help = "Path(s) to payslip PDF file(s) to seed the [mapping] table")]
     pub pdfs: Vec<PathBuf>,
 
-    /// Output file path (defaults to lm_utils.toml)
-    #[arg(long, short)]
-    pub file: Option<PathBuf>,
-
     /// Skip interactive logic and just print the LLM prompt for categorizing sections
     #[arg(long)]
     pub just_categorize: bool,

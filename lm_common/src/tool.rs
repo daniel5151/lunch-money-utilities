@@ -56,9 +56,21 @@ pub trait Tool {
     /// `"venmo-balfixer"`.
     const NAME: &'static str;
 
+    /// The name of the section in `lm_utils.toml` for this tool, e.g. `"payslip"`, `"splitwise"`, or `"venmo"`.
+    const CONFIG_SECTION: &'static str;
+
     /// This tool's clap argument group (its subcommand tree).
     type Cli: clap::Args;
 
+    /// The typed representation of this tool's config section in `lm_utils.toml`.
+    type Config: serde::de::DeserializeOwned + Send;
+
     /// Run the tool against the shared services and its parsed subcommand.
-    fn run(cx: &ToolContext, cli: Self::Cli) -> impl Future<Output = anyhow::Result<()>>;
+    fn run(
+        cx: &ToolContext,
+        cli: Self::Cli,
+        config_path: std::path::PathBuf,
+        common_config: crate::config::CommonConfig,
+        tool_config: Option<Self::Config>,
+    ) -> impl Future<Output = anyhow::Result<()>>;
 }

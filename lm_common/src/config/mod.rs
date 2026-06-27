@@ -36,6 +36,8 @@ pub use loader::common_section;
 pub use loader::deserialize_section;
 pub use loader::load_document;
 pub use loader::optional_section;
+pub use loader::parse_at;
+pub use loader::resolve_config_path;
 
 /// The shared `[common]` config table.
 ///

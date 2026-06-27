@@ -43,6 +43,10 @@ struct Cli {
     #[arg(long, global = true)]
     dry_run: bool,
 
+    /// Path to the configuration file (defaults to lm_utils.toml).
+    #[arg(long, global = true, short = 'c')]
+    config: Option<std::path::PathBuf>,
+
     #[command(subcommand)]
     tool: ToolCmd,
 }
@@ -96,10 +100,75 @@ async fn run() -> anyhow::Result<()> {
 
     let cli = Cli::parse_from(busybox_argv());
     let cx = ToolContext::new(cli.dry_run);
+
+    let is_init = match &cli.tool {
+        ToolCmd::PayslipImporter(args) => {
+            matches!(args.command, lm_payslip_importer::cli::Commands::Init(_))
+        }
+        ToolCmd::SplitwiseSync(args) => {
+            matches!(args.command, lm_splitwise_sync::cli::Commands::Init(_))
+        }
+        ToolCmd::VenmoBalfixer(args) => {
+            matches!(args.command, lm_venmo_balfixer::cli::Commands::Init(_))
+        }
+    };
+
+    let resolved_path = lm_common::config::resolve_config_path(cli.config.as_deref());
+
+    let (common_config, doc_opt) = if resolved_path.exists() {
+        let (doc, _) = lm_common::config::parse_at(&resolved_path)?;
+        let common = lm_common::config::common_section(&doc)?;
+        (common, Some(doc))
+    } else {
+        if !is_init {
+            if cli.config.is_none() {
+                anyhow::bail!(
+                    "Configuration file '{}' not found in current directory or \
+                     executable directory. Run the relevant tool's `init` subcommand to generate one \
+                     (e.g. `lm-utils venmo-balfixer init`).",
+                    lm_common::config::DEFAULT_CONFIG_FILENAME
+                );
+            } else {
+                anyhow::bail!(
+                    "Configuration file '{}' not found.",
+                    resolved_path.display()
+                );
+            }
+        }
+        (lm_common::config::CommonConfig::default(), None)
+    };
+
     match cli.tool {
-        ToolCmd::PayslipImporter(args) => PayslipTool::run(&cx, args).await,
-        ToolCmd::SplitwiseSync(args) => SplitwiseTool::run(&cx, args).await,
-        ToolCmd::VenmoBalfixer(args) => VenmoTool::run(&cx, args).await,
+        ToolCmd::PayslipImporter(args) => {
+            let tool_cfg = match &doc_opt {
+                Some(doc) => lm_common::config::optional_section::<<PayslipTool as Tool>::Config>(
+                    doc,
+                    PayslipTool::CONFIG_SECTION,
+                )?,
+                None => None,
+            };
+            PayslipTool::run(&cx, args, resolved_path, common_config, tool_cfg).await
+        }
+        ToolCmd::SplitwiseSync(args) => {
+            let tool_cfg =
+                match &doc_opt {
+                    Some(doc) => lm_common::config::optional_section::<
+                        <SplitwiseTool as Tool>::Config,
+                    >(doc, SplitwiseTool::CONFIG_SECTION)?,
+                    None => None,
+                };
+            SplitwiseTool::run(&cx, args, resolved_path, common_config, tool_cfg).await
+        }
+        ToolCmd::VenmoBalfixer(args) => {
+            let tool_cfg = match &doc_opt {
+                Some(doc) => lm_common::config::optional_section::<<VenmoTool as Tool>::Config>(
+                    doc,
+                    VenmoTool::CONFIG_SECTION,
+                )?,
+                None => None,
+            };
+            VenmoTool::run(&cx, args, resolved_path, common_config, tool_cfg).await
+        }
     }
 }
 

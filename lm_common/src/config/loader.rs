@@ -51,7 +51,32 @@ pub fn load_document() -> anyhow::Result<(DocumentMut, PathBuf)> {
     )
 }
 
-fn parse_at(path: &Path) -> anyhow::Result<(DocumentMut, PathBuf)> {
+pub fn resolve_config_path(user_path: Option<&Path>) -> PathBuf {
+    if let Some(path) = user_path {
+        return path.to_path_buf();
+    }
+
+    let filename = Path::new(DEFAULT_CONFIG_FILENAME);
+
+    // 1. Current working directory.
+    if filename.exists() {
+        return filename.to_path_buf();
+    }
+
+    // 2. Directory of the running executable.
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let candidate = exe_dir.join(filename);
+            if candidate.exists() {
+                return candidate;
+            }
+        }
+    }
+
+    filename.to_path_buf()
+}
+
+pub fn parse_at(path: &Path) -> anyhow::Result<(DocumentMut, PathBuf)> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read config file from {}", path.display()))?;
     let doc: DocumentMut = content

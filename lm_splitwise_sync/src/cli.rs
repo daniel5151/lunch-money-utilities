@@ -22,11 +22,7 @@ pub enum Commands {
 }
 
 #[derive(Parser, Debug)]
-pub struct InitArgs {
-    /// Output file path (defaults to lm_utils.toml)
-    #[arg(long, hide = true)]
-    pub file: Option<std::path::PathBuf>,
-}
+pub struct InitArgs {}
 
 #[derive(Parser, Debug)]
 pub struct QueryArgs {
