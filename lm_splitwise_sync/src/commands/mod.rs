@@ -4,8 +4,9 @@ pub(crate) mod query;
 pub(crate) mod sync;
 pub(crate) mod sync_balances;
 
-use crate::style::*;
 use std::collections::HashMap;
+
+use crate::style::*;
 
 fn resolve_target_accounts(
     manual_accounts: &[crate::api::lunch_money::schema::ManualAccount],

@@ -1,9 +1,10 @@
-use crate::api::Currency;
-use crate::api::lunch_money::schema::TransactionId;
 use jiff::Timestamp;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde::Serialize;
+
+use crate::api::Currency;
+use crate::api::lunch_money::schema::TransactionId;
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -307,8 +308,9 @@ impl<'de> Deserialize<'de> for MaybeLunchMoneyTxMetadata {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rust_decimal::Decimal;
+
+    use super::*;
 
     #[test]
     fn test_metadata_roundtrip_and_null_omission() {

@@ -2,9 +2,10 @@
 
 /// JSON schemas for tags.
 pub mod schemas {
-    use crate::core::TagId;
     use serde::Deserialize;
     use serde::Serialize;
+
+    use crate::core::TagId;
 
     /// Response payload containing a list of tags.
     #[derive(Deserialize, Debug)]

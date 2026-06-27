@@ -1,3 +1,5 @@
+use anyhow::Context;
+
 use crate::categories::schemas::CategoriesResponse;
 use crate::categories::schemas::Category;
 use crate::core::ids::AttachmentId;
@@ -22,7 +24,6 @@ use crate::transactions::schemas::Transaction;
 use crate::transactions::schemas::TransactionsResponse;
 use crate::transactions::schemas::UpdateObject;
 use crate::transactions::schemas::UpdatePayload;
-use anyhow::Context;
 
 /// Policy for handling HTTP 429 Too Many Requests rate limits.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]

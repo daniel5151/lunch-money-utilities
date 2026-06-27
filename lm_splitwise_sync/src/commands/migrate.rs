@@ -1,13 +1,15 @@
+use std::collections::HashMap;
+
+use anstream::println;
+use tabled::Table;
+use tabled::Tabled;
+use tabled::settings::Style;
+
 use crate::AppContext;
 use crate::api::lunch_money::TransactionQuery;
 use crate::api::lunch_money::schema::UpdateObject;
 use crate::api::splitwise::ExpensesQuery;
 use crate::style::*;
-use anstream::println;
-use std::collections::HashMap;
-use tabled::Table;
-use tabled::Tabled;
-use tabled::settings::Style;
 
 #[derive(Tabled)]
 struct MigrationRecord {

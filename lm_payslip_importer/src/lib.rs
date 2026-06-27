@@ -4,7 +4,6 @@ mod config;
 mod payslip;
 
 pub use cli::Cli;
-
 use lm_common::style;
 use lm_common::tool::Tool;
 use lm_common::tool::ToolContext;

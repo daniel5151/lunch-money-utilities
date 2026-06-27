@@ -2,11 +2,12 @@
 
 /// JSON schemas for manual accounts.
 pub mod schemas {
-    use crate::core::Currency;
-    use crate::core::ManualAccountId;
     use rust_decimal::Decimal;
     use serde::Deserialize;
     use serde::Serialize;
+
+    use crate::core::Currency;
+    use crate::core::ManualAccountId;
 
     /// Represents the date or date-time at which a manual account's balance was last updated.
     #[derive(Debug, Clone, PartialEq, Eq)]

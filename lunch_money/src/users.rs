@@ -2,9 +2,10 @@
 
 /// JSON schemas for user profiles.
 pub mod schemas {
+    use serde::Deserialize;
+
     use crate::core::Currency;
     use crate::core::UserId;
-    use serde::Deserialize;
 
     /// Represents a Lunch Money user profile.
     #[derive(Deserialize, Debug, Clone)]

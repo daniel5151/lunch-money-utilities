@@ -1,7 +1,8 @@
-use crate::style::*;
 use anstream::eprintln;
 use anstream::println;
 use anyhow::Context;
+
+use crate::style::*;
 
 #[derive(Clone)]
 struct LunchMoneyAccount {

@@ -2,6 +2,18 @@ mod diff;
 mod execute;
 mod report;
 
+use std::collections::HashMap;
+
+use anstream::println;
+use anyhow::Context;
+pub use diff::DiffTransactionsArgs;
+pub use diff::diff_transactions;
+pub use execute::ApplySyncPlanArgs;
+pub use execute::apply_sync_plan;
+pub use report::PrintAndLogSyncPlanArgs;
+pub use report::print_and_log_sync_plan;
+use rust_decimal::Decimal;
+
 use crate::api::ExpensesQuery;
 use crate::api::ExternalId;
 use crate::api::TransactionQuery;
@@ -18,17 +30,6 @@ use crate::api::lunch_money::schema::UpdateObject;
 use crate::metadata::LunchMoneyTxMetadata;
 use crate::metadata::MaybeLunchMoneyTxMetadata;
 use crate::style::*;
-use anstream::println;
-use anyhow::Context;
-use rust_decimal::Decimal;
-use std::collections::HashMap;
-
-pub use diff::DiffTransactionsArgs;
-pub use diff::diff_transactions;
-pub use execute::ApplySyncPlanArgs;
-pub use execute::apply_sync_plan;
-pub use report::PrintAndLogSyncPlanArgs;
-pub use report::print_and_log_sync_plan;
 
 pub struct SyncPlan {
     pub inserts: Vec<InsertObject>,

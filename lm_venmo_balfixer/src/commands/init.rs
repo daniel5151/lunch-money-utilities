@@ -1,10 +1,10 @@
-use crate::cli::InitArgs;
-use crate::style::*;
 use anstream::println;
 use anyhow::Context;
 use anyhow::Result;
-
 use lm_common::init::PlaidAccountChoice;
+
+use crate::cli::InitArgs;
+use crate::style::*;
 
 pub async fn run_init(_args: InitArgs, output_path: std::path::PathBuf) -> Result<()> {
     // Load the unified config if it already exists so we upsert the [venmo]

@@ -1,4 +1,7 @@
-use crate::style::*;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::env;
+
 use anstream::eprintln;
 use anstream::println;
 use anyhow::Context;
@@ -17,9 +20,8 @@ use lunch_money::transactions::schemas::SplitTransactionObject;
 use lunch_money::transactions::schemas::SplitTransactionPayload;
 use lunch_money::transactions::schemas::TransactionStatus;
 use rust_decimal::Decimal;
-use std::collections::HashMap;
-use std::collections::HashSet;
-use std::env;
+
+use crate::style::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ResolvedAccount {

@@ -2,8 +2,9 @@
 
 /// Query parameters for Plaid accounts.
 pub mod query_params {
-    use crate::core::PlaidAccountId;
     use serde::Serialize;
+
+    use crate::core::PlaidAccountId;
 
     /// Query parameters to trigger a manual fetch from Plaid.
     #[derive(bon::Builder, Serialize, Debug, Clone, Default)]
@@ -22,11 +23,12 @@ pub mod query_params {
 
 /// JSON schemas for Plaid accounts.
 pub mod schemas {
-    use crate::core::Currency;
-    use crate::core::PlaidAccountId;
     use rust_decimal::Decimal;
     use serde::Deserialize;
     use serde::Serialize;
+
+    use crate::core::Currency;
+    use crate::core::PlaidAccountId;
 
     /// Current status of a synced Plaid account.
     #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

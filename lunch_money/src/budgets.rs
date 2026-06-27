@@ -31,11 +31,12 @@ pub mod query_params {
 
 /// JSON schemas for budget endpoints.
 pub mod schemas {
-    use crate::core::CategoryId;
-    use crate::core::Currency;
     use rust_decimal::Decimal;
     use serde::Deserialize;
     use serde::Serialize;
+
+    use crate::core::CategoryId;
+    use crate::core::Currency;
 
     /// Budget period granularity setting.
     #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

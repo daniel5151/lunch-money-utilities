@@ -11,13 +11,14 @@ pub mod adp_microsoft;
 pub mod microsoft;
 pub mod workday;
 
+use std::collections::HashMap;
+use std::str::FromStr;
+
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
 use jiff::civil::Date;
 use rust_decimal::Decimal;
-use std::collections::HashMap;
-use std::str::FromStr;
 
 /// A single line item from a payslip table (one earning, tax, or deduction).
 ///
@@ -217,8 +218,9 @@ mod recon_tests {
     //! earnings add-backs, so its pages only reconcile once those imputed
     //! earnings are removed — exactly the offset the importer injects.
 
-    use super::*;
     use rust_decimal::Decimal;
+
+    use super::*;
 
     fn sum(rows: &[RowData]) -> Decimal {
         rows.iter().map(|r| r.amount()).sum()

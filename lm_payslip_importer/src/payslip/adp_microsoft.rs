@@ -36,18 +36,20 @@
 //! states stock/disability offsets explicitly in the `Other` section, so no
 //! synthetic offset is wanted.
 
-use super::ParsedPage;
-use super::RowData;
-use super::clean_decimal;
-use super::parse_date_str;
+use std::collections::HashMap;
+use std::sync::LazyLock;
+
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
 use jiff::civil::Date;
 use regex::Regex;
 use rust_decimal::Decimal;
-use std::collections::HashMap;
-use std::sync::LazyLock;
+
+use super::ParsedPage;
+use super::RowData;
+use super::clean_decimal;
+use super::parse_date_str;
 
 /// A money token: optional thousands-separated integer part, a 2+ digit
 /// fractional part, optional trailing minus. Bare integers (hours, ids) are

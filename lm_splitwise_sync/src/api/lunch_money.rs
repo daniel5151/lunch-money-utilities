@@ -10,13 +10,14 @@
 //! developer ergonomics. The wrapper maps these strict types into the library's optional
 //! equivalents at the boundary.
 
-use crate::api::ExternalId;
-use crate::metadata::LunchMoneyTxMetadata;
 use lunch_money::core::Currency;
 use lunch_money::core::ManualAccountId;
 use lunch_money::core::TagId;
 use lunch_money::core::TransactionId;
 use rust_decimal::Decimal;
+
+use crate::api::ExternalId;
+use crate::metadata::LunchMoneyTxMetadata;
 
 #[derive(Clone)]
 pub struct Client(lunch_money::client::Client);
@@ -167,9 +168,6 @@ pub mod schema {
             ExternalId,
         >;
 
-    pub use crate::metadata::LunchMoneyTxMetadata;
-    pub use crate::metadata::MaybeLunchMoneyTxMetadata;
-
     pub use lunch_money::categories::schemas::Category;
     pub use lunch_money::core::CategoryId;
     pub use lunch_money::core::ManualAccountId;
@@ -180,6 +178,9 @@ pub mod schema {
     pub use lunch_money::manual_accounts::schemas::ManualAccount;
     pub use lunch_money::tags::schemas::Tag;
     pub use lunch_money::transactions::schemas::TransactionStatus;
+
+    pub use crate::metadata::LunchMoneyTxMetadata;
+    pub use crate::metadata::MaybeLunchMoneyTxMetadata;
 
     #[derive(bon::Builder, serde::Serialize, Clone, Debug)]
     pub struct InsertObject {

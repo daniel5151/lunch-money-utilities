@@ -18,9 +18,10 @@ pub mod query_params {
 
 /// JSON schemas for categories.
 pub mod schemas {
-    use crate::core::CategoryId;
     use serde::Deserialize;
     use serde::Serialize;
+
+    use crate::core::CategoryId;
 
     /// Response payload containing a list of categories.
     #[derive(Deserialize, Debug)]

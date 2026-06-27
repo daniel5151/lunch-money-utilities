@@ -1,8 +1,9 @@
+use std::fmt;
+
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
-use std::fmt;
 
 /// A case-insensitive wrapper around a currency code (e.g. USD, EUR, GBP)
 /// that always normalizes to uppercase for internal comparisons and hashing,

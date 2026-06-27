@@ -1,8 +1,10 @@
-use crate::style::*;
+use std::collections::HashMap;
+
 use anstream::println;
 use anyhow::Context;
 use rust_decimal::Decimal;
-use std::collections::HashMap;
+
+use crate::style::*;
 
 pub(crate) async fn run_sync_balances(
     ctx: &crate::AppContext,

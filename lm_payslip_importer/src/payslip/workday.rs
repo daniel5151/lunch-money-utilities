@@ -5,18 +5,20 @@
 //! machine walks the section headers ("Earnings", "Employee Taxes", "Pre Tax
 //! Deductions", "Post Tax Deductions") and parses each row from its tokens.
 
-use super::ParsedPage;
-use super::RowData;
-use super::clean_decimal;
-use super::parse_date_str;
+use std::collections::HashMap;
+use std::sync::LazyLock;
+
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
 use jiff::civil::Date;
 use regex::Regex;
 use rust_decimal::Decimal;
-use std::collections::HashMap;
-use std::sync::LazyLock;
+
+use super::ParsedPage;
+use super::RowData;
+use super::clean_decimal;
+use super::parse_date_str;
 
 /// `pdf-extract` frequently glues an earnings row's period *start date* onto the
 /// final description token (e.g. `Restricted Stock Units11/15/2025`) with no

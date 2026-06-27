@@ -1,6 +1,7 @@
+use std::path::PathBuf;
+
 use clap::Args;
 use clap::Subcommand;
-use std::path::PathBuf;
 
 #[derive(Args, Debug)]
 pub struct Cli {

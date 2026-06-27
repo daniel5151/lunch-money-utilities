@@ -1,7 +1,9 @@
-use crate::style::*;
+use std::collections::HashMap;
+
 use anstream::println;
 use anyhow::Context;
-use std::collections::HashMap;
+
+use crate::style::*;
 
 struct SplitwiseUser(crate::api::splitwise::schema::User);
 

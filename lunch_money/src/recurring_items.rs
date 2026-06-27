@@ -32,6 +32,10 @@ pub mod query_params {
 
 /// JSON schemas for recurring items.
 pub mod schemas {
+    use rust_decimal::Decimal;
+    use serde::Deserialize;
+    use serde::Serialize;
+
     use crate::core::CategoryId;
     use crate::core::Currency;
     use crate::core::ManualAccountId;
@@ -39,9 +43,6 @@ pub mod schemas {
     use crate::core::RecurringId;
     use crate::core::TransactionId;
     use crate::core::UserId;
-    use rust_decimal::Decimal;
-    use serde::Deserialize;
-    use serde::Serialize;
 
     /// Status of a recurring item.
     #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

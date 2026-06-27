@@ -1186,7 +1186,6 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 name = "lm-common"
 version = "0.1.0"
 dependencies = [
- "anstream",
  "anstyle",
  "anyhow",
  "clap",
@@ -1204,9 +1203,7 @@ version = "0.1.0"
 dependencies = [
  "anstream",
  "anyhow",
- "bon",
  "clap",
- "csv",
  "inquire",
  "jiff",
  "lm-common",
@@ -1217,7 +1214,6 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
- "tokio",
  "toml",
 ]
 
@@ -1240,7 +1236,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tabled",
- "tokio",
  "toml",
 ]
 
@@ -1266,7 +1261,6 @@ version = "0.1.0"
 dependencies = [
  "anstream",
  "anyhow",
- "bon",
  "clap",
  "humantime",
  "jiff",
@@ -1276,8 +1270,6 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
- "tokio",
- "toml",
 ]
 
 [[package]]

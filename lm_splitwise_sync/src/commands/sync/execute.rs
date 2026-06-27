@@ -1,3 +1,11 @@
+use std::collections::HashMap;
+
+use anstream::println;
+use rust_decimal::Decimal;
+use tabled::Table;
+use tabled::Tabled;
+use tabled::settings::Style;
+
 use crate::api::lunch_money::schema::AccountType;
 use crate::api::lunch_money::schema::CategoryId;
 use crate::api::lunch_money::schema::ManualAccount;
@@ -5,12 +13,6 @@ use crate::api::lunch_money::schema::ManualAccountId;
 use crate::api::lunch_money::schema::TagId;
 use crate::api::lunch_money::schema::TransactionId;
 use crate::style::*;
-use anstream::println;
-use rust_decimal::Decimal;
-use std::collections::HashMap;
-use tabled::Table;
-use tabled::Tabled;
-use tabled::settings::Style;
 
 #[derive(Tabled)]
 struct RecoveryRecord {

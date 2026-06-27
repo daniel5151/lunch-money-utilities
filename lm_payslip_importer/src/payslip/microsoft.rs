@@ -49,17 +49,19 @@
 //! (stock award income +/-, imputed disability +/-) fall out across the
 //! earnings/deduction split on their own, with no `*`-prefix offset injection.
 
-use super::ParsedPage;
-use super::RowData;
-use super::clean_decimal;
+use std::collections::HashMap;
+use std::sync::LazyLock;
+
 use anyhow::Context;
 use anyhow::Result;
 use anyhow::anyhow;
 use jiff::civil::Date;
 use regex::Regex;
 use rust_decimal::Decimal;
-use std::collections::HashMap;
-use std::sync::LazyLock;
+
+use super::ParsedPage;
+use super::RowData;
+use super::clean_decimal;
 
 /// A signed money token with thousands separators and a 2+ digit fraction.
 static MONEY_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^-?[\d,]+\.\d{2,}$").unwrap());

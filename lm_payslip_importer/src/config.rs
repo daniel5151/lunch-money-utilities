@@ -1,6 +1,8 @@
-use crate::payslip::PayslipKind;
-use serde::Deserialize;
 use std::collections::HashMap;
+
+use serde::Deserialize;
+
+use crate::payslip::PayslipKind;
 
 /// Importer configuration.
 ///

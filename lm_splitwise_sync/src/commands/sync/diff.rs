@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+
+use rust_decimal::Decimal;
+
 use super::SyncPlan;
 use crate::api::Currency;
 use crate::api::ExternalId;
@@ -10,8 +14,6 @@ use crate::api::lunch_money::schema::TransactionId;
 use crate::api::lunch_money::schema::UpdateObject;
 use crate::api::splitwise::Expense;
 use crate::metadata::LunchMoneyTxMetadata;
-use rust_decimal::Decimal;
-use std::collections::HashMap;
 
 pub struct DiffTransactionsArgs<'a> {
     pub expenses: Vec<Expense>,
@@ -563,8 +565,9 @@ pub fn diff_transactions(args: DiffTransactionsArgs<'_>) -> anyhow::Result<SyncP
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use rust_decimal::Decimal;
+
+    use super::*;
 
     const CONFIG_STR: &str = r#"
         api_key = "dummy"

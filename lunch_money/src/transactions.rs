@@ -2,13 +2,14 @@
 
 /// Query parameters for transaction endpoints.
 pub mod query_params {
+    use serde::Serialize;
+
     use crate::core::CategoryId;
     use crate::core::ManualAccountId;
     use crate::core::PlaidAccountId;
     use crate::core::RecurringId;
     use crate::core::TagId;
     use crate::transactions::schemas::TransactionStatus;
-    use serde::Serialize;
 
     /// Query parameters for fetching transactions.
     #[derive(bon::Builder, Serialize, Debug, Clone, Default)]
@@ -78,6 +79,10 @@ pub mod query_params {
 
 /// JSON schemas for transaction endpoints.
 pub mod schemas {
+    use rust_decimal::Decimal;
+    use serde::Deserialize;
+    use serde::Serialize;
+
     use crate::core::AttachmentId;
     use crate::core::CategoryId;
     use crate::core::Currency;
@@ -87,9 +92,6 @@ pub mod schemas {
     use crate::core::TagId;
     use crate::core::TransactionId;
     use crate::core::UserId;
-    use rust_decimal::Decimal;
-    use serde::Deserialize;
-    use serde::Serialize;
 
     /// Status of a Lunch Money transaction.
     #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

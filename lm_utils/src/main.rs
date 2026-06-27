@@ -16,17 +16,16 @@
 //! shared `--dry-run` flag is hoisted to the top level (global) and flows into
 //! every tool through the [`ToolContext`].
 
+use std::path::Path;
+use std::path::PathBuf;
+
 use anstream::eprintln;
 use anyhow::Context;
 use clap::Parser;
 use clap::Subcommand;
-use std::path::Path;
-use std::path::PathBuf;
-
 use lm_common::cli::cli_styles;
 use lm_common::tool::Tool;
 use lm_common::tool::ToolContext;
-
 use lm_payslip_importer::PayslipTool;
 use lm_splitwise_sync::SplitwiseTool;
 use lm_venmo_balfixer::VenmoTool;

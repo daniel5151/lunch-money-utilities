@@ -1,8 +1,9 @@
+use std::fmt;
+
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
 use serde::Serializer;
-use std::fmt;
 
 /// A structured wrapper around transaction external IDs to distinguish
 /// Splitwise transaction IDs from other generic external IDs.

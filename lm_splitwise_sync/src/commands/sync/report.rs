@@ -1,13 +1,15 @@
-use crate::api::lunch_money::schema::CategoryId;
-use crate::api::lunch_money::schema::TransactionId;
-use crate::style::*;
+use std::collections::HashMap;
+
 use anstream::println;
 use anyhow::Context;
 use rust_decimal::Decimal;
-use std::collections::HashMap;
 use tabled::Table;
 use tabled::Tabled;
 use tabled::settings::Style;
+
+use crate::api::lunch_money::schema::CategoryId;
+use crate::api::lunch_money::schema::TransactionId;
+use crate::style::*;
 
 #[derive(Tabled)]
 struct SyncRecord {
