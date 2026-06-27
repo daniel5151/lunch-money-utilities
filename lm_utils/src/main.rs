@@ -17,8 +17,11 @@
 //! every tool through the [`ToolContext`].
 
 use anstream::eprintln;
+use anyhow::Context;
 use clap::Parser;
 use clap::Subcommand;
+use std::path::Path;
+use std::path::PathBuf;
 
 use lm_common::cli::cli_styles;
 use lm_common::tool::Tool;
@@ -45,7 +48,7 @@ struct Cli {
 
     /// Path to the configuration file (defaults to lm_utils.toml).
     #[arg(long, global = true, short = 'c')]
-    config: Option<std::path::PathBuf>,
+    config: Option<PathBuf>,
 
     #[command(subcommand)]
     tool: ToolCmd,
@@ -113,10 +116,15 @@ async fn run() -> anyhow::Result<()> {
         }
     };
 
-    let resolved_path = lm_common::config::resolve_config_path(cli.config.as_deref());
+    let resolved_path = resolve_config_path(cli.config.as_deref());
 
     let (common_config, doc_opt) = if resolved_path.exists() {
-        let (doc, _) = lm_common::config::parse_at(&resolved_path)?;
+        let path: &Path = &resolved_path;
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read config file from {}", path.display()))?;
+        let doc: toml_edit::DocumentMut = content
+            .parse()
+            .with_context(|| format!("Malformed config file {}", path.display()))?;
         let common = lm_common::config::common_section(&doc)?;
         (common, Some(doc))
     } else {
@@ -183,7 +191,7 @@ fn busybox_argv() -> Vec<std::ffi::OsString> {
 
     let basename = args
         .first()
-        .and_then(|a| std::path::Path::new(a).file_name())
+        .and_then(|a| Path::new(a).file_name())
         .map(|s| s.to_string_lossy().into_owned());
 
     if let Some(basename) = basename {
@@ -199,4 +207,33 @@ fn busybox_argv() -> Vec<std::ffi::OsString> {
     }
 
     args
+}
+
+/// Locates the `lm_utils.toml` configuration file.
+///
+/// Searches the user-provided path first (if any), then checks the current working
+/// directory, and finally checks the directory of the running executable.
+fn resolve_config_path(user_path: Option<&Path>) -> PathBuf {
+    if let Some(path) = user_path {
+        return path.to_path_buf();
+    }
+
+    let filename = Path::new(lm_common::config::DEFAULT_CONFIG_FILENAME);
+
+    // 1. Current working directory.
+    if filename.exists() {
+        return filename.to_path_buf();
+    }
+
+    // 2. Directory of the running executable.
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let candidate = exe_dir.join(filename);
+            if candidate.exists() {
+                return candidate;
+            }
+        }
+    }
+
+    filename.to_path_buf()
 }

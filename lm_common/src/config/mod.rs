@@ -21,10 +21,9 @@
 //! ```
 //!
 //! The document is parsed with [`toml_edit`] (preserving comments and ordering
-//! so `init` can rewrite it in place — see [`editor`]). Each tool extracts and
-//! deserializes only its own section via [`deserialize_section`]; the shared
-//! [`CommonConfig`] is read via [`common_section`]. The loader itself knows
-//! nothing about any specific tool's section shape.
+//! so `init` can rewrite it in place — see [`editor`]). Each tool's configuration
+//! section is deserialized via [`optional_section`], and the shared
+//! [`CommonConfig`] is read via [`common_section`].
 
 pub mod editor;
 pub mod loader;
@@ -33,11 +32,7 @@ use std::time::Duration;
 
 pub use loader::DEFAULT_CONFIG_FILENAME;
 pub use loader::common_section;
-pub use loader::deserialize_section;
-pub use loader::load_document;
 pub use loader::optional_section;
-pub use loader::parse_at;
-pub use loader::resolve_config_path;
 
 /// The shared `[common]` config table.
 ///

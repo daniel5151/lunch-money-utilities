@@ -18,6 +18,7 @@ anyhow.workspace = true
 clap.workspace = true
 rustls.workspace = true
 tokio.workspace = true
+toml_edit.workspace = true
 
 [lints]
 workspace = true
