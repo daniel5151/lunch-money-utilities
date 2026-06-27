@@ -1,4 +1,2 @@
 /target
-/lm_payslip_importer.toml
-/lm_splitwise_sync.toml
-/lm_venmo_balfixer.toml
+/lm_utils.toml
