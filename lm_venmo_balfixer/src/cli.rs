@@ -20,6 +20,14 @@ pub struct ReconcileArgs {
     /// Time duration from today to scan for transactions (e.g., "30d", "2w", "3mon")
     #[arg(value_name = "TIME_SPAN", value_parser = parse_duration)]
     pub duration: jiff::Span,
+
+    /// Fix up Venmo transaction payee names and notes by splitting the original name
+    #[arg(long)]
+    pub fixup_payee: bool,
+
+    /// Force fixup even if the transaction has been modified by a human (created_at != updated_at)
+    #[arg(long, requires = "fixup_payee")]
+    pub force_fixup: bool,
 }
 
 #[derive(Args, Debug)]
