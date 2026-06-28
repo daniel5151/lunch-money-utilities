@@ -1,11 +1,12 @@
+use anstream::println;
 use anyhow::Context;
 use anyhow::Result;
-use anstream::println;
 use lunch_money::transactions::schemas::UpdateObject;
 
 use crate::cli::PayeeArgs;
+use crate::commands::reconcile::fetch_all_transactions;
+use crate::commands::reconcile::resolve_account_id;
 use crate::config::Config;
-use crate::commands::reconcile::{fetch_all_transactions, resolve_account_id};
 use crate::style::*;
 
 pub async fn run_payee(

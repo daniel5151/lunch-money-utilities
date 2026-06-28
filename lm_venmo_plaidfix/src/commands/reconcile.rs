@@ -323,5 +323,3 @@ fn is_venmo_transfer(t: &Transaction<serde_json::Value, String>, venmo_id: Plaid
         .unwrap_or(false);
     payee_match || orig_match || notes_match
 }
-
-
