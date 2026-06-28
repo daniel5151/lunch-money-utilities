@@ -5,7 +5,7 @@ members = [
     "lm_common",
     "lm_payslip_importer",
     "lm_splitwise_sync",
-    "lm_venmo_balfixer",
+    "lm_venmo_plaidfix",
     "lm_utils",
 ]
 default-members = [
@@ -22,7 +22,7 @@ lunch_money = { path = "lunch_money" }
 lm-common = { path = "lm_common" }
 lm-payslip-importer = { path = "lm_payslip_importer" }
 lm-splitwise-sync = { path = "lm_splitwise_sync" }
-lm-venmo-balfixer = { path = "lm_venmo_balfixer" }
+lm-venmo-plaidfix = { path = "lm_venmo_plaidfix" }
 
 regex = "1.10"
 

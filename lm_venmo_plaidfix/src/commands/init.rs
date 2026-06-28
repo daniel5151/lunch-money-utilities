@@ -13,7 +13,7 @@ pub async fn run_init(_args: InitArgs, output_path: std::path::PathBuf) -> Resul
     let mut doc = lm_common::config::editor::read_or_new(&output_path)?;
 
     println! {};
-    println! { "{STYLE_HEADER}⚙️  Configuring Lunch Money Venmo Balance Fixer{STYLE_HEADER:#}" };
+    println! { "{STYLE_HEADER}⚙️  Configuring Lunch Money Venmo Plaid Fixer{STYLE_HEADER:#}" };
     println! { "{STYLE_DIM}─────────────────────────────────────────────────────────────────{STYLE_DIM:#}" };
     println! { "{STYLE_INFO}This wizard will help you set up {}.{STYLE_INFO:#}", output_path.display() };
     println! {};
@@ -77,7 +77,7 @@ bank_acct = "{}"
 
     println! {};
     println! { "{STYLE_SUCCESS}🎉 Configuration successfully written to {}{STYLE_SUCCESS:#}", output_path.display() };
-    println! { "You can now run: lm-utils venmo-balfixer reconcile 30d" };
+    println! { "You can now run: lm-utils venmo-plaidfix reconcile 30d" };
 
     Ok(())
 }

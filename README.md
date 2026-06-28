@@ -24,7 +24,7 @@ foundation... it makes sense to keep 'em all under one roof.
 | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
 | [`lm-splitwise-sync`](lm_splitwise_sync/README.md)     | Sync Splitwise transactions and outstanding balances into (per-currency) Lunch Money accounts.                                   |
 | [`lm-payslip-importer`](lm_payslip_importer/README.md) | Break down payslip events (direct deposits, RSU vests) into granular transactions (taxes, imputed income, reimbursements, etc.). |
-| [`lm-venmo-balfixer`](lm_venmo_balfixer/README.md)     | Fixup Plaid-synced Venmo accounts to follow proper double-entry accounting principles.                                           |
+| [`lm-venmo-plaidfix`](lm_venmo_plaidfix/README.md)     | Fixup various issues caused by Venmo's suboptimal Plaid integration.                                                             |
 
 The user-facing entry point to all tools is the **`lm-utils` binary**, which can be run in one of two modes:
 
@@ -33,7 +33,7 @@ The user-facing entry point to all tools is the **`lm-utils` binary**, which can
 ```console
 $ lm-utils splitwise-sync sync window --window "3 days"
 $ lm-utils payslip-importer import ./payslip.pdf
-$ lm-utils venmo-balfixer reconcile 30d
+$ lm-utils venmo-plaidfix reconcile 30d
 ```
 
 ### Subcommand aliases via `argv[0]`
@@ -48,7 +48,7 @@ $ ./lm-splitwise-sync sync window --window "3 days"   # == lm-utils splitwise-sy
 ```
 
 Recognized argv[0] names must be prefixed with `lm-` followed by the tool subcommand names:
-`lm-splitwise-sync`, `lm-payslip-importer`, and `lm-venmo-balfixer`.
+`lm-splitwise-sync`, `lm-payslip-importer`, and `lm-venmo-plaidfix`.
 
 ## Support Crates
 
@@ -89,7 +89,7 @@ Running any tool's `init` will generate a new file, **or extend an existing file
 
 ```console
 $ lm-utils splitwise-sync init   # writes/updates [common] + [splitwise]
-$ lm-utils venmo-balfixer init   # adds [venmo] to the same file, in place
+$ lm-utils venmo-plaidfix init   # adds [venmo] to the same file, in place
 ```
 
 Each `init` **upserts only its own section** into an existing `lm_utils.toml`,

@@ -19,7 +19,7 @@ BINARY_NAME="lm-utils-x86_64-unknown-linux-musl"
 #
 #   ln -s lm-utils lm-payslip-importer
 #   ln -s lm-utils lm-splitwise-sync
-#   ln -s lm-utils lm-venmo-balfixer
+#   ln -s lm-utils lm-venmo-plaidfix
 #
 cp "$TARGET_DIR/lm-utils" "$TARGET_DIR/$BINARY_NAME"
 cp "$TARGET_DIR/lm-utils.dwp" "$TARGET_DIR/${BINARY_NAME}.dwp"

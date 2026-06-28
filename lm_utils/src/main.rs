@@ -5,7 +5,7 @@
 //!
 //! 1. **argv0 (busybox) dispatch** — when the binary is invoked through a
 //!    symlink whose basename starts with `lm-` followed by a tool's stable name
-//!    (e.g. `lm-payslip-importer`, `lm-splitwise-sync`, `lm-venmo-balfixer`),
+//!    (e.g. `lm-payslip-importer`, `lm-splitwise-sync`, `lm-venmo-plaidfix`),
 //!    that tool runs directly, exactly as the former standalone binaries did.
 //! 2. **explicit dispatch** — `lm-utils <tool> ...` selects the tool by
 //!    subcommand.
@@ -28,7 +28,7 @@ use lm_common::tool::Tool;
 use lm_common::tool::ToolContext;
 use lm_payslip_importer::PayslipTool;
 use lm_splitwise_sync::SplitwiseTool;
-use lm_venmo_balfixer::VenmoTool;
+use lm_venmo_plaidfix::VenmoTool;
 
 /// Multiplexer for the Lunch Money utility tools.
 #[derive(Parser, Debug)]
@@ -68,8 +68,8 @@ enum ToolCmd {
     SplitwiseSync(<SplitwiseTool as Tool>::Cli),
 
     /// Reconcile Venmo and bank checking accounts in Lunch Money.
-    #[command(name = "venmo-balfixer")]
-    VenmoBalfixer(<VenmoTool as Tool>::Cli),
+    #[command(name = "venmo-plaidfix")]
+    VenmoPlaidfix(<VenmoTool as Tool>::Cli),
 }
 
 /// The stable invocation names that trigger argv0 (busybox) dispatch.
@@ -110,8 +110,8 @@ async fn run() -> anyhow::Result<()> {
         ToolCmd::SplitwiseSync(args) => {
             matches!(args.command, lm_splitwise_sync::cli::Commands::Init(_))
         }
-        ToolCmd::VenmoBalfixer(args) => {
-            matches!(args.command, lm_venmo_balfixer::cli::Commands::Init(_))
+        ToolCmd::VenmoPlaidfix(args) => {
+            matches!(args.command, lm_venmo_plaidfix::cli::Commands::Init(_))
         }
     };
 
@@ -132,7 +132,7 @@ async fn run() -> anyhow::Result<()> {
                 anyhow::bail!(
                     "Configuration file '{}' not found in current directory or \
                      executable directory. Run the relevant tool's `init` subcommand to generate one \
-                     (e.g. `lm-utils venmo-balfixer init`).",
+                     (e.g. `lm-utils venmo-plaidfix init`).",
                     lm_common::config::DEFAULT_CONFIG_FILENAME
                 );
             } else {
@@ -154,7 +154,7 @@ async fn run() -> anyhow::Result<()> {
             let tool_cfg = tool_section::<SplitwiseTool>(&doc_opt)?;
             SplitwiseTool::run(&cx, args, resolved_path, common_config, tool_cfg).await
         }
-        ToolCmd::VenmoBalfixer(args) => {
+        ToolCmd::VenmoPlaidfix(args) => {
             let tool_cfg = tool_section::<VenmoTool>(&doc_opt)?;
             VenmoTool::run(&cx, args, resolved_path, common_config, tool_cfg).await
         }

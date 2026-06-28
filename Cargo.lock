@@ -1249,14 +1249,14 @@ dependencies = [
  "lm-common",
  "lm-payslip-importer",
  "lm-splitwise-sync",
- "lm-venmo-balfixer",
+ "lm-venmo-plaidfix",
  "rustls",
  "tokio",
  "toml_edit",
 ]
 
 [[package]]
-name = "lm-venmo-balfixer"
+name = "lm-venmo-plaidfix"
 version = "0.1.0"
 dependencies = [
  "anstream",

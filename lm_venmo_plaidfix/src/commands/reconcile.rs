@@ -34,7 +34,7 @@ pub async fn run_reconcile(
         .checked_sub(args.duration)
         .context("Failed to calculate start date")?;
 
-    println! { "{STYLE_HEADER}Lunch Money Venmo Balance Fixer (lm-venmo-balfixer){STYLE_HEADER:#}" };
+    println! { "{STYLE_HEADER}Lunch Money Venmo Plaid Fixer (lm-venmo-plaidfix){STYLE_HEADER:#}" };
     println! { "{STYLE_INFO}Scanning from {} to {}{STYLE_INFO:#}", start_date, end_date };
 
     let lm_client = cx.lunch_money(api_key.to_string(), retry.into());

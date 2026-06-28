@@ -1,5 +1,5 @@
 [package]
-name = "lm-venmo-balfixer"
+name = "lm-venmo-plaidfix"
 version.workspace = true
 edition.workspace = true
 

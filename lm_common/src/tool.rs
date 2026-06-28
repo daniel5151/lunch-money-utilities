@@ -51,7 +51,7 @@ impl ToolContext {
 /// subcommand, builds a [`ToolContext`], and calls [`Tool::run`].
 pub trait Tool {
     /// Stable invocation name (argv0 basename / subcommand), e.g.
-    /// `"venmo-balfixer"`.
+    /// `"venmo-plaidfix"`.
     const NAME: &'static str;
 
     /// The name of the section in `lm_utils.toml` for this tool, e.g. `"payslip"`, `"splitwise"`, or `"venmo"`.
