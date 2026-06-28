@@ -11,6 +11,8 @@ pub struct Cli {
 pub enum Commands {
     /// Reconcile Venmo and Bank checking accounts
     Reconcile(ReconcileArgs),
+    /// Fix up Venmo transaction payee names and notes by splitting the original name
+    Payee(PayeeArgs),
     /// Run the interactive setup wizard to configure lm_utils.toml
     Init(InitArgs),
 }
@@ -20,13 +22,16 @@ pub struct ReconcileArgs {
     /// Time duration from today to scan for transactions (e.g., "30d", "2w", "3mon")
     #[arg(value_name = "TIME_SPAN", value_parser = parse_duration)]
     pub duration: jiff::Span,
+}
 
-    /// Fix up Venmo transaction payee names and notes by splitting the original name
-    #[arg(long)]
-    pub fixup_payee: bool,
+#[derive(Args, Debug)]
+pub struct PayeeArgs {
+    /// Time duration from today to scan for transactions (e.g., "30d", "2w", "3mon")
+    #[arg(value_name = "TIME_SPAN", value_parser = parse_duration)]
+    pub duration: jiff::Span,
 
     /// Force fixup even if the transaction has been modified by a human (created_at != updated_at)
-    #[arg(long, requires = "fixup_payee")]
+    #[arg(long)]
     pub force_fixup: bool,
 }
 

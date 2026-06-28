@@ -49,6 +49,28 @@ impl Tool for VenmoTool {
                 )
                 .await?;
             }
+            cli::Commands::Payee(payee_args) => {
+                let config = tool_config.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Missing [venmo] section in lm_utils.toml. Run \
+                         `lm-utils venmo-plaidfix init` to configure it."
+                    )
+                })?;
+                let lm_api_key = common_config.lm_api_key.clone().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Missing [common].lm_api_key in lm_utils.toml. Run \
+                         `lm-utils venmo-plaidfix init` to configure it."
+                    )
+                })?;
+                commands::payee::run_payee(
+                    cx,
+                    &config,
+                    &lm_api_key,
+                    common_config.retry,
+                    payee_args,
+                )
+                .await?;
+            }
         }
         Ok(())
     }

@@ -10,6 +10,8 @@ Venmo's plaid integration "stuffs" the transaction's note into the payee as a qu
 
 This tool automatically fixes up imports by extracting the quoted component of the `Payee` into the `Notes` field.
 
+> NOTE: By default, the tool only fixes up transactions that haven't been manually modified (i.e., where `created_at == updated_at`) to prevent overwriting custom edits. If you wish to fixup a backlog of transactions, you can use `--force-fixup`.
+
 ### 2. Double-Entry Balance Reconciliation (Synthetic Inflows)
 
 When your Venmo balance is insufficient to cover a payment, Venmo initiates an ACH debit from your linked bank account. Plaid records the payment transaction in your Venmo history, but completely omits the matching transfer transaction that moved the cash from your bank into Venmo.
@@ -49,21 +51,31 @@ bank_acct = "Bank Checking"
 
 ## Running
 
-The tool exposes the `reconcile` command, which takes a scan duration window
-(e.g. `30d`, `2w`, `3months`):
+The tool exposes two subcommands, `reconcile` and `payee`, both taking a scan duration window (e.g. `30d`, `2w`, `3months`):
+
+### 1. Payee Subcommand
+Parses original transaction names to split the payee and notes fields.
 
 ```bash
-# Dry run: display what would be created / updated without making changes
+# Dry run: display what would be fixed up without making changes
+lm-utils venmo-plaidfix payee 30d --dry-run
+
+# Fix up payee names and note descriptions for the last 30 days
+lm-utils venmo-plaidfix payee 30d
+
+# Force payee/note fixup even if transactions were already manually updated
+lm-utils venmo-plaidfix payee 30d --force-fixup
+```
+
+### 2. Reconcile Subcommand
+Scans for unmatched checking transfers and inserts synthetic inflows representing implicit funding events.
+
+```bash
+# Dry run: display what would be created without making changes
 lm-utils venmo-plaidfix reconcile 30d --dry-run
 
 # Reconcile and insert synthetic transactions for the last 30 days
 lm-utils venmo-plaidfix reconcile 30d
-
-# Reconcile and fix up transaction payees/notes for the last 30 days
-lm-utils venmo-plaidfix reconcile 30d --fixup-payee
-
-# Force payee/note fixup even if transactions were manually updated
-lm-utils venmo-plaidfix reconcile 30d --fixup-payee --force-fixup
 ```
 
 ### Behavior notes
@@ -103,7 +115,8 @@ After=network.target
 [Service]
 Type=oneshot
 WorkingDirectory=/path/to/lm-utils
-ExecStart=/path/to/lm-utils/target/release/lm-utils venmo-plaidfix reconcile 30d --fixup-payee
+ExecStart=/path/to/lm-utils/target/release/lm-utils venmo-plaidfix reconcile 30d
+ExecStart=/path/to/lm-utils/target/release/lm-utils venmo-plaidfix payee 30d
 ```
 > [!NOTE]
 > Replace `/path/to/lm-utils` with the absolute path to your cloned repository (where `lm_utils.toml` and the compiled `lm-utils` binary are located). Do not use `~` in unit files as systemd does not perform shell expansion (though systemd specifiers like `%h` can be used to refer to your home directory).
