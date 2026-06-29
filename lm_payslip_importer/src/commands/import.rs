@@ -127,8 +127,12 @@ pub(crate) async fn run_import(
     let mut pages_to_process = Vec::new();
     for pdf_path in &cli.payslip_pdfs {
         println! { "{STYLE_HEADER}📄 Reading payslip PDF: {}{STYLE_HEADER:#}", pdf_path.display() };
-        let kind =
-            crate::payslip::detect_kind(pdf_path)?.unwrap_or(crate::payslip::PayslipKind::Workday);
+        let kind = crate::payslip::detect_kind(pdf_path)?.ok_or_else(|| {
+            anyhow!(
+                "Failed to identify payslip provider for '{}'. Check if this payroll provider format is supported or if the PDF is malformed.",
+                pdf_path.display()
+            )
+        })?;
         println! { "  Detected payslip provider: {kind}" };
 
         let all_pages = crate::payslip::parse_pdf(pdf_path, kind)?;

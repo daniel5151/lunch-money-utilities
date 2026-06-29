@@ -158,7 +158,7 @@ pub fn detect_kind(pdf_path: &std::path::Path) -> Result<Option<PayslipKind>> {
     let head = head.replace('\u{0}', "");
     let head = head.as_str();
     let upper = head.to_uppercase();
-    if upper.contains("MICROSOFT CORPORATION") {
+    if upper.contains("MICROSOFT CORP") {
         // Two Microsoft formats share this string. The ADP-generated one carries
         // the ADP footer / its distinctive "Period Beg/End:" header band; the
         // in-house "Official Copy" does not.

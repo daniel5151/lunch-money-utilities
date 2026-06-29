@@ -35,7 +35,7 @@ pub(crate) async fn run_init(
         }
 
         // 1. Parse PDFs to gather unique items
-        let per_backend_items = parse_pdfs(&args.pdfs);
+        let per_backend_items = parse_pdfs(&args.pdfs)?;
 
         let doc = lm_common::config::editor::read_or_new(&output_path)?;
 
@@ -226,7 +226,7 @@ pub(crate) async fn run_init(
     // at once (e.g. a Workday PDF and a Microsoft PDF), and each provider's
     // unique line items land in that provider's own [backends.<kind>.mapping].
     use crate::payslip::PayslipKind;
-    let per_backend_items = parse_pdfs(&args.pdfs);
+    let per_backend_items = parse_pdfs(&args.pdfs)?;
 
     // With no seed PDFs we cannot know the provider, so scaffold a single
     // Workday backend (the historical default) with commented example mappings.
@@ -414,7 +414,9 @@ fn toml_escape(s: &str) -> String {
 /// Parse the provided payslip PDFs to gather unique item descriptions.
 fn parse_pdfs(
     pdfs: &[std::path::PathBuf],
-) -> std::collections::BTreeMap<crate::payslip::PayslipKind, std::collections::BTreeSet<String>> {
+) -> anyhow::Result<
+    std::collections::BTreeMap<crate::payslip::PayslipKind, std::collections::BTreeSet<String>>,
+> {
     use crate::payslip::PayslipKind;
     let mut per_backend_items: std::collections::BTreeMap<
         PayslipKind,
@@ -424,15 +426,22 @@ fn parse_pdfs(
     for pdf_path in pdfs {
         println! {};
         println! { "{STYLE_INFO}📄 Parsing payslip PDF to seed mappings: {}{STYLE_INFO:#}", pdf_path.display() };
-        // Detect which payroll provider produced this PDF so seeding works
-        // for any supported backend, not just Workday. Fall back to Workday
-        // if the fingerprint is inconclusive (the historical default).
+        // Detect which payroll provider produced this PDF. If the provider
+        // cannot be identified, error out.
         let kind = match crate::payslip::detect_kind(pdf_path) {
             Ok(Some(k)) => k,
-            Ok(None) => PayslipKind::Workday,
+            Ok(None) => {
+                anyhow::bail!(
+                    "Failed to identify payslip provider for '{}'.",
+                    pdf_path.display()
+                );
+            }
             Err(e) => {
-                eprintln! { "{STYLE_ERROR}❌ Failed to detect payslip provider for {}: {}{STYLE_ERROR:#}", pdf_path.display(), e };
-                continue;
+                anyhow::bail!(
+                    "Failed to detect payslip provider for '{}': {}",
+                    pdf_path.display(),
+                    e
+                );
             }
         };
         println! { "  Detected payslip provider: {kind}" };
@@ -466,7 +475,7 @@ fn parse_pdfs(
             collect(parsed.post_tax_deductions);
         }
     }
-    per_backend_items
+    Ok(per_backend_items)
 }
 
 /// Print the copy-pasteable LLM prompt to stdout.
