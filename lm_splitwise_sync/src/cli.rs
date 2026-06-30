@@ -15,7 +15,7 @@ pub enum Commands {
     Sync(SyncArgs),
     /// Run the interactive setup wizard to configure lm_utils.toml
     Init(InitArgs),
-    /// Query data from Splitwise or Lunch Money
+    /// Query data from Splitwise
     Query(QueryArgs),
     /// Migrate previously imported transactions in Lunch Money
     Migrate(MigrateArgs),
@@ -36,37 +36,6 @@ pub struct QueryArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum QuerySubcommands {
-    /// Query Splitwise expenses
-    Splitwise(QuerySplitwiseArgs),
-    /// Query Lunch Money data
-    #[command(name = "lunchmoney")]
-    LunchMoney(QueryLunchMoneyArgs),
-}
-
-#[derive(Parser, Debug)]
-pub struct QueryLunchMoneyArgs {
-    #[command(subcommand)]
-    pub command: QueryLunchMoneySubcommands,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum QueryLunchMoneySubcommands {
-    /// List what categories the user has set up in Lunch Money
-    Categories,
-    /// List all tags in Lunch Money
-    Tags,
-    /// List all manual accounts in Lunch Money
-    Accounts,
-}
-
-#[derive(Parser, Debug)]
-pub struct QuerySplitwiseArgs {
-    #[command(subcommand)]
-    pub command: QuerySplitwiseSubcommands,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum QuerySplitwiseSubcommands {
     /// Query Splitwise expenses in a given time window
     Window(QuerySplitwiseWindowArgs),
     /// Query Splitwise expenses updated in a given time window, alongside their update events
@@ -78,7 +47,11 @@ pub enum QuerySplitwiseSubcommands {
     Groups,
     /// List all Splitwise transaction categories (parent categories and their subcategories)
     Categories,
+    /// Show Lunch Money manual accounts with their Splitwise currency mappings
+    #[command(name = "account-map")]
+    AccountMap,
 }
+
 
 #[derive(Parser, Debug)]
 pub struct QuerySplitwiseWindowUpdatesArgs {

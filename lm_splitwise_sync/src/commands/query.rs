@@ -304,125 +304,6 @@ pub(crate) async fn run_query_splitwise_groups(ctx: &crate::AppContext) -> anyho
     Ok(())
 }
 
-pub(crate) async fn run_query_lunchmoney_categories(ctx: &crate::AppContext) -> anyhow::Result<()> {
-    let lm_client = &ctx.lunch_money;
-
-    let bar = "─".repeat(80);
-
-    println! {};
-    println! { "{STYLE_HEADER}🔍 Querying Lunch Money Categories{STYLE_HEADER:#}" };
-    println! { "{STYLE_DIM}{bar}{STYLE_DIM:#}" };
-
-    let categories = lm_client.fetch_categories(Some("nested")).await?;
-
-    if categories.is_empty() {
-        println! { "{STYLE_WARNING}No categories found.{STYLE_WARNING:#}" };
-        println! {};
-        return Ok(());
-    }
-
-    println! { "  {:<10} {}", "ID", "Category Name" };
-    println! { "  {STYLE_DIM}{bar}{STYLE_DIM:#}" };
-
-    let mut has_archived = false;
-
-    for cat in categories {
-        let id_bracket = format!("[{}]", cat.id);
-        let mut display_name = cat.name.clone();
-        if cat.archived {
-            has_archived = true;
-            display_name.push_str(" *");
-            println! { "  {STYLE_DIM}{:<10} {}{STYLE_DIM:#}", id_bracket, display_name };
-        } else {
-            println! { "  {:<10} {}", id_bracket, display_name };
-        }
-
-        if cat.is_group {
-            if let Some(children) = cat.children {
-                let count = children.len();
-                for (idx, child) in children.into_iter().enumerate() {
-                    let branch = if idx == count - 1 {
-                        "└──"
-                    } else {
-                        "├──"
-                    };
-                    let child_id_bracket = format!("[{}]", child.id);
-                    let mut child_display_name = child.name.clone();
-                    if child.archived {
-                        has_archived = true;
-                        child_display_name.push_str(" *");
-                        println! { "  {STYLE_DIM}{} {:<9} {}{STYLE_DIM:#}", branch, child_id_bracket, child_display_name };
-                    } else {
-                        println! { "  {} {:<9} {}", branch, child_id_bracket, child_display_name };
-                    }
-                }
-            }
-        }
-    }
-    println! {};
-
-    if has_archived {
-        println! { "  {STYLE_DIM}* denotes archived categories{STYLE_DIM:#}" };
-        println! {};
-    }
-    Ok(())
-}
-
-#[derive(Tabled)]
-struct TagRecord {
-    #[tabled(rename = "ID")]
-    id: String,
-    #[tabled(rename = "Tag Name")]
-    tag_name: String,
-}
-
-pub(crate) async fn run_query_lunchmoney_tags(ctx: &crate::AppContext) -> anyhow::Result<()> {
-    let lm_client = &ctx.lunch_money;
-
-    println! {};
-    println! { "{STYLE_HEADER}🔍 Querying Lunch Money Tags{STYLE_HEADER:#}" };
-    println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
-
-    let tags = lm_client.fetch_tags().await?;
-
-    if tags.is_empty() {
-        println! { "{STYLE_WARNING}No tags found.{STYLE_WARNING:#}" };
-        println! {};
-        return Ok(());
-    }
-
-    let mut has_archived = false;
-    let mut records = Vec::new();
-
-    for tag in tags {
-        let id_bracket = format!("[{}]", tag.id);
-        let mut display_name = tag.name.clone();
-        if tag.archived {
-            has_archived = true;
-            display_name.push_str(" *");
-            records.push(TagRecord {
-                id: format!("{}{}{:#}", STYLE_DIM, id_bracket, STYLE_DIM),
-                tag_name: format!("{}{}{:#}", STYLE_DIM, display_name, STYLE_DIM),
-            });
-        } else {
-            records.push(TagRecord {
-                id: id_bracket,
-                tag_name: display_name,
-            });
-        }
-    }
-
-    let mut table = Table::new(records);
-    table.with(Style::rounded());
-    println!("{}", table);
-    println! {};
-
-    if has_archived {
-        println! { "  {STYLE_DIM}* denotes archived tags{STYLE_DIM:#}" };
-        println! {};
-    }
-    Ok(())
-}
 
 pub(crate) async fn run_query_splitwise_categories(ctx: &crate::AppContext) -> anyhow::Result<()> {
     let sw_client = &ctx.splitwise;
@@ -464,7 +345,7 @@ pub(crate) async fn run_query_splitwise_categories(ctx: &crate::AppContext) -> a
 }
 
 #[derive(Tabled)]
-struct AccountRecord {
+struct AccountMapRecord {
     #[tabled(rename = "ID")]
     id: String,
     #[tabled(rename = "Name")]
@@ -479,12 +360,12 @@ struct AccountRecord {
     mapped: String,
 }
 
-pub(crate) async fn run_query_lunchmoney_accounts(ctx: &crate::AppContext) -> anyhow::Result<()> {
+pub(crate) async fn run_query_account_map(ctx: &crate::AppContext) -> anyhow::Result<()> {
     let config = &ctx.config;
     let lm_client = &ctx.lunch_money;
 
     println! {};
-    println! { "{STYLE_HEADER}🔍 Querying Lunch Money Manual Accounts{STYLE_HEADER:#}" };
+    println! { "{STYLE_HEADER}🔍 Lunch Money Accounts — Splitwise Currency Map{STYLE_HEADER:#}" };
     println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
 
     let mut accounts = lm_client.fetch_manual_accounts().await?;
@@ -514,9 +395,6 @@ pub(crate) async fn run_query_lunchmoney_accounts(ctx: &crate::AppContext) -> an
         _ => a.name.cmp(&b.name),
     });
 
-    // We calculate the max width of the balance and currency sub-components. By right-aligning
-    // the numeric part and left-aligning the currency code, we ensure that decimals and
-    // currency codes line up vertically across all rows, independent of negative signs.
     let super::MaxWidths {
         max_num_len,
         max_currency_len,
@@ -556,7 +434,7 @@ pub(crate) async fn run_query_lunchmoney_accounts(ctx: &crate::AppContext) -> an
             } else {
                 format!("{}{}{:#}", STYLE_DIM, "—", STYLE_DIM)
             };
-            records.push(AccountRecord {
+            records.push(AccountMapRecord {
                 id: format!("{}{}{:#}", STYLE_DIM, id_bracket, STYLE_DIM),
                 name: format!("{}{}{:#}", STYLE_DIM, clean_name, STYLE_DIM),
                 account_type: format!("{}{}{:#}", STYLE_DIM, type_str, STYLE_DIM),
@@ -570,7 +448,7 @@ pub(crate) async fn run_query_lunchmoney_accounts(ctx: &crate::AppContext) -> an
             } else {
                 format!("{}{}{:#}", STYLE_DIM, "—", STYLE_DIM)
             };
-            records.push(AccountRecord {
+            records.push(AccountMapRecord {
                 id: id_bracket,
                 name: clean_name,
                 account_type: type_str,

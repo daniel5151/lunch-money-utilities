@@ -4,6 +4,7 @@ members = [
     "lunch_money",
     "lm_common",
     "lm_payslip_importer",
+    "lm_query",
     "lm_splitwise_sync",
     "lm_venmo_plaidfix",
     "lm_utils",
@@ -21,6 +22,7 @@ edition = "2024"
 lunch_money = { path = "lunch_money" }
 lm-common = { path = "lm_common" }
 lm-payslip-importer = { path = "lm_payslip_importer" }
+lm-query = { path = "lm_query" }
 lm-splitwise-sync = { path = "lm_splitwise_sync" }
 lm-venmo-plaidfix = { path = "lm_venmo_plaidfix" }
 

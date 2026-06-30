@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 lm-common.workspace = true
 lm-payslip-importer.workspace = true
+lm-query.workspace = true
 lm-splitwise-sync.workspace = true
 lm-venmo-plaidfix.workspace = true
 

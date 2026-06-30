@@ -88,38 +88,23 @@ impl Tool for SplitwiseTool {
                         }
                     },
                     cli::Commands::Query(query_args) => match query_args.command {
-                        cli::QuerySubcommands::Splitwise(splitwise_args) => {
-                            match splitwise_args.command {
-                                cli::QuerySplitwiseSubcommands::Window(args) => {
-                                    commands::query::run_query_splitwise_window(&ctx, args).await?;
-                                }
-                                cli::QuerySplitwiseSubcommands::WindowUpdates(args) => {
-                                    commands::query::run_query_splitwise_window_updates(&ctx, args)
-                                        .await?;
-                                }
-                                cli::QuerySplitwiseSubcommands::Group(args) => {
-                                    commands::query::run_query_splitwise_group(&ctx, args).await?;
-                                }
-                                cli::QuerySplitwiseSubcommands::Groups => {
-                                    commands::query::run_query_splitwise_groups(&ctx).await?;
-                                }
-                                cli::QuerySplitwiseSubcommands::Categories => {
-                                    commands::query::run_query_splitwise_categories(&ctx).await?;
-                                }
-                            }
+                        cli::QuerySubcommands::Window(args) => {
+                            commands::query::run_query_splitwise_window(&ctx, args).await?;
                         }
-                        cli::QuerySubcommands::LunchMoney(lunchmoney_args) => {
-                            match lunchmoney_args.command {
-                                cli::QueryLunchMoneySubcommands::Categories => {
-                                    commands::query::run_query_lunchmoney_categories(&ctx).await?;
-                                }
-                                cli::QueryLunchMoneySubcommands::Tags => {
-                                    commands::query::run_query_lunchmoney_tags(&ctx).await?;
-                                }
-                                cli::QueryLunchMoneySubcommands::Accounts => {
-                                    commands::query::run_query_lunchmoney_accounts(&ctx).await?;
-                                }
-                            }
+                        cli::QuerySubcommands::WindowUpdates(args) => {
+                            commands::query::run_query_splitwise_window_updates(&ctx, args).await?;
+                        }
+                        cli::QuerySubcommands::Group(args) => {
+                            commands::query::run_query_splitwise_group(&ctx, args).await?;
+                        }
+                        cli::QuerySubcommands::Groups => {
+                            commands::query::run_query_splitwise_groups(&ctx).await?;
+                        }
+                        cli::QuerySubcommands::Categories => {
+                            commands::query::run_query_splitwise_categories(&ctx).await?;
+                        }
+                        cli::QuerySubcommands::AccountMap => {
+                            commands::query::run_query_account_map(&ctx).await?;
                         }
                     },
                     cli::Commands::Migrate(migrate_args) => match migrate_args.command {

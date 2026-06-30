@@ -1218,6 +1218,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "lm-query"
+version = "0.2.0"
+dependencies = [
+ "anstream",
+ "anyhow",
+ "clap",
+ "lm-common",
+ "lunch_money",
+ "rust_decimal",
+ "serde",
+ "tabled",
+]
+
+[[package]]
 name = "lm-splitwise-sync"
 version = "0.2.0"
 dependencies = [
@@ -1248,6 +1262,7 @@ dependencies = [
  "clap",
  "lm-common",
  "lm-payslip-importer",
+ "lm-query",
  "lm-splitwise-sync",
  "lm-venmo-plaidfix",
  "rustls",
