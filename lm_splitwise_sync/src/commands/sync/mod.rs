@@ -49,6 +49,11 @@ pub enum SyncMode {
         group_query: String,
         force_category: Option<String>,
     },
+    Person {
+        target_person: crate::api::splitwise::schema::Friend,
+        force_category: Option<String>,
+        from: Option<jiff::civil::Date>,
+    },
 }
 
 pub struct SyncOptions {
@@ -215,6 +220,39 @@ impl<'a> SyncOrchestrator<'a> {
                     })
                     .await?
             }
+            SyncMode::Person {
+                target_person,
+                from,
+                ..
+            } => {
+                println! { "{STYLE_HEADER}⚡ Splitwise to Lunch Money Sync Person{}{STYLE_HEADER:#}", dry_run_suffix };
+                println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
+                let person_name = format!(
+                    "{} {}",
+                    target_person.first_name,
+                    target_person.last_name.as_deref().unwrap_or("")
+                )
+                .trim()
+                .to_string();
+                println! { "{STYLE_INFO}👤 Person:{STYLE_INFO:#} {} (ID: {})", person_name, target_person.id };
+                let balance_str =
+                    super::format_person_balances(target_person, self.ctx.config.splitwise.user_id);
+                println! { "{STYLE_INFO}💰 Balance:{STYLE_INFO:#} {}", balance_str };
+                if let Some(f) = from {
+                    println! { "{STYLE_INFO}📅 Offset from:{STYLE_INFO:#} {}", f };
+                }
+                println! {};
+
+                println! { "  {STYLE_DIM}Fetching Splitwise friends and expenses...{STYLE_DIM:#}" };
+                sw_client
+                    .fetch_expenses(&ExpensesQuery {
+                        friend_id: Some(target_person.id),
+                        dated_before: from.map(|f| format!("{}T23:59:59Z", f)),
+                        limit: Some(0),
+                        ..Default::default()
+                    })
+                    .await?
+            }
         };
 
         // Prepare helper map for printing and CSV writing
@@ -248,6 +286,10 @@ impl<'a> SyncOrchestrator<'a> {
 
         let force_category_id = match &opts.mode {
             SyncMode::Group {
+                force_category: Some(fc),
+                ..
+            } => Some(resolve_force_category(lm_client, fc, &mut lm_category_names).await?),
+            SyncMode::Person {
                 force_category: Some(fc),
                 ..
             } => Some(resolve_force_category(lm_client, fc, &mut lm_category_names).await?),
@@ -301,6 +343,18 @@ impl<'a> SyncOrchestrator<'a> {
                     .to_zoned(jiff::tz::TimeZone::UTC)
                     .strftime("%Y-%m-%d")
                     .to_string();
+                super::WindowBounds {
+                    start: "2000-01-01".to_string(),
+                    end: end_str,
+                }
+            }
+            SyncMode::Person { from, .. } => {
+                let end_str = from.map(|d| d.to_string()).unwrap_or_else(|| {
+                    jiff::Timestamp::now()
+                        .to_zoned(jiff::tz::TimeZone::UTC)
+                        .strftime("%Y-%m-%d")
+                        .to_string()
+                });
                 super::WindowBounds {
                     start: "2000-01-01".to_string(),
                     end: end_str,
@@ -411,27 +465,56 @@ impl<'a> SyncOrchestrator<'a> {
         plan.inserts.extend(orphaned_inserts);
 
         // Mode specific post-diff deletes filtering
-        if let SyncMode::Group { group_query, .. } = &opts.mode {
-            let target_group = super::resolve_group(&groups, group_query)?;
-            let is_non_group = target_group.id == 0;
-            let group_payee = format!("Splitwise - {}", target_group.name);
+        match &opts.mode {
+            SyncMode::Group { group_query, .. } => {
+                let target_group = super::resolve_group(&groups, group_query)?;
+                let is_non_group = target_group.id == 0;
+                let group_payee = format!("Splitwise - {}", target_group.name);
 
-            for (_ext_id, t) in lm_map {
-                let belongs_to_group = if is_non_group {
-                    !t.payee.starts_with("Splitwise - ")
-                        || t.payee == "Splitwise - Non-group"
-                        || (!group_map
-                            .values()
-                            .any(|gn| t.payee == format!("Splitwise - {}", gn))
-                            && t.payee.starts_with("Splitwise - "))
-                } else {
-                    t.payee == group_payee
-                };
+                for (_ext_id, t) in lm_map {
+                    let belongs_to_group = if is_non_group {
+                        !t.payee.starts_with("Splitwise - ")
+                            || t.payee == "Splitwise - Non-group"
+                            || (!group_map
+                                .values()
+                                .any(|gn| t.payee == format!("Splitwise - {}", gn))
+                                && t.payee.starts_with("Splitwise - "))
+                    } else {
+                        t.payee == group_payee
+                    };
 
-                if belongs_to_group && t.is_split_parent != Some(true) {
-                    plan.deletes.push(t);
+                    if belongs_to_group && t.is_split_parent != Some(true) {
+                        plan.deletes.push(t);
+                    }
                 }
             }
+            SyncMode::Person { target_person, .. } => {
+                let person_payee = format!(
+                    "{} {}",
+                    target_person.first_name,
+                    target_person.last_name.as_deref().unwrap_or("")
+                )
+                .trim()
+                .to_string();
+
+                for (_ext_id, t) in lm_map {
+                    let mut belongs_to_person = t.payee == person_payee;
+
+                    if let Some(MaybeLunchMoneyTxMetadata::Expected(LunchMoneyTxMetadata::Import { original, .. })) = &t.custom_metadata {
+                        let has_user =
+                            original.users.iter().any(|u| u.user_id == target_person.id);
+                        let is_non_group = original.group_id.is_none();
+                        if is_non_group && has_user {
+                            belongs_to_person = true;
+                        }
+                    }
+
+                    if belongs_to_person && t.is_split_parent != Some(true) {
+                        plan.deletes.push(t);
+                    }
+                }
+            }
+            _ => {}
         }
 
         // Display/Reporting Stage
@@ -528,6 +611,46 @@ pub(crate) async fn run_sync_group(
             mode: SyncMode::Group {
                 group_query: sync_args.group,
                 force_category: sync_args.force_category,
+            },
+        })
+        .await
+}
+
+pub(crate) async fn run_sync_person(
+    ctx: &crate::AppContext,
+    sync_args: crate::cli::SyncPersonArgs,
+) -> anyhow::Result<()> {
+    let friends = ctx.splitwise.fetch_friends().await?;
+    let target_person = super::resolve_person(&friends, &sync_args.person)?;
+
+    let csv_path = match sync_args.csv {
+        Some(Some(path)) => Some(path),
+        Some(None) => {
+            let person_name = format!(
+                "{} {}",
+                target_person.first_name,
+                target_person.last_name.as_deref().unwrap_or("")
+            )
+            .trim()
+            .to_string();
+            let filename = format!("{}.csv", person_name);
+            Some(std::path::PathBuf::from(filename))
+        }
+        None => None,
+    };
+
+    let orchestrator = SyncOrchestrator::new(ctx);
+    orchestrator
+        .execute(SyncOptions {
+            dry_run: ctx.dry_run,
+            tag: sync_args.tag,
+            no_loan_tag: sync_args.no_loan_tag,
+            no_ignore: sync_args.no_ignore,
+            csv_path,
+            mode: SyncMode::Person {
+                target_person,
+                force_category: sync_args.force_category,
+                from: sync_args.from,
             },
         })
         .await

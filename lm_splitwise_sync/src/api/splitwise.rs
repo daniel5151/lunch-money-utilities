@@ -121,6 +121,8 @@ pub struct ExpensesQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub friend_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_after: Option<String>,
@@ -235,6 +237,7 @@ pub mod schema {
         pub id: u64,
         pub first_name: String,
         pub last_name: Option<String>,
+        pub email: Option<String>,
         pub balance: Vec<Balance>,
     }
 

@@ -259,3 +259,88 @@ pub(crate) fn resolve_group(
     // 3. Not found
     anyhow::bail!("No Splitwise group found matching \"{}\".", input_trimmed)
 }
+
+pub(crate) fn resolve_person(
+    friends: &[crate::api::splitwise::schema::Friend],
+    input: &str,
+) -> anyhow::Result<crate::api::splitwise::schema::Friend> {
+    let input_trimmed = input.trim();
+    let parsed_id = input_trimmed.parse::<u64>().ok();
+
+    // Search for matches by ID, email, first name, or full name
+    let mut exact_matches = Vec::new();
+    for f in friends {
+        let matches_id = parsed_id == Some(f.id);
+        let matches_email =
+            f.email.as_deref().map(|e| e.to_lowercase()) == Some(input_trimmed.to_lowercase());
+
+        let full_name = match &f.last_name {
+            Some(last) => format!("{} {}", f.first_name, last),
+            None => f.first_name.clone(),
+        };
+        let matches_name = full_name.to_lowercase() == input_trimmed.to_lowercase()
+            || f.first_name.to_lowercase() == input_trimmed.to_lowercase();
+
+        if matches_id || matches_email || matches_name {
+            exact_matches.push(f.clone());
+        }
+    }
+
+    if exact_matches.len() > 1 {
+        let mut msg = format!("Multiple people found matching \"{}\":\n", input_trimmed);
+        for f in &exact_matches {
+            let email_str = f.email.as_deref().unwrap_or("no email");
+            let full_name = match &f.last_name {
+                Some(last) => format!("{} {}", f.first_name, last),
+                None => f.first_name.clone(),
+            };
+            msg.push_str(&format!(
+                "  - ID: {} (Name: \"{}\", Email: \"{}\")\n",
+                f.id, full_name, email_str
+            ));
+        }
+        msg.push_str("Please specify the person by their ID to resolve ambiguity.");
+        anyhow::bail!("{}", msg);
+    }
+
+    if exact_matches.len() == 1 {
+        return Ok(exact_matches[0].clone());
+    }
+
+    anyhow::bail!("No Splitwise person found matching \"{}\".", input_trimmed)
+}
+
+pub(crate) fn format_person_balances(
+    person: &crate::api::splitwise::schema::Friend,
+    _user_id: u64,
+) -> String {
+    let mut parts = Vec::new();
+    for bal in &person.balance {
+        let amount = bal.amount;
+        let currency = &bal.currency_code;
+        let amount_str = format!("{:.2} {}", amount, currency);
+        let styled = if amount.is_sign_negative() {
+            format!(
+                "{}{}{}",
+                STYLE_ERROR,
+                amount_str,
+                STYLE_ERROR.render_reset()
+            )
+        } else if amount.is_zero() {
+            format!("{}{}{}", STYLE_DIM, amount_str, STYLE_DIM.render_reset())
+        } else {
+            format!(
+                "{}{}{}",
+                STYLE_SUCCESS,
+                amount_str,
+                STYLE_SUCCESS.render_reset()
+            )
+        };
+        parts.push(styled);
+    }
+    if parts.is_empty() {
+        format!("{}—{}", STYLE_DIM, STYLE_DIM.render_reset())
+    } else {
+        parts.join(", ")
+    }
+}

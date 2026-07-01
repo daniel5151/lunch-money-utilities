@@ -124,6 +124,8 @@ pub enum SyncSubcommands {
     Window(SyncWindowArgs),
     /// Sync all transactions corresponding to a specific Splitwise group
     Group(SyncGroupArgs),
+    /// Sync all transactions corresponding to a specific Splitwise person
+    Person(SyncPersonArgs),
     /// Sync user's global Splitwise balances into Lunch Money's manual accounts
     Balances(SyncBalancesArgs),
 }
@@ -193,6 +195,37 @@ pub struct SyncGroupArgs {
     pub no_ignore: bool,
 
     /// Path to a new CSV file to dump the sync operations (defaults to <group_name>.csv if omitted)
+    #[arg(long, num_args = 0..=1)]
+    #[expect(clippy::option_option)]
+    pub csv: Option<Option<std::path::PathBuf>>,
+
+    /// Skip the configured loan_tag in config toml
+    #[arg(long)]
+    pub no_loan_tag: bool,
+}
+
+#[derive(Parser, Debug)]
+pub struct SyncPersonArgs {
+    /// The Splitwise Person ID, email, or name to synchronize
+    pub person: String,
+
+    /// Optional date to offset the sync from (YYYY-MM-DD, defaults to today's date)
+    #[arg(long)]
+    pub from: Option<jiff::civil::Date>,
+
+    /// Optional tag to associate with imported transactions in Lunch Money
+    #[arg(long)]
+    pub tag: Option<String>,
+
+    /// Force all transactions to get mapped to this Lunch Money category (ID or name)
+    #[arg(long)]
+    pub force_category: Option<String>,
+
+    /// Bypass the check for ignored groups
+    #[arg(long)]
+    pub no_ignore: bool,
+
+    /// Path to a new CSV file to dump the sync operations (defaults to <person_name>.csv if omitted)
     #[arg(long, num_args = 0..=1)]
     #[expect(clippy::option_option)]
     pub csv: Option<Option<std::path::PathBuf>>,

@@ -80,6 +80,9 @@ impl Tool for SplitwiseTool {
                         cli::SyncSubcommands::Group(args) => {
                             commands::sync::run_sync_group(&ctx, args).await?;
                         }
+                        cli::SyncSubcommands::Person(args) => {
+                            commands::sync::run_sync_person(&ctx, args).await?;
+                        }
                         cli::SyncSubcommands::Balances(args) => {
                             commands::sync_balances::run_sync_balances(&ctx, args).await?;
                         }
