@@ -1183,6 +1183,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
+name = "lm-backup"
+version = "0.2.0"
+dependencies = [
+ "anstream",
+ "anyhow",
+ "clap",
+ "jiff",
+ "lm-common",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "lm-common"
 version = "0.2.0"
 dependencies = [
@@ -1260,6 +1276,7 @@ dependencies = [
  "anstream",
  "anyhow",
  "clap",
+ "lm-backup",
  "lm-common",
  "lm-payslip-importer",
  "lm-query",

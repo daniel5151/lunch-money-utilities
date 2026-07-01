@@ -27,6 +27,7 @@ use lm_common::cli::cli_styles;
 use lm_common::tool::Tool;
 use lm_common::tool::ToolContext;
 use lm_payslip_importer::PayslipTool;
+use lm_backup::BackupTool;
 use lm_query::QueryTool;
 use lm_splitwise_sync::SplitwiseTool;
 use lm_venmo_plaidfix::VenmoTool;
@@ -64,6 +65,10 @@ enum ToolCmd {
     #[command(name = "payslip-importer")]
     PayslipImporter(<PayslipTool as Tool>::Cli),
 
+    /// Back up all Lunch Money data to local JSON files.
+    #[command(name = "backup")]
+    Backup(<BackupTool as Tool>::Cli),
+
     /// Query Lunch Money data (categories, tags, accounts).
     #[command(name = "query")]
     Query(<QueryTool as Tool>::Cli),
@@ -78,7 +83,7 @@ enum ToolCmd {
 }
 
 /// The stable invocation names that trigger argv0 (busybox) dispatch.
-const TOOL_NAMES: &[&str] = &[PayslipTool::NAME, QueryTool::NAME, SplitwiseTool::NAME, VenmoTool::NAME];
+const TOOL_NAMES: &[&str] = &[BackupTool::NAME, PayslipTool::NAME, QueryTool::NAME, SplitwiseTool::NAME, VenmoTool::NAME];
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -112,6 +117,7 @@ async fn run() -> anyhow::Result<()> {
         ToolCmd::PayslipImporter(args) => {
             matches!(args.command, lm_payslip_importer::cli::Commands::Init(_))
         }
+        ToolCmd::Backup(_) => false,
         ToolCmd::Query(_) => false,
         ToolCmd::SplitwiseSync(args) => {
             matches!(args.command, lm_splitwise_sync::cli::Commands::Init(_))
@@ -155,6 +161,10 @@ async fn run() -> anyhow::Result<()> {
         ToolCmd::PayslipImporter(args) => {
             let tool_cfg = tool_section::<PayslipTool>(&doc_opt)?;
             PayslipTool::run(&cx, args, resolved_path, common_config, tool_cfg).await
+        }
+        ToolCmd::Backup(args) => {
+            let tool_cfg = tool_section::<BackupTool>(&doc_opt)?;
+            BackupTool::run(&cx, args, resolved_path, common_config, tool_cfg).await
         }
         ToolCmd::Query(args) => {
             let tool_cfg = tool_section::<QueryTool>(&doc_opt)?;
