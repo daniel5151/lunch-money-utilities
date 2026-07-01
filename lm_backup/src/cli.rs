@@ -11,8 +11,8 @@ pub struct Cli {
     #[arg(long)]
     pub skip_attachments: bool,
 
-    /// Earliest transaction date (default: 2015-01-01)
-    #[arg(long, default_value = "2015-01-01")]
+    /// Earliest transaction date
+    #[arg(long, default_value = "1997-12-21")]
     pub start_date: String,
 
     /// Override the Lunch Money API base URL

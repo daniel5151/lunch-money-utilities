@@ -22,6 +22,8 @@ foundation... it makes sense to keep 'em all under one roof.
 
 | Crate                                                  | Description                                                                                                                      |
 | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| [`lm-backup`](lm_backup/README.md)                     | Full backup of all Lunch Money data to raw JSON files.                                                                           |
+| [`lm-query`](lm_query/README.md)                       | Quick read-only queries (categories, tags, accounts).                                                                            |
 | [`lm-splitwise-sync`](lm_splitwise_sync/README.md)     | Sync Splitwise transactions and outstanding balances into (per-currency) Lunch Money accounts.                                   |
 | [`lm-payslip-importer`](lm_payslip_importer/README.md) | Break down payslip events (direct deposits, RSU vests) into granular transactions (taxes, imputed income, reimbursements, etc.). |
 | [`lm-venmo-plaidfix`](lm_venmo_plaidfix/README.md)     | Fixup various issues caused by Venmo's suboptimal Plaid integration.                                                             |
@@ -31,6 +33,8 @@ The user-facing entry point to all tools is the **`lm-utils` binary**, which can
 ### As a subcommand of `lm-utils`
 
 ```console
+$ lm-utils backup
+$ lm-utils query categories
 $ lm-utils splitwise-sync sync window --window "3 days"
 $ lm-utils payslip-importer import ./payslip.pdf
 $ lm-utils venmo-plaidfix reconcile 30d
@@ -48,7 +52,7 @@ $ ./lm-splitwise-sync sync window --window "3 days"   # == lm-utils splitwise-sy
 ```
 
 Recognized argv[0] names must be prefixed with `lm-` followed by the tool subcommand names:
-`lm-splitwise-sync`, `lm-payslip-importer`, and `lm-venmo-plaidfix`.
+`lm-backup`, `lm-query`, `lm-splitwise-sync`, `lm-payslip-importer`, and `lm-venmo-plaidfix`.
 
 ## Support Crates
 
