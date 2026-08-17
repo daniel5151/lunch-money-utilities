@@ -304,7 +304,6 @@ pub(crate) async fn run_query_splitwise_groups(ctx: &crate::AppContext) -> anyho
     Ok(())
 }
 
-
 pub(crate) async fn run_query_splitwise_categories(ctx: &crate::AppContext) -> anyhow::Result<()> {
     let sw_client = &ctx.splitwise;
 

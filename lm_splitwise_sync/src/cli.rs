@@ -52,7 +52,6 @@ pub enum QuerySubcommands {
     AccountMap,
 }
 
-
 #[derive(Parser, Debug)]
 pub struct QuerySplitwiseWindowUpdatesArgs {
     /// Window duration for querying (e.g., "3 days", "24h", "1 week")
@@ -206,6 +205,10 @@ pub struct SyncPersonArgs {
     /// Skip the configured loan_tag in config toml
     #[arg(long)]
     pub no_loan_tag: bool,
+
+    /// Only include non-group transactions (i.e. between individuals, outside a group)
+    #[arg(long)]
+    pub no_group: bool,
 }
 
 #[derive(Parser, Debug)]

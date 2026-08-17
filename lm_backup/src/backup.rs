@@ -4,7 +4,6 @@ use std::path::Path;
 
 use anstream::println;
 use anyhow::Context;
-
 use lm_common::style::*;
 
 use crate::raw_client::RawClient;
@@ -16,8 +15,12 @@ pub(crate) async fn run(
     start_date: &str,
     skip_attachments: bool,
 ) -> anyhow::Result<()> {
-    std::fs::create_dir_all(output_dir)
-        .with_context(|| format!("Failed to create output directory: {}", output_dir.display()))?;
+    std::fs::create_dir_all(output_dir).with_context(|| {
+        format!(
+            "Failed to create output directory: {}",
+            output_dir.display()
+        )
+    })?;
 
     let bar = "─".repeat(60);
 
@@ -177,10 +180,7 @@ async fn fetch_all_transactions(
 
         let resp = client.get("transactions", query).await?;
 
-        let page = resp["transactions"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
+        let page = resp["transactions"].as_array().cloned().unwrap_or_default();
         let has_more = resp["has_more"].as_bool().unwrap_or(false);
 
         let page_len = page.len();

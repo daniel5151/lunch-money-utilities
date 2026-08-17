@@ -24,9 +24,9 @@ impl Tool for QueryTool {
         common_config: lm_common::config::CommonConfig,
         _tool_config: Option<Self::Config>,
     ) -> anyhow::Result<()> {
-        let lm_api_key = common_config.lm_api_key.ok_or_else(|| {
-            anyhow::anyhow!("Missing [common].lm_api_key in lm_utils.toml.")
-        })?;
+        let lm_api_key = common_config
+            .lm_api_key
+            .ok_or_else(|| anyhow::anyhow!("Missing [common].lm_api_key in lm_utils.toml."))?;
         let lm_client = lunch_money::client::Client::new(
             cx.http.clone(),
             lm_api_key,

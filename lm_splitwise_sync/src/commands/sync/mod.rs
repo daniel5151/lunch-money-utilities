@@ -53,6 +53,7 @@ pub enum SyncMode {
         target_person: crate::api::splitwise::schema::Friend,
         force_category: Option<String>,
         from: Option<jiff::civil::Date>,
+        no_group: bool,
     },
 }
 
@@ -223,6 +224,7 @@ impl<'a> SyncOrchestrator<'a> {
             SyncMode::Person {
                 target_person,
                 from,
+                no_group,
                 ..
             } => {
                 println! { "{STYLE_HEADER}⚡ Splitwise to Lunch Money Sync Person{}{STYLE_HEADER:#}", dry_run_suffix };
@@ -241,17 +243,24 @@ impl<'a> SyncOrchestrator<'a> {
                 if let Some(f) = from {
                     println! { "{STYLE_INFO}📅 Offset from:{STYLE_INFO:#} {}", f };
                 }
+                if *no_group {
+                    println! { "{STYLE_INFO}🚫 Filter:{STYLE_INFO:#} Non-group expenses only" };
+                }
                 println! {};
 
                 println! { "  {STYLE_DIM}Fetching Splitwise friends and expenses...{STYLE_DIM:#}" };
-                sw_client
+                let mut expenses = sw_client
                     .fetch_expenses(&ExpensesQuery {
                         friend_id: Some(target_person.id),
                         dated_before: from.map(|f| format!("{}T23:59:59Z", f)),
                         limit: Some(0),
                         ..Default::default()
                     })
-                    .await?
+                    .await?;
+                if *no_group {
+                    expenses.retain(|e| e.parsed.group_id.is_none());
+                }
+                expenses
             }
         };
 
@@ -488,7 +497,11 @@ impl<'a> SyncOrchestrator<'a> {
                     }
                 }
             }
-            SyncMode::Person { target_person, .. } => {
+            SyncMode::Person {
+                target_person,
+                no_group,
+                ..
+            } => {
                 let person_payee = format!(
                     "{} {}",
                     target_person.first_name,
@@ -500,12 +513,29 @@ impl<'a> SyncOrchestrator<'a> {
                 for (_ext_id, t) in lm_map {
                     let mut belongs_to_person = t.payee == person_payee;
 
-                    if let Some(MaybeLunchMoneyTxMetadata::Expected(LunchMoneyTxMetadata::Import { original, .. })) = &t.custom_metadata {
-                        let has_user =
-                            original.users.iter().any(|u| u.user_id == target_person.id);
+                    if let Some(MaybeLunchMoneyTxMetadata::Expected(
+                        LunchMoneyTxMetadata::Import { original, .. },
+                    )) = &t.custom_metadata
+                    {
+                        let has_user = original.users.iter().any(|u| u.user_id == target_person.id);
                         let is_non_group = original.group_id.is_none();
                         if is_non_group && has_user {
                             belongs_to_person = true;
+                        }
+                    }
+
+                    if *no_group {
+                        let is_group = if let Some(MaybeLunchMoneyTxMetadata::Expected(
+                            LunchMoneyTxMetadata::Import { original, .. },
+                        )) = &t.custom_metadata
+                        {
+                            original.group_id.is_some()
+                        } else {
+                            t.payee.starts_with("Splitwise - ")
+                                && t.payee != "Splitwise - Non-group"
+                        };
+                        if is_group {
+                            belongs_to_person = false;
                         }
                     }
 
@@ -651,6 +681,7 @@ pub(crate) async fn run_sync_person(
                 target_person,
                 force_category: sync_args.force_category,
                 from: sync_args.from,
+                no_group: sync_args.no_group,
             },
         })
         .await

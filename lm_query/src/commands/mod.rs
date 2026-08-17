@@ -1,10 +1,9 @@
 use anstream::println;
+use lm_common::style::*;
 use rust_decimal::Decimal;
 use tabled::Table;
 use tabled::Tabled;
 use tabled::settings::Style;
-
-use lm_common::style::*;
 
 pub(crate) async fn run_query_categories(
     lm_client: &lunch_money::client::Client,
@@ -81,9 +80,7 @@ struct TagRecord {
     tag_name: String,
 }
 
-pub(crate) async fn run_query_tags(
-    lm_client: &lunch_money::client::Client,
-) -> anyhow::Result<()> {
+pub(crate) async fn run_query_tags(lm_client: &lunch_money::client::Client) -> anyhow::Result<()> {
     println! {};
     println! { "{STYLE_HEADER}🔍 Querying Lunch Money Tags{STYLE_HEADER:#}" };
     println! { "{STYLE_DIM}──────────────────────────────────────────────────{STYLE_DIM:#}" };
@@ -193,12 +190,8 @@ pub(crate) async fn run_query_accounts(
         let id_bracket = format!("[{}]", acc.id);
         let type_str = format!("{:?}", acc.account_type);
 
-        let balance_plain = format_aligned_balance(
-            acc.balance,
-            &acc.currency,
-            max_num_len,
-            max_currency_len,
-        );
+        let balance_plain =
+            format_aligned_balance(acc.balance, &acc.currency, max_num_len, max_currency_len);
 
         let is_closed = acc.status == AccountStatus::Closed;
 

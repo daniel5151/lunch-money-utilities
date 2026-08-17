@@ -23,11 +23,11 @@ use anstream::eprintln;
 use anyhow::Context;
 use clap::Parser;
 use clap::Subcommand;
+use lm_backup::BackupTool;
 use lm_common::cli::cli_styles;
 use lm_common::tool::Tool;
 use lm_common::tool::ToolContext;
 use lm_payslip_importer::PayslipTool;
-use lm_backup::BackupTool;
 use lm_query::QueryTool;
 use lm_splitwise_sync::SplitwiseTool;
 use lm_venmo_plaidfix::VenmoTool;
@@ -83,7 +83,13 @@ enum ToolCmd {
 }
 
 /// The stable invocation names that trigger argv0 (busybox) dispatch.
-const TOOL_NAMES: &[&str] = &[BackupTool::NAME, PayslipTool::NAME, QueryTool::NAME, SplitwiseTool::NAME, VenmoTool::NAME];
+const TOOL_NAMES: &[&str] = &[
+    BackupTool::NAME,
+    PayslipTool::NAME,
+    QueryTool::NAME,
+    SplitwiseTool::NAME,
+    VenmoTool::NAME,
+];
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
