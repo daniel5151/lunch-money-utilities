@@ -1275,7 +1275,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "lm-backup"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "anstream",
  "anyhow",
@@ -1291,7 +1291,7 @@ dependencies = [
 
 [[package]]
 name = "lm-common"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "anstyle",
  "anyhow",
@@ -1306,7 +1306,7 @@ dependencies = [
 
 [[package]]
 name = "lm-payslip-importer"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "anstream",
  "anyhow",
@@ -1326,7 +1326,7 @@ dependencies = [
 
 [[package]]
 name = "lm-query"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "anstream",
  "anyhow",
@@ -1340,7 +1340,7 @@ dependencies = [
 
 [[package]]
 name = "lm-splitwise-sync"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "anstream",
  "anyhow",
@@ -1362,7 +1362,7 @@ dependencies = [
 
 [[package]]
 name = "lm-utils"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "anstream",
  "anyhow",
@@ -1381,7 +1381,7 @@ dependencies = [
 
 [[package]]
 name = "lm-venmo-plaidfix"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "anstream",
  "anyhow",
@@ -1398,7 +1398,7 @@ dependencies = [
 
 [[package]]
 name = "lm-web"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "anstream",
  "anyhow",
@@ -1459,7 +1459,7 @@ dependencies = [
 
 [[package]]
 name = "lunch_money"
-version = "0.2.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "bon",
