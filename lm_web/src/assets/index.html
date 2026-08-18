@@ -1,0 +1,1695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lunch Money Utilities Web</title>
+  <style>
+    :root {
+      --bg-base: #090d16;
+      --bg-surface: #111827;
+      --bg-surface-raised: #1f2937;
+      --bg-surface-hover: #374151;
+      --border-color: #273549;
+      --border-focus: #3b82f6;
+      --text-primary: #f3f4f6;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+      --accent-blue: #3b82f6;
+      --accent-blue-hover: #2563eb;
+      --accent-green: #10b981;
+      --accent-yellow: #f59e0b;
+      --accent-red: #ef4444;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Header */
+    header {
+      background-color: var(--bg-surface);
+      border-bottom: 1px solid var(--border-color);
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      font-size: 24px;
+      line-height: 1;
+    }
+
+    .brand-title {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: #fff;
+    }
+
+    .brand-subtitle {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-left: 6px;
+      padding: 2px 6px;
+      background: var(--bg-surface-raised);
+      border-radius: 4px;
+      font-family: var(--font-mono);
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn-header-tab {
+      background-color: var(--bg-surface-raised);
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .btn-header-tab:hover {
+      background-color: var(--bg-surface-hover);
+      color: var(--text-primary);
+    }
+
+    .btn-header-tab.active {
+      background-color: rgba(59, 130, 246, 0.15);
+      border-color: var(--accent-blue);
+      color: #93c5fd;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      background-color: rgba(16, 185, 129, 0.1);
+      color: var(--accent-green);
+      border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background-color: var(--accent-green);
+    }
+
+    /* Main Container (2-column layout) */
+    .main-container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Left Column: Tools & Form */
+    .left-column {
+      width: 480px;
+      min-width: 360px;
+      max-width: 650px;
+      background-color: var(--bg-surface);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .tool-selector-bar {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color);
+      background-color: var(--bg-base);
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 8px 12px;
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .search-input:focus {
+      border-color: var(--border-focus);
+    }
+
+    .tools-nav-wrapper {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color);
+      max-height: 160px;
+      overflow-y: auto;
+    }
+
+    .tool-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tool-tab {
+      padding: 6px 12px;
+      background-color: var(--bg-surface-raised);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+
+    .tool-tab:hover {
+      background-color: var(--bg-surface-hover);
+      color: var(--text-primary);
+    }
+
+    .tool-tab.active {
+      background-color: var(--accent-blue);
+      border-color: var(--accent-blue);
+      color: #fff;
+    }
+
+    .subcommands-bar {
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .subcommand-btn {
+      padding: 4px 8px;
+      background-color: transparent;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .subcommand-btn:hover {
+      background-color: var(--bg-surface-raised);
+      color: var(--text-primary);
+    }
+
+    .subcommand-btn.active {
+      background-color: rgba(59, 130, 246, 0.15);
+      border-color: var(--accent-blue);
+      color: var(--accent-blue);
+      font-weight: 600;
+    }
+
+    .form-scroll-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .command-header-box {
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .command-name {
+      font-size: 18px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .command-about {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+
+    .form-section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin: 16px 0 8px 0;
+      font-weight: 700;
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: var(--text-primary);
+    }
+
+    .form-label .arg-flag-name {
+      font-family: var(--font-mono);
+      color: #93c5fd;
+    }
+
+    .form-label .arg-required {
+      color: var(--accent-red);
+      font-size: 11px;
+    }
+
+    .form-control {
+      width: 100%;
+      padding: 8px 10px;
+      background-color: var(--bg-base);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 13px;
+      font-family: var(--font-sans);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .form-control:focus {
+      border-color: var(--border-focus);
+    }
+
+    select.form-control {
+      cursor: pointer;
+    }
+
+    .form-help {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 3px;
+      line-height: 1.3;
+    }
+
+    /* Checkbox / Toggle Switch */
+    .toggle-group {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 10px;
+      background-color: var(--bg-base);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      cursor: pointer;
+      user-select: none;
+      margin-bottom: 8px;
+      transition: background-color 0.15s;
+    }
+
+    .toggle-group:hover {
+      background-color: var(--bg-surface-raised);
+    }
+
+    .toggle-input {
+      margin-top: 2px;
+      cursor: pointer;
+      accent-color: var(--accent-blue);
+      width: 16px;
+      height: 16px;
+    }
+
+    .toggle-label-wrap {
+      flex: 1;
+    }
+
+    .toggle-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .toggle-title span {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: #93c5fd;
+    }
+
+    .toggle-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* File Drop Zone */
+    .file-dropzone {
+      border: 2px dashed var(--border-color);
+      border-radius: 6px;
+      padding: 16px;
+      text-align: center;
+      background-color: var(--bg-base);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .file-dropzone:hover, .file-dropzone.dragover {
+      border-color: var(--accent-blue);
+      background-color: rgba(59, 130, 246, 0.05);
+    }
+
+    .file-dropzone-icon {
+      font-size: 20px;
+      margin-bottom: 4px;
+    }
+
+    .file-dropzone-text {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .file-dropzone-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Form Footer / Action Bar */
+    .form-footer {
+      padding: 14px 16px;
+      border-top: 1px solid var(--border-color);
+      background-color: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .cli-preview-box {
+      background-color: var(--bg-base);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: #a5f3fc;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    .cli-preview-prefix {
+      color: var(--text-muted);
+      user-select: none;
+    }
+
+    .action-btn-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn-dry-run {
+      flex: 1;
+      padding: 10px 14px;
+      background-color: rgba(56, 189, 248, 0.1);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .btn-dry-run:hover:not(:disabled) {
+      background-color: rgba(56, 189, 248, 0.2);
+      border-color: #38bdf8;
+      color: #7dd3fc;
+    }
+
+    .btn-dry-run:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .btn-run-live {
+      flex: 1;
+      padding: 10px 14px;
+      background-color: var(--accent-blue);
+      color: #fff;
+      border: 1px solid var(--accent-blue);
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .btn-run-live:hover:not(:disabled) {
+      background-color: var(--accent-blue-hover);
+      border-color: var(--accent-blue-hover);
+    }
+
+    .btn-run-live:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .btn-cancel {
+      padding: 10px 16px;
+      background-color: rgba(239, 68, 68, 0.15);
+      color: var(--accent-red);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: none;
+      transition: all 0.15s;
+    }
+
+    .btn-cancel:hover {
+      background-color: rgba(239, 68, 68, 0.25);
+    }
+
+    /* Right Column: Switchable Views */
+    .right-column {
+      flex: 1;
+      background-color: #0b0f19;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .view-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Terminal View */
+    .terminal-header {
+      background-color: #0e1422;
+      border-bottom: 1px solid var(--border-color);
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .terminal-title {
+      font-size: 13px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .terminal-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      font-family: var(--font-mono);
+    }
+
+    .badge-idle {
+      background-color: var(--bg-surface-raised);
+      color: var(--text-muted);
+    }
+
+    .badge-running {
+      background-color: rgba(59, 130, 246, 0.2);
+      color: var(--accent-blue);
+      animation: pulse 1.5s infinite;
+    }
+
+    .badge-success {
+      background-color: rgba(16, 185, 129, 0.2);
+      color: var(--accent-green);
+    }
+
+    .badge-error {
+      background-color: rgba(239, 68, 68, 0.2);
+      color: var(--accent-red);
+    }
+
+    .badge-unsaved {
+      background-color: rgba(245, 158, 11, 0.2);
+      color: var(--accent-yellow);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .terminal-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-term-icon {
+      background: transparent;
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s;
+    }
+
+    .btn-term-icon:hover {
+      background-color: var(--bg-surface-raised);
+      color: var(--text-primary);
+    }
+
+    .terminal-body {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: #e2e8f0;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .terminal-placeholder {
+      color: var(--text-muted);
+      font-style: italic;
+      user-select: none;
+    }
+
+    /* Config Editor View */
+    .config-header {
+      background-color: #0e1422;
+      border-bottom: 1px solid var(--border-color);
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .config-title {
+      font-size: 13px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .config-path {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: normal;
+      font-family: var(--font-mono);
+    }
+
+    .config-editor-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .config-alert {
+      padding: 8px 16px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .config-alert-error {
+      background-color: rgba(239, 68, 68, 0.15);
+      color: #fca5a5;
+      border-bottom: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .config-alert-success {
+      background-color: rgba(16, 185, 129, 0.15);
+      color: #6ee7b7;
+      border-bottom: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .config-textarea {
+      flex: 1;
+      width: 100%;
+      background-color: #060911;
+      color: #f1f5f9;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.6;
+      padding: 16px;
+      border: none;
+      outline: none;
+      resize: none;
+      tab-size: 2;
+      white-space: pre;
+      overflow: auto;
+    }
+
+    .config-textarea:focus {
+      background-color: #070b14;
+    }
+
+    /* Terminal ANSI colors */
+    .ansi-bold { font-weight: bold; }
+    .ansi-dim { opacity: 0.6; }
+    .ansi-italic { font-style: italic; }
+    .ansi-underline { text-decoration: underline; }
+
+    .ansi-black { color: #475569; }
+    .ansi-red { color: #f87171; }
+    .ansi-green { color: #4ade80; }
+    .ansi-yellow { color: #facc15; }
+    .ansi-blue { color: #60a5fa; }
+    .ansi-magenta { color: #c084fc; }
+    .ansi-cyan { color: #38bdf8; }
+    .ansi-white { color: #f8fafc; }
+    
+    .ansi-bright-black { color: #64748b; }
+    .ansi-bright-red { color: #ef4444; }
+    .ansi-bright-green { color: #22c55e; }
+    .ansi-bright-yellow { color: #eab308; }
+    .ansi-bright-blue { color: #3b82f6; }
+    .ansi-bright-magenta { color: #a855f7; }
+    .ansi-bright-cyan { color: #06b6d4; }
+    .ansi-bright-white { color: #ffffff; }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border-color);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--bg-surface-hover);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top App Header -->
+  <header>
+    <div class="brand">
+      <div class="brand-logo">💰</div>
+      <div>
+        <span class="brand-title">Lunch Money Utilities</span>
+        <span class="brand-subtitle">lm-utils web</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <!-- Right Pane View Switcher -->
+      <button type="button" id="tab-terminal" class="btn-header-tab active" onclick="switchView('terminal')">
+        <span>💻</span> Terminal Output
+      </button>
+      <button type="button" id="tab-config" class="btn-header-tab" onclick="switchView('config')">
+        <span>⚙️</span> Config Editor
+      </button>
+
+      <div class="status-badge">
+        <div class="status-dot"></div>
+        <span>Connected</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- 2-Column Split Workspace -->
+  <div class="main-container">
+    
+    <!-- Left Column: Tool Navigation & Form -->
+    <div class="left-column">
+      
+      <!-- Search -->
+      <div class="tool-selector-bar">
+        <input type="text" id="command-search" class="search-input" placeholder="Search commands or flags..." />
+      </div>
+
+      <!-- Tools Navigation Bar -->
+      <div class="tools-nav-wrapper">
+        <div id="tools-tabs" class="tool-tabs"></div>
+        <div id="subcommands-bar" class="subcommands-bar"></div>
+      </div>
+
+      <!-- Dynamic Form Area -->
+      <div class="form-scroll-area" id="form-area">
+        <div class="command-header-box">
+          <div class="command-name" id="cmd-title">Loading tools...</div>
+          <div class="command-about" id="cmd-about"></div>
+        </div>
+        <form id="dynamic-form" onsubmit="return false;">
+          <div id="dynamic-form-fields"></div>
+        </form>
+      </div>
+
+      <!-- Form Footer / CLI Preview & Execute -->
+      <div class="form-footer">
+        <div class="cli-preview-box">
+          <span class="cli-preview-prefix">$ </span>
+          <span id="cli-preview-text">lm-utils</span>
+        </div>
+        <div class="action-btn-row">
+          <button type="button" id="btn-dry-run" class="btn-dry-run" onclick="runCurrentCommand(true)" onmouseenter="updateCliPreview(true)" onmouseleave="updateCliPreview(false)" title="Execute in preview/dry-run mode without modifying Lunch Money">
+            <span>🔍</span> Dry Run
+          </button>
+          <button type="button" id="btn-run-live" class="btn-run-live" onclick="runCurrentCommand(false)" onmouseenter="updateCliPreview(false)" title="Execute command and apply live changes">
+            <span>▶</span> Run (Live)
+          </button>
+          <button type="button" id="btn-cancel" class="btn-cancel" onclick="cancelCurrentJob()">
+            <span>⏹</span> Stop
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right Column: Switchable Pane (Terminal or Config Editor) -->
+    <div class="right-column">
+      
+      <!-- View 1: Terminal Window -->
+      <div id="terminal-view" class="view-panel">
+        <div class="terminal-header">
+          <div class="terminal-title">
+            <span>Terminal Output</span>
+            <span id="term-status-badge" class="terminal-badge badge-idle">IDLE</span>
+          </div>
+          <div class="terminal-controls">
+            <button type="button" class="btn-term-icon" onclick="copyTerminalOutput()">📋 Copy</button>
+            <button type="button" class="btn-term-icon" onclick="clearTerminal()">🧹 Clear</button>
+          </div>
+        </div>
+
+        <div class="terminal-body" id="terminal-body">
+          <div class="terminal-placeholder">Select a tool and click "Dry Run" or "Run (Live)" to view live execution output.</div>
+        </div>
+      </div>
+
+      <!-- View 2: Interactive TOML Config Editor -->
+      <div id="config-view" class="view-panel" style="display: none;">
+        <div class="config-header">
+          <div class="config-title">
+            <span>lm_utils.toml</span>
+            <span id="config-path-badge" class="config-path"></span>
+            <span id="config-status-badge" class="terminal-badge badge-idle">SAVED</span>
+          </div>
+          <div class="terminal-controls">
+            <button type="button" class="btn-term-icon" onclick="saveConfig()" style="color: #60a5fa; border-color: rgba(59,130,246,0.4);">💾 Save (Ctrl+S)</button>
+            <button type="button" class="btn-term-icon" onclick="loadConfig()">🔄 Reload</button>
+            <button type="button" class="btn-term-icon" onclick="switchView('terminal')">✕ Close</button>
+          </div>
+        </div>
+
+        <div id="config-alert" class="config-alert">
+          <span id="config-alert-text"></span>
+          <button type="button" style="background:transparent; border:none; color:inherit; cursor:pointer;" onclick="hideConfigAlert()">✕</button>
+        </div>
+
+        <div class="config-editor-container">
+          <textarea id="config-editor" class="config-textarea" placeholder="# Enter lm_utils.toml configuration..." spellcheck="false"></textarea>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    // State
+    let fullSchema = null;
+    let selectedToolName = null;
+    let selectedSubcommandPath = []; // e.g. ["splitwise-sync", "sync", "window"]
+    let formValues = {};
+    let activeJobId = null;
+    let activeEventSource = null;
+    let terminalContent = "";
+
+    // Config editor state
+    let originalConfigContent = "";
+    let currentConfigPath = "";
+    let currentActiveView = "terminal";
+
+    // Initialize
+    async function init() {
+      try {
+        const res = await fetch("/api/schema");
+        if (!res.ok) throw new Error("Failed to load schema: " + res.statusText);
+        fullSchema = await res.json();
+        renderToolTabs();
+        
+        // Auto-select first tool
+        if (fullSchema.subcommands && fullSchema.subcommands.length > 0) {
+          selectTool(fullSchema.subcommands[0].name);
+        }
+      } catch (err) {
+        document.getElementById("cmd-title").innerText = "Error loading schema";
+        document.getElementById("cmd-about").innerText = err.message;
+      }
+
+      // Pre-fetch config
+      loadConfig();
+
+      // Keyboard shortcuts
+      document.addEventListener("keydown", (e) => {
+        // Ctrl+S / Cmd+S in config editor
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+          if (currentActiveView === "config") {
+            e.preventDefault();
+            saveConfig();
+            return;
+          }
+        }
+
+        // Ctrl+Enter for Dry Run, Ctrl+Shift+Enter for Live
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+          e.preventDefault();
+          if (e.shiftKey) {
+            runCurrentCommand(false); // Live run
+          } else {
+            runCurrentCommand(true);  // Dry run
+          }
+        }
+      });
+
+      // Tab indentation support in config editor
+      const editor = document.getElementById("config-editor");
+      editor.addEventListener("keydown", (e) => {
+        if (e.key === "Tab") {
+          e.preventDefault();
+          const start = editor.selectionStart;
+          const end = editor.selectionEnd;
+          editor.value = editor.value.substring(0, start) + "  " + editor.value.substring(end);
+          editor.selectionStart = editor.selectionEnd = start + 2;
+          onConfigInput();
+        }
+      });
+
+      editor.addEventListener("input", onConfigInput);
+
+      // Search filter
+      document.getElementById("command-search").addEventListener("input", (e) => {
+        filterCommands(e.target.value.toLowerCase().trim());
+      });
+    }
+
+    // View Switching: Terminal vs Config Editor
+    function switchView(viewName) {
+      currentActiveView = viewName;
+      const termView = document.getElementById("terminal-view");
+      const confView = document.getElementById("config-view");
+      const tabTerm = document.getElementById("tab-terminal");
+      const tabConf = document.getElementById("tab-config");
+
+      if (viewName === "config") {
+        termView.style.display = "none";
+        confView.style.display = "flex";
+        tabTerm.classList.remove("active");
+        tabConf.classList.add("active");
+        loadConfig();
+      } else {
+        confView.style.display = "none";
+        termView.style.display = "flex";
+        tabConf.classList.remove("active");
+        tabTerm.classList.add("active");
+      }
+    }
+
+    // Load Config from API
+    async function loadConfig() {
+      try {
+        const res = await fetch("/api/config");
+        if (!res.ok) throw new Error("Failed to load config: " + res.statusText);
+        const data = await res.json();
+        originalConfigContent = data.content || "";
+        currentConfigPath = data.path || "";
+
+        const editor = document.getElementById("config-editor");
+        editor.value = originalConfigContent;
+
+        const pathBadge = document.getElementById("config-path-badge");
+        pathBadge.innerText = currentConfigPath ? `(${currentConfigPath})` : "";
+
+        const badge = document.getElementById("config-status-badge");
+        badge.className = "terminal-badge badge-success";
+        badge.innerText = "SAVED";
+        hideConfigAlert();
+      } catch (err) {
+        showConfigAlert("Error loading config: " + err.message, "error");
+      }
+    }
+
+    // On Config Input Change
+    function onConfigInput() {
+      const editor = document.getElementById("config-editor");
+      const badge = document.getElementById("config-status-badge");
+      if (editor.value !== originalConfigContent) {
+        badge.className = "terminal-badge badge-unsaved";
+        badge.innerText = "UNSAVED";
+      } else {
+        badge.className = "terminal-badge badge-success";
+        badge.innerText = "SAVED";
+      }
+    }
+
+    // Save Config to API
+    async function saveConfig() {
+      const editor = document.getElementById("config-editor");
+      const badge = document.getElementById("config-status-badge");
+      const content = editor.value;
+
+      try {
+        const res = await fetch("/api/config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(data.error || "Failed to save configuration");
+        }
+
+        originalConfigContent = content;
+        badge.className = "terminal-badge badge-success";
+        badge.innerText = "SAVED";
+        showConfigAlert("Configuration saved successfully to " + (data.path || currentConfigPath), "success");
+      } catch (err) {
+        badge.className = "terminal-badge badge-error";
+        badge.innerText = "ERROR";
+        showConfigAlert("Save Failed: " + err.message, "error");
+      }
+    }
+
+    function showConfigAlert(text, type) {
+      const alertElem = document.getElementById("config-alert");
+      const textElem = document.getElementById("config-alert-text");
+      alertElem.className = "config-alert " + (type === "success" ? "config-alert-success" : "config-alert-error");
+      textElem.innerText = text;
+      alertElem.style.display = "flex";
+    }
+
+    function hideConfigAlert() {
+      document.getElementById("config-alert").style.display = "none";
+    }
+
+    // Render Tools Tabs
+    function renderToolTabs() {
+      const tabsContainer = document.getElementById("tools-tabs");
+      tabsContainer.innerHTML = "";
+
+      if (!fullSchema || !fullSchema.subcommands) return;
+
+      fullSchema.subcommands.forEach((tool) => {
+        // Skip web subcommand inside the web UI
+        if (tool.name === "web") return;
+
+        const btn = document.createElement("button");
+        btn.className = "tool-tab" + (tool.name === selectedToolName ? " active" : "");
+        btn.innerText = tool.name;
+        btn.onclick = () => selectTool(tool.name);
+        tabsContainer.appendChild(btn);
+      });
+    }
+
+    // Select Tool
+    function selectTool(toolName) {
+      selectedToolName = toolName;
+      renderToolTabs();
+
+      const toolCmd = fullSchema.subcommands.find(c => c.name === toolName);
+      if (!toolCmd) return;
+
+      // Check if this tool has subcommands
+      if (toolCmd.subcommands && toolCmd.subcommands.length > 0) {
+        // Pick first leaf or first subcommand
+        selectedSubcommandPath = [toolName, toolCmd.subcommands[0].name];
+        let cur = toolCmd.subcommands[0];
+        while (cur.subcommands && cur.subcommands.length > 0) {
+          cur = cur.subcommands[0];
+          selectedSubcommandPath.push(cur.name);
+        }
+      } else {
+        selectedSubcommandPath = [toolName];
+      }
+
+      renderSubcommandsBar();
+      renderForm();
+    }
+
+    // Render Subcommands Bar
+    function renderSubcommandsBar() {
+      const bar = document.getElementById("subcommands-bar");
+      bar.innerHTML = "";
+
+      const toolCmd = fullSchema.subcommands.find(c => c.name === selectedToolName);
+      if (!toolCmd || !toolCmd.subcommands || toolCmd.subcommands.length === 0) {
+        bar.style.display = "none";
+        return;
+      }
+      bar.style.display = "flex";
+
+      const leaves = [];
+      function collectLeaves(cmd, path) {
+        if (!cmd.subcommands || cmd.subcommands.length === 0) {
+          leaves.push({ cmd, path });
+        } else {
+          cmd.subcommands.forEach(sub => {
+            collectLeaves(sub, [...path, sub.name]);
+          });
+        }
+      }
+
+      toolCmd.subcommands.forEach(sub => {
+        collectLeaves(sub, [toolCmd.name, sub.name]);
+      });
+
+      leaves.forEach(({ cmd, path }) => {
+        const btn = document.createElement("button");
+        const isSelected = path.join(" ") === selectedSubcommandPath.join(" ");
+        btn.className = "subcommand-btn" + (isSelected ? " active" : "");
+        btn.innerText = path.slice(1).join(" ");
+        btn.onclick = () => {
+          selectedSubcommandPath = path;
+          renderSubcommandsBar();
+          renderForm();
+        };
+        bar.appendChild(btn);
+      });
+    }
+
+    // Locate command definition by path
+    function getCommandByPath(path) {
+      let cur = fullSchema;
+      for (const name of path) {
+        if (!cur || !cur.subcommands) return null;
+        cur = cur.subcommands.find(s => s.name === name);
+      }
+      return cur;
+    }
+
+    // Helper to check if an argument should be excluded from forms (config and dry-run)
+    function isIgnoredArg(arg) {
+      const id = (arg.id || "").toLowerCase();
+      const long = (arg.long || "").toLowerCase();
+      const short = arg.short;
+      return long === "dry-run" || id === "dry_run" || id === "dry-run" ||
+             long === "config" || id === "config" || short === "c" || short === 'c';
+    }
+
+    // Render Dynamic Form
+    function renderForm() {
+      const cmd = getCommandByPath(selectedSubcommandPath);
+      if (!cmd) return;
+
+      document.getElementById("cmd-title").innerText = selectedSubcommandPath.join(" ");
+      document.getElementById("cmd-about").innerText = cmd.about || "Execute this subcommand.";
+
+      const fieldsContainer = document.getElementById("dynamic-form-fields");
+      fieldsContainer.innerHTML = "";
+      formValues = {};
+
+      // Collect global arguments from root if any (excluding config and dry-run)
+      const globalArgs = (fullSchema.args || []).filter(a => a.is_global && !isIgnoredArg(a));
+      const localArgs = (cmd.args || []).filter(a => !isIgnoredArg(a));
+
+      const allArgs = [...localArgs];
+      globalArgs.forEach(ga => {
+        if (!allArgs.some(a => a.id === ga.id)) {
+          allArgs.push(ga);
+        }
+      });
+
+      // Split into Flags vs Options / Positional
+      const positionals = allArgs.filter(a => a.is_positional);
+      const options = allArgs.filter(a => !a.is_positional && a.takes_value);
+      const flags = allArgs.filter(a => a.is_flag);
+
+      // 1. Positional Arguments
+      if (positionals.length > 0) {
+        const sec = document.createElement("div");
+        sec.className = "form-section-title";
+        sec.innerText = "Positional Arguments";
+        fieldsContainer.appendChild(sec);
+
+        positionals.forEach(arg => {
+          fieldsContainer.appendChild(createInputField(arg));
+        });
+      }
+
+      // 2. Options
+      if (options.length > 0) {
+        const sec = document.createElement("div");
+        sec.className = "form-section-title";
+        sec.innerText = "Options & Parameters";
+        fieldsContainer.appendChild(sec);
+
+        options.forEach(arg => {
+          fieldsContainer.appendChild(createInputField(arg));
+        });
+      }
+
+      // 3. Flags (Booleans)
+      if (flags.length > 0) {
+        const sec = document.createElement("div");
+        sec.className = "form-section-title";
+        sec.innerText = "Flags & Toggles";
+        fieldsContainer.appendChild(sec);
+
+        flags.forEach(arg => {
+          fieldsContainer.appendChild(createToggleField(arg));
+        });
+      }
+
+      updateCliPreview(true); // Default preview with dry-run
+    }
+
+    // Create Input Field (Text, Select, or File Picker)
+    function createInputField(arg) {
+      const group = document.createElement("div");
+      group.className = "form-group";
+
+      const label = document.createElement("label");
+      label.className = "form-label";
+      
+      const labelName = document.createElement("span");
+      labelName.className = "arg-flag-name";
+      labelName.innerText = arg.is_positional ? `<${arg.name}>` : `--${arg.long || arg.name}`;
+      label.appendChild(labelName);
+
+      if (arg.is_required) {
+        const req = document.createElement("span");
+        req.className = "arg-required";
+        req.innerText = "*required";
+        label.appendChild(req);
+      }
+      group.appendChild(label);
+
+      // Check if this is a File / Path argument
+      const isFilePath = arg.value_hint === "filepath" || arg.value_hint === "path" || arg.id.includes("path") || arg.id.includes("file") || arg.name.includes("pdf");
+
+      if (isFilePath) {
+        // File Dropzone + text input
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "form-control";
+        input.id = `input-${arg.id}`;
+        input.placeholder = "Enter file path or drag-and-drop a file below...";
+        if (arg.default_values && arg.default_values.length > 0) {
+          input.value = arg.default_values[0];
+          formValues[arg.id] = input.value;
+        }
+        input.oninput = (e) => {
+          formValues[arg.id] = e.target.value;
+          updateCliPreview();
+        };
+
+        const dropzone = document.createElement("div");
+        dropzone.className = "file-dropzone";
+        dropzone.style.marginTop = "6px";
+        dropzone.innerHTML = `
+          <div class="file-dropzone-icon">📄</div>
+          <div class="file-dropzone-text">Click or drop a file to upload</div>
+          <div class="file-dropzone-sub">Uploads locally and auto-fills path</div>
+          <input type="file" style="display:none;" id="file-picker-${arg.id}" />
+        `;
+
+        const fileInput = dropzone.querySelector("input[type=file]");
+        dropzone.onclick = () => fileInput.click();
+
+        dropzone.ondragover = (e) => { e.preventDefault(); dropzone.classList.add("dragover"); };
+        dropzone.ondragleave = () => dropzone.classList.remove("dragover");
+        dropzone.ondrop = async (e) => {
+          e.preventDefault();
+          dropzone.classList.remove("dragover");
+          if (e.dataTransfer.files.length > 0) {
+            await handleFileUpload(e.dataTransfer.files[0], input, arg.id);
+          }
+        };
+
+        fileInput.onchange = async (e) => {
+          if (e.target.files.length > 0) {
+            await handleFileUpload(e.target.files[0], input, arg.id);
+          }
+        };
+
+        group.appendChild(input);
+        group.appendChild(dropzone);
+      } else if (arg.possible_values && arg.possible_values.length > 0) {
+        // Select Dropdown
+        const select = document.createElement("select");
+        select.className = "form-control";
+        select.id = `input-${arg.id}`;
+
+        if (!arg.is_required) {
+          const opt = document.createElement("option");
+          opt.value = "";
+          opt.innerText = "(default)";
+          select.appendChild(opt);
+        }
+
+        arg.possible_values.forEach(val => {
+          const opt = document.createElement("option");
+          opt.value = val;
+          opt.innerText = val;
+          select.appendChild(opt);
+        });
+
+        if (arg.default_values && arg.default_values.length > 0) {
+          select.value = arg.default_values[0];
+          formValues[arg.id] = select.value;
+        }
+
+        select.onchange = (e) => {
+          formValues[arg.id] = e.target.value;
+          updateCliPreview();
+        };
+
+        group.appendChild(select);
+      } else {
+        // Standard Text Input
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "form-control";
+        input.id = `input-${arg.id}`;
+        if (arg.default_values && arg.default_values.length > 0) {
+          input.value = arg.default_values[0];
+          formValues[arg.id] = input.value;
+        }
+        input.placeholder = arg.default_values && arg.default_values.length > 0 ? `Default: ${arg.default_values.join(", ")}` : "";
+        input.oninput = (e) => {
+          formValues[arg.id] = e.target.value;
+          updateCliPreview();
+        };
+        group.appendChild(input);
+      }
+
+      if (arg.help) {
+        const help = document.createElement("div");
+        help.className = "form-help";
+        help.innerText = arg.help;
+        group.appendChild(help);
+      }
+
+      return group;
+    }
+
+    // Create Toggle Field for Flags
+    function createToggleField(arg) {
+      const wrap = document.createElement("label");
+      wrap.className = "toggle-group";
+
+      const chk = document.createElement("input");
+      chk.type = "checkbox";
+      chk.className = "toggle-input";
+      chk.id = `flag-${arg.id}`;
+      formValues[arg.id] = false;
+
+      chk.onchange = (e) => {
+        formValues[arg.id] = e.target.checked;
+        updateCliPreview();
+      };
+
+      const info = document.createElement("div");
+      info.className = "toggle-label-wrap";
+
+      const title = document.createElement("div");
+      title.className = "toggle-title";
+      title.innerHTML = `<span>--${arg.long || arg.name}</span>`;
+      info.appendChild(title);
+
+      if (arg.help) {
+        const desc = document.createElement("div");
+        desc.className = "toggle-desc";
+        desc.innerText = arg.help;
+        info.appendChild(desc);
+      }
+
+      wrap.appendChild(chk);
+      wrap.appendChild(info);
+      return wrap;
+    }
+
+    // Handle File Upload
+    async function handleFileUpload(file, inputElem, argId) {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      inputElem.value = "Uploading " + file.name + "...";
+      try {
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await res.json();
+        if (data.path) {
+          inputElem.value = data.path;
+          formValues[argId] = data.path;
+          updateCliPreview();
+        } else {
+          inputElem.value = "";
+          alert("Upload failed: " + (data.error || "Unknown error"));
+        }
+      } catch (err) {
+        inputElem.value = "";
+        alert("Upload error: " + err.message);
+      }
+    }
+
+    // Build argv array from current form
+    function buildArgv(dryRun = false) {
+      const argv = [...selectedSubcommandPath];
+      const cmd = getCommandByPath(selectedSubcommandPath);
+      if (!cmd) return argv;
+
+      const globalArgs = (fullSchema.args || []).filter(a => a.is_global && !isIgnoredArg(a));
+      const allArgs = [...(cmd.args || [])].filter(a => !isIgnoredArg(a));
+      globalArgs.forEach(ga => {
+        if (!allArgs.some(a => a.id === ga.id)) allArgs.push(ga);
+      });
+
+      // Positional args
+      allArgs.filter(a => a.is_positional).forEach(arg => {
+        const val = formValues[arg.id];
+        if (val && val.trim() !== "") {
+          argv.push(val.trim());
+        }
+      });
+
+      // Options
+      allArgs.filter(a => !a.is_positional && a.takes_value).forEach(arg => {
+        const val = formValues[arg.id];
+        if (val && val.trim() !== "") {
+          argv.push(`--${arg.long || arg.name}`);
+          argv.push(val.trim());
+        }
+      });
+
+      // Flags
+      allArgs.filter(a => a.is_flag).forEach(arg => {
+        const checked = formValues[arg.id];
+        if (checked) {
+          argv.push(`--${arg.long || arg.name}`);
+        }
+      });
+
+      // Explicit dry-run flag
+      if (dryRun) {
+        argv.push("--dry-run");
+      }
+
+      return argv;
+    }
+
+    // Update CLI Preview string
+    function updateCliPreview(dryRun = false) {
+      const argv = buildArgv(dryRun);
+      document.getElementById("cli-preview-text").innerText = "lm-utils " + argv.join(" ");
+    }
+
+    // Run Current Command (dryRun: boolean)
+    async function runCurrentCommand(dryRun = false) {
+      if (activeEventSource) {
+        alert("A command is already running! Stop it first or wait for completion.");
+        return;
+      }
+
+      // Automatically switch to terminal view if not already visible
+      if (currentActiveView !== "terminal") {
+        switchView("terminal");
+      }
+
+      const argv = buildArgv(dryRun);
+      const dryBtn = document.getElementById("btn-dry-run");
+      const liveBtn = document.getElementById("btn-run-live");
+      const cancelBtn = document.getElementById("btn-cancel");
+      const badge = document.getElementById("term-status-badge");
+
+      if (dryBtn) dryBtn.disabled = true;
+      if (liveBtn) liveBtn.disabled = true;
+      cancelBtn.style.display = "inline-flex";
+      badge.className = "terminal-badge badge-running";
+      badge.innerText = dryRun ? "RUNNING (DRY RUN)" : "RUNNING";
+
+      // Clear or separate terminal output
+      appendTerminalLine(`\n\x1b[1;34m$ lm-utils ${argv.join(" ")}\x1b[0m\n`);
+
+      try {
+        const res = await fetch("/api/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ args: argv }),
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(errText || res.statusText);
+        }
+
+        const data = await res.json();
+        activeJobId = data.job_id;
+
+        // Connect to SSE stream
+        activeEventSource = new EventSource(`/api/events/${activeJobId}`);
+
+        activeEventSource.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === "stdout" || msg.type === "stderr") {
+              appendTerminalLine(msg.payload);
+            } else if (msg.type === "exit") {
+              const success = msg.payload.success;
+              const code = msg.payload.code;
+              badge.className = "terminal-badge " + (success ? "badge-success" : "badge-error");
+              badge.innerText = success ? "SUCCESS" : `EXIT ${code || 1}`;
+              appendTerminalLine(`\n\x1b[1;${success ? "32" : "31"}m[Process exited with code ${code !== null ? code : (success ? 0 : 1)}]\x1b[0m\n`);
+              cleanupJob();
+            } else if (msg.type === "error") {
+              badge.className = "terminal-badge badge-error";
+              badge.innerText = "ERROR";
+              appendTerminalLine(`\n\x1b[1;31mError: ${msg.payload}\x1b[0m\n`);
+              cleanupJob();
+            }
+          } catch (e) {
+            appendTerminalLine(event.data);
+          }
+        };
+
+        activeEventSource.onerror = () => {
+          cleanupJob();
+        };
+
+      } catch (err) {
+        badge.className = "terminal-badge badge-error";
+        badge.innerText = "ERROR";
+        appendTerminalLine(`\n\x1b[1;31mFailed to start command: ${err.message}\x1b[0m\n`);
+        cleanupJob();
+      }
+    }
+
+    // Cancel Running Job
+    async function cancelCurrentJob() {
+      if (activeJobId) {
+        try {
+          await fetch(`/api/kill/${activeJobId}`, { method: "POST" });
+          appendTerminalLine("\n\x1b[1;33m[Job terminated by user]\x1b[0m\n");
+        } catch (err) {
+          console.error("Kill failed:", err);
+        }
+      }
+      cleanupJob();
+    }
+
+    function cleanupJob() {
+      if (activeEventSource) {
+        activeEventSource.close();
+        activeEventSource = null;
+      }
+      activeJobId = null;
+      const dryBtn = document.getElementById("btn-dry-run");
+      const liveBtn = document.getElementById("btn-run-live");
+      if (dryBtn) dryBtn.disabled = false;
+      if (liveBtn) liveBtn.disabled = false;
+      document.getElementById("btn-cancel").style.display = "none";
+    }
+
+    // Append Line to Terminal
+    function appendTerminalLine(text) {
+      const term = document.getElementById("terminal-body");
+      const placeholder = term.querySelector(".terminal-placeholder");
+      if (placeholder) placeholder.remove();
+
+      terminalContent += text + "\n";
+      const html = ansiToHtml(text);
+      
+      const lineSpan = document.createElement("div");
+      lineSpan.innerHTML = html;
+      term.appendChild(lineSpan);
+
+      // Auto scroll to bottom
+      term.scrollTop = term.scrollHeight;
+    }
+
+    function clearTerminal() {
+      document.getElementById("terminal-body").innerHTML = "";
+      document.getElementById("term-status-badge").className = "terminal-badge badge-idle";
+      document.getElementById("term-status-badge").innerText = "IDLE";
+      terminalContent = "";
+    }
+
+    function copyTerminalOutput() {
+      const term = document.getElementById("terminal-body");
+      navigator.clipboard.writeText(term.innerText || "").then(() => {
+        alert("Terminal output copied to clipboard!");
+      });
+    }
+
+    // ANSI Escape Code to HTML Parser
+    function ansiToHtml(text) {
+      if (!text) return "";
+
+      let escaped = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+      const ansiRegex = /\x1b\[([0-9;]+)m/g;
+      let openTags = 0;
+
+      escaped = escaped.replace(ansiRegex, (match, codes) => {
+        const parts = codes.split(";").map(Number);
+        let result = "";
+
+        for (let i = 0; i < parts.length; i++) {
+          const code = parts[i];
+          if (code === 0) {
+            while (openTags > 0) {
+              result += "</span>";
+              openTags--;
+            }
+          } else if (code === 1) {
+            result += '<span class="ansi-bold">';
+            openTags++;
+          } else if (code === 2) {
+            result += '<span class="ansi-dim">';
+            openTags++;
+          } else if (code === 3) {
+            result += '<span class="ansi-italic">';
+            openTags++;
+          } else if (code === 4) {
+            result += '<span class="ansi-underline">';
+            openTags++;
+          } else if (code >= 30 && code <= 37) {
+            const colors = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
+            result += `<span class="ansi-${colors[code - 30]}">`;
+            openTags++;
+          } else if (code >= 90 && code <= 97) {
+            const colors = ["bright-black", "bright-red", "bright-green", "bright-yellow", "bright-blue", "bright-magenta", "bright-cyan", "bright-white"];
+            result += `<span class="ansi-${colors[code - 90]}">`;
+            openTags++;
+          }
+        }
+        return result;
+      });
+
+      while (openTags > 0) {
+        escaped += "</span>";
+        openTags--;
+      }
+
+      return escaped;
+    }
+
+    // Filter subcommands via search
+    function filterCommands(query) {
+      if (!fullSchema || !fullSchema.subcommands) return;
+      if (!query) {
+        renderToolTabs();
+        return;
+      }
+
+      fullSchema.subcommands.forEach(tool => {
+        const matchesTool = tool.name.toLowerCase().includes(query);
+        const matchesSub = (tool.subcommands || []).some(s => s.name.toLowerCase().includes(query));
+        if (matchesTool || matchesSub) {
+          selectTool(tool.name);
+        }
+      });
+    }
+
+    // Run init on load
+    window.addEventListener("DOMContentLoaded", init);
+  </script>
+</body>
+</html>

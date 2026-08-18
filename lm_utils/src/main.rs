@@ -21,6 +21,7 @@ use std::path::PathBuf;
 
 use anstream::eprintln;
 use anyhow::Context;
+use clap::CommandFactory;
 use clap::Parser;
 use clap::Subcommand;
 use lm_backup::BackupTool;
@@ -31,6 +32,7 @@ use lm_payslip_importer::PayslipTool;
 use lm_query::QueryTool;
 use lm_splitwise_sync::SplitwiseTool;
 use lm_venmo_plaidfix::VenmoTool;
+use lm_web::WebTool;
 
 /// Multiplexer for the Lunch Money utility tools.
 #[derive(Parser, Debug)]
@@ -80,6 +82,10 @@ enum ToolCmd {
     /// Reconcile Venmo and bank checking accounts in Lunch Money.
     #[command(name = "venmo-plaidfix")]
     VenmoPlaidfix(<VenmoTool as Tool>::Cli),
+
+    /// Launch the embedded Web GUI.
+    #[command(name = "web")]
+    Web(<WebTool as Tool>::Cli),
 }
 
 /// The stable invocation names that trigger argv0 (busybox) dispatch.
@@ -89,9 +95,10 @@ const TOOL_NAMES: &[&str] = &[
     QueryTool::NAME,
     SplitwiseTool::NAME,
     VenmoTool::NAME,
+    WebTool::NAME,
 ];
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() {
     if let Err(err) = run().await {
         use lm_common::style::STYLE_ERROR;
@@ -131,6 +138,7 @@ async fn run() -> anyhow::Result<()> {
         ToolCmd::VenmoPlaidfix(args) => {
             matches!(args.command, lm_venmo_plaidfix::cli::Commands::Init(_))
         }
+        ToolCmd::Web(_) => true,
     };
 
     let resolved_path = resolve_config_path(cli.config.as_deref());
@@ -183,6 +191,10 @@ async fn run() -> anyhow::Result<()> {
         ToolCmd::VenmoPlaidfix(args) => {
             let tool_cfg = tool_section::<VenmoTool>(&doc_opt)?;
             VenmoTool::run(&cx, args, resolved_path, common_config, tool_cfg).await
+        }
+        ToolCmd::Web(args) => {
+            let schema = lm_web::introspect_command(&Cli::command());
+            WebTool::run_with_schema(&cx, args, resolved_path, schema).await
         }
     }
 }
