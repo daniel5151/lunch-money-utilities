@@ -86,17 +86,23 @@ pub fn parse_earnings_line(line: &str) -> Result<Option<RowData>> {
     let amount_str = tokens[tokens.len() - 3];
     let amount = clean_decimal(amount_str).with_context(|| format!("earnings line {line:?}"))?;
 
+    // In Workday earnings tables, rows with active period earnings contain a date range
+    // formatted as `MM/DD/YYYY - MM/DD/YYYY`.
+    // Locate the `"-"` separator where both preceding and following tokens are valid dates.
+    // The description is everything before the date range, regardless of how many tokens
+    // follow the date range (e.g. whether Hours and Rate columns were extracted separately
+    // or fused together like `80107.1875`).
     let mut date_str = String::new();
     let mut desc_end = tokens.len() - 5;
 
-    if tokens.len() >= 8 {
-        let t_mid = tokens[tokens.len() - 7];
-        if t_mid == "-" {
-            let t_start = tokens[tokens.len() - 8];
-            let t_end = tokens[tokens.len() - 6];
-            if t_start.contains('/') && t_end.contains('/') {
-                date_str = format!("{} - {}", t_start, t_end);
-                desc_end = tokens.len() - 8;
+    for i in 1..tokens.len().saturating_sub(1) {
+        if tokens[i] == "-" {
+            let t_start = tokens[i - 1];
+            let t_end = tokens[i + 1];
+            if parse_date_str(t_start).is_ok() && parse_date_str(t_end).is_ok() {
+                date_str = format!("{t_start} - {t_end}");
+                desc_end = i - 1;
+                break;
             }
         }
     }
@@ -322,7 +328,7 @@ pub fn parse_pdf(pdf_path: &std::path::Path) -> Result<Vec<ParsedPage>> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_imputed_income;
+    use super::*;
 
     #[test]
     fn starred_descriptions_are_always_imputed() {
@@ -351,5 +357,51 @@ mod tests {
         assert!(!is_imputed_income("Relocation Tax Ben Adjustment", &extra));
         // Nor a shorter prefix.
         assert!(!is_imputed_income("Relocation Tax", &extra));
+    }
+
+    #[test]
+    fn parse_earnings_line_with_fused_hours_and_rate() {
+        // When hourly rate crosses 100, the gap between Hours and Rate in the PDF
+        // narrows and pdf-extract fuses them into e.g. "80107.1875".
+        let line = "Salary 08/24/2026 - 09/06/2026 80107.1875 8,575.00 1520 136,290.42";
+        let row = parse_earnings_line(line).unwrap().expect("row parsed");
+        assert_eq!(row.description, "Salary");
+        assert_eq!(row.amount(), Decimal::new(857500, 2));
+    }
+
+    #[test]
+    fn parse_earnings_line_with_glued_date() {
+        let line = "Dividend Equivalent08/24/2026 - 09/06/2026 0 0 86.63 0 191.63";
+        let row = parse_earnings_line(line).unwrap().expect("row parsed");
+        assert_eq!(row.description, "Dividend Equivalent");
+        assert_eq!(row.amount(), Decimal::new(8663, 2));
+    }
+
+    #[test]
+    fn parse_earnings_line_multi_word_and_hyphenated() {
+        let line = "One-Time Sign-On Payment 06/16/2025 - 06/29/2025 0 0 35,000.00 0 35,000.00";
+        let row = parse_earnings_line(line).unwrap().expect("row parsed");
+        assert_eq!(row.description, "One-Time Sign-On Payment");
+        assert_eq!(row.amount(), Decimal::new(3500000, 2));
+    }
+
+    #[test]
+    fn parse_earnings_line_standard() {
+        let line = "Salary 08/10/2026 - 08/23/2026 80 89.5192 7,161.54 1440 127,715.42";
+        let row = parse_earnings_line(line).unwrap().expect("row parsed");
+        assert_eq!(row.description, "Salary");
+        assert_eq!(row.amount(), Decimal::new(716154, 2));
+    }
+
+    #[test]
+    fn parse_earnings_line_skips_headers_and_empty() {
+        assert!(parse_earnings_line("").unwrap().is_none());
+        assert!(
+            parse_earnings_line("Description Dates Hours Rate Amount")
+                .unwrap()
+                .is_none()
+        );
+        assert!(parse_earnings_line("Earnings").unwrap().is_none());
+        assert!(parse_earnings_line("Total").unwrap().is_none());
     }
 }
