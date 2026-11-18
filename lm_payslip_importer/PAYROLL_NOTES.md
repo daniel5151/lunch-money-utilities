@@ -189,14 +189,23 @@ Other Workday line families seen: `Salary`, `Performance Bonus`,
 
 Workday (and Workday-like providers) book an RSU vest as a **separate $0.00
 paycheck**: the full fair-market value lands as `Restricted Stock Units`
-earnings and is immediately consumed by tax withholding and offsets, netting to
-zero cash. This does **not** reconcile as a normal 4-section paycheck, so it's
-routed through a dedicated *gross-comp-minus-taxes* reconstruction that matches
-against the auto-imported $0.00 vest transaction in the linked `rsu_account`.
+earnings and is immediately consumed by tax withholding and an offset line,
+netting to zero cash. Workday has used two offset conventions for this:
+
+- **`RSU Tax Offset`** (older): summary Gross Pay excludes the RSU grant and the
+  post-tax offset is `-taxes` (so `taxes + deductions == 0`). This does **not**
+  reconcile as a normal 4-section paycheck.
+- **`RSU Net Offset`** (newer): summary Gross Pay includes the RSU grant and
+  the post-tax offset is `+(gross - taxes)` (so `gross - taxes - deductions == 0`).
+
+Both are routed through the dedicated *gross-comp-minus-taxes* reconstruction
+that matches against the auto-imported $0.00 vest transaction in the linked
+`rsu_account`.
 
 Detection: a page is an RSU vest if it has a `restricted stock`-style earning
 with a **non-zero** current amount. Such pages are deliberately **skipped** by
-the standard reconciliation invariant (§1) — they're expected not to satisfy it.
+the standard reconciliation invariant (§1) — older `RSU Tax Offset` pages do
+not satisfy it.
 
 Microsoft/ADP do **not** use this path — they fold stock comp inline (Pattern A),
 which is why those backends require no `rsu_account`.

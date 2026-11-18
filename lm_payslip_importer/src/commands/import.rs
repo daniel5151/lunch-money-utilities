@@ -450,6 +450,14 @@ pub(crate) async fn run_import(
             pdf_filename, payslip.page_num, check_date_str, net_pay
         };
 
+        if is_empty_zero_page(payslip) {
+            println! {
+                "  {STYLE_INFO}ℹ️ Page {} has no non-zero earnings, taxes, or deductions (Net Pay = 0.00) — skipping.{STYLE_INFO:#}",
+                payslip.page_num
+            };
+            continue;
+        }
+
         // Detect if this is an RSU vest page. Only Workday represents RSU vests
         // as separate $0 paychecks needing gross-minus-taxes reconstruction;
         // Microsoft folds stock comp inline as offsetting line items that
@@ -1463,6 +1471,21 @@ fn rsu_vest_earning(payslip: &crate::payslip::ParsedPage) -> Option<&crate::pays
         })
 }
 
+/// Whether a parsed payslip page has no non-zero current-period amounts at all
+/// (neither net pay nor any earning, tax, or deduction row). Non-financial
+/// adjustment statements (e.g. PTO-only runs) look like this and should be
+/// skipped rather than creating an empty synthetic `$0.00` split.
+fn is_empty_zero_page(payslip: &crate::payslip::ParsedPage) -> bool {
+    payslip.net_pay.is_zero()
+        && !payslip
+            .earnings
+            .iter()
+            .chain(payslip.pre_tax_deductions.iter())
+            .chain(payslip.employee_taxes.iter())
+            .chain(payslip.post_tax_deductions.iter())
+            .any(|row| !row.amount().is_zero())
+}
+
 /// Verify the structural invariants an RSU vest page must satisfy before we
 /// reconstruct it as gross comp minus taxes. Pushes a human-readable problem
 /// onto `problems` for each violation rather than bailing, so pre-flight can
@@ -1479,13 +1502,7 @@ fn check_rsu_structure(
         .earnings
         .iter()
         .filter(|e| !std::ptr::eq(*e, rsu_earn))
-        .filter(|e| {
-            !e.values
-                .get("Amount")
-                .copied()
-                .unwrap_or(Decimal::ZERO)
-                .is_zero()
-        })
+        .filter(|e| !e.amount().is_zero())
         .map(|e| e.description.as_str())
         .collect();
     if !other_earnings.is_empty() {
@@ -1496,25 +1513,34 @@ fn check_rsu_structure(
         ));
     }
 
-    // RSU vests settle to $0 cash: employee taxes are exactly cancelled by the
-    // RSU Tax Offset post-tax deduction. The reconstruction excludes deductions,
-    // so confirm the deductions genuinely net out the taxes.
-    let taxes_total: Decimal = payslip
-        .employee_taxes
-        .iter()
-        .map(|t| t.values.get("Amount").copied().unwrap_or(Decimal::ZERO))
-        .sum();
+    // RSU vests settle to $0 cash under one of two Workday offset conventions:
+    //   1. Legacy `RSU Tax Offset`: post-tax deduction equals `-taxes`, so
+    //      `taxes_total + deductions_total == 0` (RSU was excluded from Gross Pay).
+    //   2. `RSU Net Offset`: post-tax deduction equals `+(rsu_amount - taxes)`,
+    //      so `rsu_amount - taxes_total - deductions_total == 0` (RSU is included
+    //      in Gross Pay and the net share value is offset).
+    // The reconstruction excludes deductions, so confirm the deductions
+    // genuinely settle the vest under one of these two conventions.
+    let rsu_amount = rsu_earn.amount();
+    let taxes_total: Decimal = payslip.employee_taxes.iter().map(|t| t.amount()).sum();
     let deductions_total: Decimal = payslip
         .pre_tax_deductions
         .iter()
         .chain(payslip.post_tax_deductions.iter())
-        .map(|d| d.values.get("Amount").copied().unwrap_or(Decimal::ZERO))
+        .map(|d| d.amount())
         .sum();
-    let settlement = taxes_total + deductions_total;
-    if settlement.abs() >= Decimal::new(1, 2) {
+    let eps = Decimal::new(1, 2);
+    let tax_offset_settlement = taxes_total + deductions_total;
+    let net_offset_settlement = rsu_amount - taxes_total - deductions_total;
+    if tax_offset_settlement.abs() >= eps && net_offset_settlement.abs() >= eps {
         problems.push(format!(
-            "Page {}: RSU vest does not settle to $0 — employee taxes ({}) and deductions ({}) do not cancel (residual {}). Expected the RSU Tax Offset to zero out withholdings; refusing to import a mis-parsed vest.",
-            payslip.page_num, taxes_total, deductions_total, settlement
+            "Page {}: RSU vest does not settle to $0 — RSU earning ({}), employee taxes ({}), and deductions ({}) satisfy neither RSU Tax Offset (taxes + deductions = {}) nor RSU Net Offset (rsu - taxes - deductions = {}). Refusing to import a mis-parsed vest.",
+            payslip.page_num,
+            rsu_amount,
+            taxes_total,
+            deductions_total,
+            tax_offset_settlement,
+            net_offset_settlement
         ));
     }
 
