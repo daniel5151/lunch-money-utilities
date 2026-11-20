@@ -1,3 +1,6 @@
+use std::collections::BTreeSet;
+use std::collections::HashMap;
+
 use serde::Serialize;
 
 /// Introspected schema for a `clap::Command` and its tree of subcommands and arguments.
@@ -23,6 +26,11 @@ pub struct ArgSchema {
     pub is_global: bool,
     pub takes_value: bool,
     pub multiple: bool,
+    pub action: String,
+    pub num_args_min: Option<usize>,
+    pub num_args_max: Option<usize>,
+    pub value_name: Option<String>,
+    pub conflicts_with: Vec<String>,
     pub default_values: Vec<String>,
     pub possible_values: Vec<String>,
     pub value_hint: Option<String>,
@@ -30,22 +38,55 @@ pub struct ArgSchema {
 
 /// Introspect a `clap::Command` recursively into a [`CommandSchema`].
 pub fn introspect_command(cmd: &clap::Command) -> CommandSchema {
+    let mut built = cmd.clone();
+    built.build();
+    introspect_command_built(&built)
+}
+
+fn introspect_command_built(cmd: &clap::Command) -> CommandSchema {
     let name = cmd.get_name().to_string();
     let about = cmd.get_about().map(|s| s.to_string());
 
     let subcommands = cmd
         .get_subcommands()
         .filter(|sub| sub.get_name() != "help" && !sub.is_hide_set())
-        .map(introspect_command)
+        .map(introspect_command_built)
         .collect();
 
-    let args = cmd
+    let visible_args: Vec<&clap::Arg> = cmd
         .get_arguments()
         .filter(|arg| {
             let id = arg.get_id().as_str();
             id != "help" && id != "version" && !arg.is_hide_set()
         })
-        .map(introspect_arg)
+        .collect();
+
+    // Build symmetric conflict map so both sides know about mutual exclusion.
+    let mut conflict_map: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for arg in &visible_args {
+        let id = arg.get_id().as_str().to_string();
+        for conflict in cmd.get_arg_conflicts_with(arg) {
+            let cid = conflict.get_id().as_str().to_string();
+            if cid != id {
+                conflict_map
+                    .entry(id.clone())
+                    .or_default()
+                    .insert(cid.clone());
+                conflict_map.entry(cid).or_default().insert(id.clone());
+            }
+        }
+    }
+
+    let args = visible_args
+        .into_iter()
+        .map(|arg| {
+            let id = arg.get_id().as_str();
+            let conflicts = conflict_map
+                .get(id)
+                .map(|s| s.iter().cloned().collect())
+                .unwrap_or_default();
+            introspect_arg(arg, conflicts)
+        })
         .collect();
 
     CommandSchema {
@@ -56,9 +97,9 @@ pub fn introspect_command(cmd: &clap::Command) -> CommandSchema {
     }
 }
 
-fn introspect_arg(arg: &clap::Arg) -> ArgSchema {
+fn introspect_arg(arg: &clap::Arg, conflicts_with: Vec<String>) -> ArgSchema {
     let id = arg.get_id().as_str().to_string();
-    let name = arg.get_id().as_str().to_string();
+    let name = id.clone();
     let help = arg.get_help().map(|s| s.to_string());
     let long = arg.get_long().map(|s| s.to_string());
     let short = arg.get_short();
@@ -72,8 +113,30 @@ fn introspect_arg(arg: &clap::Arg) -> ArgSchema {
         clap::ArgAction::SetTrue | clap::ArgAction::SetFalse | clap::ArgAction::Count
     );
 
+    let action_str = match action {
+        clap::ArgAction::Set => "set",
+        clap::ArgAction::Append => "append",
+        clap::ArgAction::SetTrue => "set_true",
+        clap::ArgAction::SetFalse => "set_false",
+        clap::ArgAction::Count => "count",
+        _ => "other",
+    }
+    .to_string();
+
     let takes_value = !is_flag;
-    let multiple = matches!(action, clap::ArgAction::Append | clap::ArgAction::Count);
+    let num_args = arg.get_num_args();
+    let num_args_min = num_args.map(|r| r.min_values());
+    let num_args_max = num_args.and_then(|r| {
+        let max = r.max_values();
+        if max == usize::MAX { None } else { Some(max) }
+    });
+    let multiple = matches!(action, clap::ArgAction::Append | clap::ArgAction::Count)
+        || num_args.is_some_and(|r| r.max_values() > 1);
+
+    let value_name = arg
+        .get_value_names()
+        .and_then(|names| names.first())
+        .map(|s| s.to_string());
 
     let default_values = arg
         .get_default_values()
@@ -81,11 +144,14 @@ fn introspect_arg(arg: &clap::Arg) -> ArgSchema {
         .map(|v| v.to_string_lossy().into_owned())
         .collect();
 
-    let possible_values = arg
-        .get_possible_values()
-        .iter()
-        .map(|pv| pv.get_name().to_string())
-        .collect();
+    let possible_values = if is_flag {
+        Vec::new()
+    } else {
+        arg.get_possible_values()
+            .iter()
+            .map(|pv| pv.get_name().to_string())
+            .collect()
+    };
 
     let value_hint = match arg.get_value_hint() {
         clap::ValueHint::FilePath => Some("filepath".to_string()),
@@ -109,6 +175,11 @@ fn introspect_arg(arg: &clap::Arg) -> ArgSchema {
         is_global,
         takes_value,
         multiple,
+        action: action_str,
+        num_args_min,
+        num_args_max,
+        value_name,
+        conflicts_with,
         default_values,
         possible_values,
         value_hint,
@@ -152,11 +223,32 @@ mod tests {
                 Command::new("sync")
                     .about("Sync subcommand")
                     .arg(
-                        Arg::new("dry-run")
-                            .long("dry-run")
-                            .action(ArgAction::SetTrue),
+                        Arg::new("api-url")
+                            .long("api-url")
+                            .global(true)
+                            .help("Global on intermediate subcommand"),
                     )
-                    .arg(Arg::new("target").required(true).help("Target name")),
+                    .subcommand(
+                        Command::new("run")
+                            .arg(
+                                Arg::new("dry-run")
+                                    .long("dry-run")
+                                    .action(ArgAction::SetTrue),
+                            )
+                            .arg(
+                                Arg::new("files")
+                                    .required(true)
+                                    .num_args(1..)
+                                    .help("Input files"),
+                            )
+                            .arg(Arg::new("page").long("page").action(ArgAction::Append))
+                            .arg(
+                                Arg::new("from-page")
+                                    .long("from-page")
+                                    .conflicts_with("page"),
+                            )
+                            .arg(Arg::new("csv").long("csv").num_args(0..=1)),
+                    ),
             );
 
         let schema = introspect_command(&cmd);
@@ -165,23 +257,42 @@ mod tests {
         assert_eq!(schema.about.as_deref(), Some("A test CLI application"));
         assert_eq!(schema.subcommands.len(), 1);
 
-        // Subcommand check
-        let sub = &schema.subcommands[0];
-        assert_eq!(sub.name, "sync");
-        assert_eq!(sub.about.as_deref(), Some("Sync subcommand"));
-        assert_eq!(sub.args.len(), 2);
+        let sync_sub = &schema.subcommands[0];
+        assert_eq!(sync_sub.name, "sync");
+        assert_eq!(sync_sub.subcommands.len(), 1);
 
-        let dry_run_arg = sub.args.iter().find(|a| a.name == "dry-run").unwrap();
-        assert!(dry_run_arg.is_flag);
-        assert!(!dry_run_arg.takes_value);
+        let run_sub = &sync_sub.subcommands[0];
+        assert_eq!(run_sub.name, "run");
 
-        let target_arg = sub.args.iter().find(|a| a.name == "target").unwrap();
-        assert!(target_arg.is_positional);
-        assert!(target_arg.is_required);
+        // Intermediate global arg propagated to leaf
+        let api_url = run_sub.args.iter().find(|a| a.id == "api-url").unwrap();
+        assert!(api_url.is_global);
+
+        // Multi-arg positional
+        let files = run_sub.args.iter().find(|a| a.id == "files").unwrap();
+        assert!(files.is_positional);
+        assert!(files.is_required);
+        assert!(files.multiple);
+        assert_eq!(files.num_args_min, Some(1));
+        assert_eq!(files.num_args_max, None);
+
+        // Symmetric conflicts
+        let page = run_sub.args.iter().find(|a| a.id == "page").unwrap();
+        let from_page = run_sub.args.iter().find(|a| a.id == "from-page").unwrap();
+        assert!(page.multiple);
+        assert_eq!(page.conflicts_with, vec!["from-page".to_string()]);
+        assert_eq!(from_page.conflicts_with, vec!["page".to_string()]);
+
+        // Optional-value option (num_args 0..=1)
+        let csv = run_sub.args.iter().find(|a| a.id == "csv").unwrap();
+        assert_eq!(csv.num_args_min, Some(0));
+        assert_eq!(csv.num_args_max, Some(1));
+        assert!(!csv.multiple);
 
         // Root args check
         let verbose_arg = schema.args.iter().find(|a| a.name == "verbose").unwrap();
         assert!(verbose_arg.is_flag);
+        assert_eq!(verbose_arg.action, "set_true");
         assert_eq!(verbose_arg.short, Some('v'));
 
         let config_arg = schema.args.iter().find(|a| a.name == "config").unwrap();

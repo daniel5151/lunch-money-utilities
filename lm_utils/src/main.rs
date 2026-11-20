@@ -126,6 +126,13 @@ async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse_from(busybox_argv());
     let cx = ToolContext::new(cli.dry_run);
 
+    let resolved_path = resolve_config_path(cli.config.as_deref());
+
+    if let ToolCmd::Web(args) = cli.tool {
+        let schema = lm_web::introspect_command(&Cli::command());
+        return WebTool::run_with_schema(&cx, args, resolved_path, schema).await;
+    }
+
     let is_init = match &cli.tool {
         ToolCmd::PayslipImporter(args) => {
             matches!(args.command, lm_payslip_importer::cli::Commands::Init(_))
@@ -138,10 +145,8 @@ async fn run() -> anyhow::Result<()> {
         ToolCmd::VenmoPlaidfix(args) => {
             matches!(args.command, lm_venmo_plaidfix::cli::Commands::Init(_))
         }
-        ToolCmd::Web(_) => true,
+        ToolCmd::Web(_) => unreachable!(),
     };
-
-    let resolved_path = resolve_config_path(cli.config.as_deref());
 
     let (common_config, doc_opt) = if resolved_path.exists() {
         let path: &Path = &resolved_path;
@@ -192,10 +197,7 @@ async fn run() -> anyhow::Result<()> {
             let tool_cfg = tool_section::<VenmoTool>(&doc_opt)?;
             VenmoTool::run(&cx, args, resolved_path, common_config, tool_cfg).await
         }
-        ToolCmd::Web(args) => {
-            let schema = lm_web::introspect_command(&Cli::command());
-            WebTool::run_with_schema(&cx, args, resolved_path, schema).await
-        }
+        ToolCmd::Web(_) => unreachable!(),
     }
 }
 
