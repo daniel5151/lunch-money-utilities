@@ -80,7 +80,7 @@ Flags:
 
 ## ⚙️ Configuration File (`lm_utils.toml`)
 
-The configuration structure is defined by [`Config`](./src/config.rs) in [config.rs](./src/config.rs). All tools share one `lm_utils.toml`: the Lunch Money API key lives once under `[common].lm_api_key`, and this tool's settings live under `[payslip]`. An optional `tag` applied to every transaction this importer creates lives directly under `[payslip]`; everything that depends on which payroll provider produced a payslip — the category mapping, the payee stamped on splits, the deposit account, the imputed-income descriptions, and the Workday-only RSU plumbing — lives in a per-provider `[payslip.backends.<kind>]` section. At import time the importer fingerprints the PDF (`workday`, `microsoft`, or `adp_microsoft`) and uses the matching backend.
+The configuration structure is defined by [`Config`](./src/config.rs) in [config.rs](./src/config.rs). All tools share one `lm_utils.toml`: the Lunch Money API key lives once under `[common].lm_api_key`, and this tool's settings live under `[payslip]`. An optional `tag` applied to every transaction this importer creates lives directly under `[payslip]`; everything that depends on which payroll provider produced a payslip — the category mapping, the payee stamped on splits, the deposit account, the imputed-income descriptions, and the Workday-only RSU plumbing — lives in a per-provider `[payslip.backends.<kind>]` section. At import time the importer fingerprints the PDF (`workday`, `microsoft`, `adp_microsoft`, or `lincoln_financial`) and uses the matching backend.
 
 Below is an annotated example with two providers configured:
 

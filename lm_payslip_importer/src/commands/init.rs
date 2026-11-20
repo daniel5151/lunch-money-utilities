@@ -394,6 +394,7 @@ fn default_payslip_payee(kind: crate::payslip::PayslipKind) -> &'static str {
         crate::payslip::PayslipKind::Microsoft | crate::payslip::PayslipKind::AdpMicrosoft => {
             "Microsoft Payslip"
         }
+        crate::payslip::PayslipKind::LincolnFinancial => "Lincoln Financial",
     }
 }
 

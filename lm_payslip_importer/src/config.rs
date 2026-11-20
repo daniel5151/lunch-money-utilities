@@ -235,6 +235,41 @@ payslip_payee = "Microsoft Payslip"
     }
 
     #[test]
+    fn lincoln_financial_backend_parses_without_rsu_and_rejects_imputed() {
+        let toml = r#"
+[backends.lincoln_financial]
+net_zero_account = "Checking"
+payslip_payee = "Lincoln Financial"
+
+[backends.lincoln_financial.mapping]
+"Gross Benefit" = "Salary"
+"OASDI" = "Taxes"
+"Medicare" = "Taxes"
+"#;
+        let cfg = Config::from_toml_str(toml).unwrap();
+        let lfg = cfg.backend(PayslipKind::LincolnFinancial).unwrap();
+        assert!(lfg.rsu_account.is_none());
+        assert_eq!(
+            lfg.mapping.get("Gross Benefit").map(String::as_str),
+            Some("Salary")
+        );
+
+        let bad_toml = r#"
+[backends.lincoln_financial]
+net_zero_account = "Checking"
+payslip_payee = "Lincoln Financial"
+
+[backends.lincoln_financial.imputed_income]
+descriptions = ["Something"]
+"#;
+        let err = Config::from_toml_str(bad_toml).unwrap_err().to_string();
+        assert!(
+            err.contains("does not inject imputed-income offsets"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn imputed_income_rejected_on_non_injecting_backend() {
         // Microsoft prints both halves of non-cash items inline and so does not
         // inject imputed offsets; configuring imputed descriptions for it is a

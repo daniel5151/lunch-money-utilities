@@ -7,7 +7,7 @@ paycheck reconciles cleanly. This is the *why* behind the code; the
 [`README.md`](./README.md) is the *how* (commands, config keys, CLI).
 
 > All examples use line-item **descriptions only** — no real dollar amounts.
-> Everything here was inferred from real payslip corpora across three payroll
+> Everything here was inferred from real payslip corpora across four payroll
 > providers and cross-checked against the per-page reconciliation tests.
 
 ---
@@ -182,6 +182,30 @@ Other Workday line families seen: `Salary`, `Performance Bonus`,
   not global.
 - **Detection vs Microsoft:** both say "MICROSOFT CORPORATION"; the ADP variant
   is told apart by the ADP footer or the `Period Beg/End:` header band.
+
+### 3d. Lincoln Financial Group (`lincoln_financial`)
+
+- **Extraction:** box-by-box plain text (`Check Summary` → `Check Details` →
+  `Wages` → `Taxes` → `Other Deductions` → `Offsets`), without column
+  interleaving. Several `pdf-extract` quirks are normalized during parsing:
+  - The "Lincoln Financial" logo is an image, so the text stream contains no
+    company name; detection fingerprints on `Payment Details for Claim` and
+    `Begin Payment Date` / `End Payment Date`.
+  - Unicode ligatures (`ﬁ`, `ﬀ` in `Gross Beneﬁt`, `Net Beneﬁts`, `Oﬀsets`) are
+    expanded to ASCII, and kerning-split headers (`C heck Summary`,
+    `C heck D etails`, `Other D eductions`) are matched whitespace-insensitively.
+  - The right-aligned check date is glued onto the claim banner
+    (`MM/DD/YYYYPayment Details for Claim ...`), and the bottom `Other
+    Deductions` line can be glued to the `Offsets` heading (`N/A Offsets`).
+  - Whole-dollar currency amounts omit `.00` (`$170`, `$0`).
+- **Section mapping:** `Check Details` gives `Gross Benefit` (and `COLA`) as
+  earnings; `Offsets` (pre-tax reductions from Gross Benefit to Adjusted Gross)
+  map to `pre_tax_deductions`; `Taxes` (`Federal`, `State`, `Local`, `OASDI`,
+  `Medicare`) map to `employee_taxes`; `Other Deductions` map to
+  `post_tax_deductions`. The `Wages` section lists informational taxable wage
+  bases and is skipped.
+- **Imputed income:** none (self-reconciling). **No injection, no config needed.**
+- **RSU vests:** none (`rsu_account` / `rsu_payee_match` not needed).
 
 ---
 

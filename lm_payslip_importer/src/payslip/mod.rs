@@ -4,10 +4,12 @@
 //! [`ParsedPage`] model (rows keyed by `"Amount"`), which the importer consumes
 //! without caring which payroll system generated it. Backend-specific text
 //! extraction and table reconstruction live in the per-provider submodules
-//! ([`workday`], [`microsoft`]); everything shared — the data model, money/date
-//! parsing, and the [`PayslipKind`] dispatcher — lives here.
+//! ([`workday`], [`microsoft`], [`adp_microsoft`], [`lincoln_financial`]);
+//! everything shared — the data model, money/date parsing, and the
+//! [`PayslipKind`] dispatcher — lives here.
 
 pub mod adp_microsoft;
+pub mod lincoln_financial;
 pub mod microsoft;
 pub mod workday;
 
@@ -70,15 +72,20 @@ pub enum PayslipKind {
     /// ADP-generated Microsoft Corporation earnings statements. Two-physical-
     /// column layout that `pdf-extract` interleaves; deinterleaved by indentation.
     AdpMicrosoft,
+    /// Lincoln Financial Group (LFG) claim payment statements ("Payment Details
+    /// for Claim … Check …", e.g. statutory disability / paid family leave).
+    LincolnFinancial,
 }
 
 impl PayslipKind {
-    /// The config key / CLI spelling for this kind (`"workday"`, `"microsoft"`).
+    /// The config key / CLI spelling for this kind (`"workday"`, `"microsoft"`,
+    /// `"adp_microsoft"`, `"lincoln_financial"`).
     pub fn as_str(self) -> &'static str {
         match self {
             PayslipKind::Workday => "workday",
             PayslipKind::Microsoft => "microsoft",
             PayslipKind::AdpMicrosoft => "adp_microsoft",
+            PayslipKind::LincolnFinancial => "lincoln_financial",
         }
     }
 
@@ -110,7 +117,9 @@ impl PayslipKind {
     pub fn is_imputed_income(self, description: &str, extra: &[String]) -> bool {
         match self {
             PayslipKind::Workday => workday::is_imputed_income(description, extra),
-            PayslipKind::Microsoft | PayslipKind::AdpMicrosoft => false,
+            PayslipKind::Microsoft | PayslipKind::AdpMicrosoft | PayslipKind::LincolnFinancial => {
+                false
+            }
         }
     }
 }
@@ -128,8 +137,11 @@ impl FromStr for PayslipKind {
             "workday" => Ok(PayslipKind::Workday),
             "microsoft" | "msft" => Ok(PayslipKind::Microsoft),
             "adp_microsoft" | "adp-microsoft" | "adp_msft" | "adp" => Ok(PayslipKind::AdpMicrosoft),
+            "lincoln_financial" | "lincoln-financial" | "lincoln" | "lfg" => {
+                Ok(PayslipKind::LincolnFinancial)
+            }
             other => Err(anyhow!(
-                "unknown payslip kind {other:?} (expected 'workday', 'microsoft', or 'adp_microsoft')"
+                "unknown payslip kind {other:?} (expected 'workday', 'microsoft', 'adp_microsoft', or 'lincoln_financial')"
             )),
         }
     }
@@ -144,6 +156,7 @@ pub fn parse_pdf(pdf_path: &std::path::Path, kind: PayslipKind) -> Result<Vec<Pa
         PayslipKind::Workday => workday::parse_pdf(pdf_path),
         PayslipKind::Microsoft => microsoft::parse_pdf(pdf_path),
         PayslipKind::AdpMicrosoft => adp_microsoft::parse_pdf(pdf_path),
+        PayslipKind::LincolnFinancial => lincoln_financial::parse_pdf(pdf_path),
     }
 }
 
@@ -169,6 +182,14 @@ pub fn detect_kind(pdf_path: &std::path::Path) -> Result<Option<PayslipKind>> {
             return Ok(Some(PayslipKind::AdpMicrosoft));
         }
         return Ok(Some(PayslipKind::Microsoft));
+    }
+    // Lincoln Financial Group claim payment PDFs render their logo as an image,
+    // so the text stream carries no "Lincoln Financial" string; instead they
+    // carry the "Payment Details for Claim ..." banner and "Begin/End Payment Date".
+    if head.contains("Payment Details for Claim")
+        || (head.contains("Begin Payment Date") && head.contains("End Payment Date"))
+    {
+        return Ok(Some(PayslipKind::LincolnFinancial));
     }
     // Workday payslips carry the "Pay Period Begin ... Check Date" header band.
     if head.contains("Pay Period Begin") || head.contains("Pay Period End") {
@@ -211,6 +232,7 @@ mod recon_tests {
     //! * `LM_MSFT_PDF`     — the multi-page "Official Copy" Microsoft PDF.
     //! * `LM_ADP_MSFT_DIR` — a directory of ADP-Microsoft `*.pdf` statements.
     //! * `LM_WORKDAY_DIR`  — a directory of Workday `*.pdf` payslips.
+    //! * `LM_LFG_DIR`      — a Lincoln Financial Group `*.pdf` file or directory.
     //!
     //! Every parsed page must satisfy `earnings − taxes − pre_tax − post_tax ==
     //! net_pay` to within a cent, which is the same invariant the importer
@@ -342,6 +364,49 @@ mod recon_tests {
         }
         eprintln!(
             "workday: {} files, {} statement pages reconciled",
+            files.len(),
+            total_pages
+        );
+    }
+
+    #[test]
+    fn lincoln_financial_corpus_reconciles() {
+        let Ok(target) = std::env::var("LM_LFG_DIR") else {
+            eprintln!("LM_LFG_DIR unset; skipping");
+            return;
+        };
+        let target_path = std::path::Path::new(&target);
+        let mut files = if target_path.is_file() {
+            vec![target_path.to_path_buf()]
+        } else {
+            std::fs::read_dir(target_path)
+                .expect("read corpus dir")
+                .filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("pdf"))
+                .collect()
+        };
+        files.sort();
+        assert!(!files.is_empty(), "no PDFs in {target}");
+
+        let mut total_pages = 0;
+        for f in &files {
+            let kind = detect_kind(f).unwrap();
+            assert_eq!(
+                kind,
+                Some(PayslipKind::LincolnFinancial),
+                "detect_kind mismatch for {}",
+                f.display()
+            );
+            let pages = lincoln_financial::parse_pdf(f)
+                .unwrap_or_else(|e| panic!("parse {}: {e:#}", f.display()));
+            assert!(!pages.is_empty(), "no pages parsed from {}", f.display());
+            for p in &pages {
+                assert_page_reconciles(p, &f.display().to_string());
+            }
+            total_pages += pages.len();
+        }
+        eprintln!(
+            "lincoln_financial: {} files, {} statement pages reconciled",
             files.len(),
             total_pages
         );
