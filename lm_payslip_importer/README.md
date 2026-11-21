@@ -73,6 +73,7 @@ lm-utils payslip-importer import <PAYSLIP_PDF> [FLAGS]
 
 Flags:
 - `--dry-run`: Do not modify anything in Lunch Money. Instead, output the visual plan detailing matched transactions, synthetic transactions to create, and split components.
+- `--assume-tx-exists`: Dry-run only (requires `--dry-run`). When no matching Lunch Money transaction is found for a page, assume it exists / will appear instead of reporting a missing-transaction error, and preview the full split plan.
 - `--page <PAGE>`: Specify a page number to process. If omitted, all pages are processed. Can be passed multiple times (e.g., `--page 1 --page 3`). Conflicts with `--from-page`.
 - `--from-page <PAGE>`: Start processing imports from this page number (inclusive). Conflicts with `--page`.
 

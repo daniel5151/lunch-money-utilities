@@ -41,6 +41,12 @@ pub struct ImportArgs {
         conflicts_with = "pages"
     )]
     pub from_page: Option<usize>,
+
+    #[arg(
+        long,
+        help = "Dry-run only (requires --dry-run): assume a matching Lunch Money transaction exists (or will appear) instead of failing when none is found."
+    )]
+    pub assume_tx_exists: bool,
 }
 
 #[derive(Args, Debug)]

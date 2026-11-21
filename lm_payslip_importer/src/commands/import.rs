@@ -111,6 +111,10 @@ pub(crate) async fn run_import(
         );
     }
 
+    if cli.assume_tx_exists && !cx.dry_run {
+        anyhow::bail!("--assume-tx-exists can only be used with --dry-run.");
+    }
+
     // `--page`/`--from-page` select pages within a single document, so they are
     // ambiguous once more than one PDF is supplied (they would otherwise be
     // applied to every file, and a page that is out of range in any one file
@@ -371,6 +375,7 @@ pub(crate) async fn run_import(
                     .plaid_account_id(*id)
                     .maybe_include_split_parents(Some(true))
                     .include_children(true)
+                    .include_pending(true)
                     .build(),
                 ResolvedAccount::Manual(id) => TransactionQuery::builder()
                     .start_date(start_date.to_string())
@@ -386,7 +391,12 @@ pub(crate) async fn run_import(
                 .await
                 .context("Failed to fetch checking transactions")?;
             checking_txs.extend(tx_response.transactions);
-            println! { "Fetched {} checking transactions total.", checking_txs.len() };
+            let pending_count = checking_txs.iter().filter(|tx| tx.is_pending).count();
+            if pending_count > 0 {
+                println! { "Fetched {} checking transactions total ({} pending).", checking_txs.len(), pending_count };
+            } else {
+                println! { "Fetched {} checking transactions total.", checking_txs.len() };
+            }
         }
     }
 
@@ -407,6 +417,7 @@ pub(crate) async fn run_import(
                     .plaid_account_id(*id)
                     .maybe_include_split_parents(Some(true))
                     .include_children(true)
+                    .include_pending(true)
                     .build(),
                 ResolvedAccount::Manual(id) => TransactionQuery::builder()
                     .start_date(start_date.to_string())
@@ -422,7 +433,12 @@ pub(crate) async fn run_import(
                 .await
                 .context("Failed to fetch RSU transactions")?;
             rsu_txs.extend(tx_response.transactions);
-            println! { "Fetched {} RSU transactions total.", rsu_txs.len() };
+            let pending_count = rsu_txs.iter().filter(|tx| tx.is_pending).count();
+            if pending_count > 0 {
+                println! { "Fetched {} RSU transactions total ({} pending).", rsu_txs.len(), pending_count };
+            } else {
+                println! { "Fetched {} RSU transactions total.", rsu_txs.len() };
+            }
         }
     }
 
@@ -532,6 +548,7 @@ pub(crate) async fn run_import(
                         ResolvedAccount::Manual(id) => tx.manual_account_id == Some(*id),
                     };
                     matches_acct
+                        && !tx.is_pending
                         && tx.is_split_parent.unwrap_or(false)
                         && tx.date >= skip_start
                         && tx.date <= skip_end
@@ -633,41 +650,50 @@ pub(crate) async fn run_import(
                 continue;
             }
 
-            // Match RSU vest to auto-imported Plaid transaction(s)
-            let matched_plaid_rsu_txs = if let Some(rsu_acct) = resolved_rsu_acct {
-                let start_window = payslip
-                    .check_date
-                    .checked_sub(jiff::Span::new().days(3))
-                    .map_err(|e| anyhow!("Failed to subtract days: {}", e))?;
-                let end_window = payslip
-                    .check_date
-                    .checked_add(jiff::Span::new().days(3))
-                    .map_err(|e| anyhow!("Failed to add days: {}", e))?;
+            // Match RSU vest to auto-imported Plaid transaction(s), preferring posted
+            // transactions over pending ones.
+            let (matched_plaid_rsu_txs, pending_plaid_rsu_txs) =
+                if let Some(rsu_acct) = resolved_rsu_acct {
+                    let start_window = payslip
+                        .check_date
+                        .checked_sub(jiff::Span::new().days(3))
+                        .map_err(|e| anyhow!("Failed to subtract days: {}", e))?;
+                    let end_window = payslip
+                        .check_date
+                        .checked_add(jiff::Span::new().days(3))
+                        .map_err(|e| anyhow!("Failed to add days: {}", e))?;
 
-                rsu_txs
-                    .iter()
-                    .filter(|tx| {
+                    let mut posted = Vec::new();
+                    let mut pending = Vec::new();
+                    for tx in &rsu_txs {
                         if matched_tx_records.contains_key(&MatchKey::Transaction(tx.id)) {
-                            return false;
+                            continue;
                         }
                         let matches_acct = match rsu_acct {
                             ResolvedAccount::Plaid(id) => tx.plaid_account_id == Some(*id),
                             ResolvedAccount::Manual(id) => tx.manual_account_id == Some(*id),
                         };
-                        matches_acct
+                        if matches_acct
                             && tx.date >= start_window
                             && tx.date <= end_window
                             && tx.amount.is_zero()
                             && tx.payee.eq_ignore_ascii_case(
                                 backend.rsu_payee_match.as_deref().unwrap_or_default(),
                             )
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>()
-            } else {
-                Vec::new()
-            };
+                        {
+                            if tx.is_pending {
+                                pending.push(tx.clone());
+                            } else {
+                                posted.push(tx.clone());
+                            }
+                        }
+                    }
+                    (posted, pending)
+                } else {
+                    (Vec::new(), Vec::new())
+                };
 
+            let mut matched_pending_rsu = false;
             let mut synthetic_tx_date = payslip.check_date;
             if !matched_plaid_rsu_txs.is_empty() {
                 synthetic_tx_date = matched_plaid_rsu_txs[0].date;
@@ -700,6 +726,35 @@ pub(crate) async fn run_import(
                         };
                     }
                 }
+            } else if !pending_plaid_rsu_txs.is_empty() {
+                let pending_ids: Vec<String> = pending_plaid_rsu_txs
+                    .iter()
+                    .map(|tx| tx.id.to_string())
+                    .collect();
+                if !cx.dry_run {
+                    println! {
+                        "  {STYLE_WARNING}⏳ Matched RSU vest to pending Plaid transaction(s): {}. Skipping Page {} until they post.{STYLE_WARNING:#}",
+                        pending_ids.join(", "), payslip.page_num
+                    };
+                    continue;
+                }
+                matched_pending_rsu = true;
+                synthetic_tx_date = pending_plaid_rsu_txs[0].date;
+                for tx in &pending_plaid_rsu_txs {
+                    matched_tx_records.insert(
+                        MatchKey::Transaction(tx.id),
+                        MatchedTransactionRecord {
+                            pdf_filename: pdf_filename.to_string(),
+                            page_num: payslip.page_num,
+                            split_amounts: rsu_components.iter().map(|c| c.amount).collect(),
+                            total_amount: parent_amount,
+                        },
+                    );
+                }
+                println! {
+                    "  {STYLE_WARNING}⏳ [Dry Run] Matched RSU vest to pending Plaid transaction(s): {}. A real run will skip Page {} until they post.{STYLE_WARNING:#}",
+                    pending_ids.join(", "), payslip.page_num
+                };
             } else {
                 if resolved_rsu_acct.is_some() {
                     let acct_name = backend
@@ -724,24 +779,43 @@ pub(crate) async fn run_import(
 
             if cx.dry_run || cli.interactive {
                 let plan_tag = if cx.dry_run { "[Dry Run] " } else { "" };
-                println! {
-                    "  {STYLE_INFO}ℹ️ {plan_tag}RSU Vest Detected. Creating synthetic transaction in account '{}'.{STYLE_INFO:#}",
-                    backend.rsu_account.as_deref().unwrap_or_default()
-                };
-                if !matched_plaid_rsu_txs.is_empty() {
-                    let matched_ids: Vec<String> = matched_plaid_rsu_txs
+                if matched_pending_rsu {
+                    println! {
+                        "  {STYLE_INFO}ℹ️ {plan_tag}RSU Vest Detected (preview once posted). Would create synthetic transaction in account '{}'.{STYLE_INFO:#}",
+                        backend.rsu_account.as_deref().unwrap_or_default()
+                    };
+                    let pending_ids: Vec<String> = pending_plaid_rsu_txs
                         .iter()
                         .map(|tx| format!("#{}", tx.id))
                         .collect();
                     println! {
-                        "  {STYLE_INFO}ℹ️ {plan_tag}Aligned date to matched Plaid transaction date ({}) and will reference companion Plaid transaction(s) in notes: {}{STYLE_INFO:#}",
-                        synthetic_tx_date, matched_ids.join(", ")
+                        "  {STYLE_INFO}ℹ️ {plan_tag}Aligned preview date to pending Plaid transaction date ({}); companion ID(s) ({}) may change once posted.{STYLE_INFO:#}",
+                        synthetic_tx_date, pending_ids.join(", ")
+                    };
+                    println! {
+                        "\n  {STYLE_HEADER}Plan (preview once posted): Create transaction (Date: {}, Amount: {}, Payee: {}){STYLE_HEADER:#}",
+                        synthetic_tx_date, parent_amount, backend.payslip_payee
+                    };
+                } else {
+                    println! {
+                        "  {STYLE_INFO}ℹ️ {plan_tag}RSU Vest Detected. Creating synthetic transaction in account '{}'.{STYLE_INFO:#}",
+                        backend.rsu_account.as_deref().unwrap_or_default()
+                    };
+                    if !matched_plaid_rsu_txs.is_empty() {
+                        let matched_ids: Vec<String> = matched_plaid_rsu_txs
+                            .iter()
+                            .map(|tx| format!("#{}", tx.id))
+                            .collect();
+                        println! {
+                            "  {STYLE_INFO}ℹ️ {plan_tag}Aligned date to matched Plaid transaction date ({}) and will reference companion Plaid transaction(s) in notes: {}{STYLE_INFO:#}",
+                            synthetic_tx_date, matched_ids.join(", ")
+                        };
+                    }
+                    println! {
+                        "\n  {STYLE_HEADER}Plan: Create transaction (Date: {}, Amount: {}, Payee: {}){STYLE_HEADER:#}",
+                        synthetic_tx_date, parent_amount, backend.payslip_payee
                     };
                 }
-                println! {
-                    "\n  {STYLE_HEADER}Plan: Create transaction (Date: {}, Amount: {}, Payee: {}){STYLE_HEADER:#}",
-                    synthetic_tx_date, parent_amount, backend.payslip_payee
-                };
                 for comp in &rsu_components {
                     let sign_style = if comp.amount.is_sign_negative() {
                         STYLE_SUCCESS
@@ -753,6 +827,12 @@ pub(crate) async fn run_import(
                         comp.amount, comp.category_name, comp.description
                     };
                 }
+            }
+
+            // Pending companion Plaid transactions are never mutated (and only reach
+            // here under --dry-run to preview the future split), so skip prompting.
+            if matched_pending_rsu {
+                continue;
             }
 
             // A plain dry run (no interactive prompt) just prints the plan and
@@ -902,7 +982,11 @@ pub(crate) async fn run_import(
         // re-splitting (which the API would reject) or creating a duplicate.
         let mut matched_split_children: Option<Vec<Decimal>> = None;
 
-        let mut overlap_match = None;
+        // Track whether this page matched a pending Plaid transaction (only
+        // reaches the plan-printing stage in --dry-run) or is using an assumed
+        // transaction under `--dry-run --assume-tx-exists`.
+        let mut matched_pending = false;
+        let mut assumed_tx = false;
 
         if let Some(ref client_ref) = client {
             let start_window = payslip
@@ -914,177 +998,184 @@ pub(crate) async fn run_import(
                 .checked_add(jiff::Span::new().days(3))
                 .map_err(|e| anyhow!("Failed to add days: {}", e))?;
 
-            let mut best_match = None;
-            for tx in &checking_txs {
-                if tx.date < start_window || tx.date > end_window {
-                    continue;
-                }
+            let checking_match = find_checking_match(
+                &checking_txs,
+                start_window,
+                end_window,
+                *resolved_net_zero_acct,
+                net_pay,
+                &matched_tx_records,
+            );
 
-                // Verify the transaction belongs to the correct net-zero account
-                let matches_acct = match resolved_net_zero_acct {
-                    Some(ResolvedAccount::Plaid(id)) => tx.plaid_account_id == Some(*id),
-                    Some(ResolvedAccount::Manual(id)) => tx.manual_account_id == Some(*id),
-                    None => false,
-                };
-                if !matches_acct {
-                    continue;
-                }
-
-                // In Lunch Money, credit amounts are negative
-                let tx_amount_abs = tx.amount.abs();
-
-                if (tx_amount_abs - net_pay).abs() < Decimal::new(1, 2) {
-                    if matched_tx_records.contains_key(&MatchKey::Transaction(tx.id)) {
-                        if overlap_match.is_none() {
-                            overlap_match = Some(tx);
-                        }
-                    } else {
-                        best_match = Some(tx);
-                        break;
-                    }
-                }
-            }
-
-            if let Some(tx) = best_match {
-                println! {
-                    "  {STYLE_SUCCESS}✅ Matched to Lunch Money transaction: ID = {}, Date = {}, Amount = {}, Payee = \"{}\"{STYLE_SUCCESS:#}",
-                    tx.id, tx.date, tx.amount, tx.payee
-                };
-                if tx.is_split_parent.unwrap_or(false) {
-                    // Already split on a previous run. Defer the skip decision
-                    // until the components for this page are computed, so we can
-                    // confirm the existing split actually corresponds to this
-                    // page (same number of children, same amounts) before
-                    // treating it as already-imported.
-                    matched_split_children = Some(tx.children.iter().map(|c| c.amount).collect());
-                }
-
-                tx_id = tx.id;
-                tx_date = tx.date;
-                tx_amount = tx.amount;
-                tx_payee = tx.payee.clone();
-            } else if let Some(tx) = overlap_match {
-                tx_id = tx.id;
-                tx_date = tx.date;
-                tx_amount = tx.amount;
-                tx_payee = tx.payee.clone();
-            } else {
-                // If no matching transaction is found and this is a net-zero check, create a synthetic transaction
-                if payslip.net_pay.is_zero() {
-                    let account_name = &backend.net_zero_account;
-                    let synthetic_key = MatchKey::Synthetic {
-                        date: payslip.check_date,
-                        account: account_name.clone(),
+            match checking_match {
+                CheckingMatch::Posted(tx) => {
+                    println! {
+                        "  {STYLE_SUCCESS}✅ Matched to Lunch Money transaction: ID = {}, Date = {}, Amount = {}, Payee = \"{}\"{STYLE_SUCCESS:#}",
+                        tx.id, tx.date, tx.amount, tx.payee
                     };
+                    if tx.is_split_parent.unwrap_or(false) {
+                        // Already split on a previous run. Defer the skip decision
+                        // until the components for this page are computed, so we can
+                        // confirm the existing split actually corresponds to this
+                        // page (same number of children, same amounts) before
+                        // treating it as already-imported.
+                        matched_split_children =
+                            Some(tx.children.iter().map(|c| c.amount).collect());
+                    }
 
-                    if matched_tx_records.contains_key(&synthetic_key) {
-                        tx_id = TransactionId(0);
-                        tx_date = payslip.check_date;
-                        tx_amount = Decimal::ZERO;
-                        tx_payee = backend.payslip_payee.clone();
-                    } else if cx.dry_run {
+                    tx_id = tx.id;
+                    tx_date = tx.date;
+                    tx_amount = tx.amount;
+                    tx_payee = tx.payee.clone();
+                }
+                CheckingMatch::Pending(tx) => {
+                    if !cx.dry_run {
                         println! {
-                            "  {STYLE_INFO}ℹ️ [Dry Run] No match found. Would create synthetic $0.00 transaction for Page {} in account '{}'.{STYLE_INFO:#}",
-                            payslip.page_num, account_name
+                            "  {STYLE_WARNING}⏳ Matched pending Plaid transaction: ID = {}, Date = {}, Amount = {}, Payee = \"{}\". Skipping Page {} until the transaction posts.{STYLE_WARNING:#}",
+                            tx.id, tx.date, tx.amount, tx.payee, payslip.page_num
                         };
-                        tx_id = TransactionId(0);
-                        tx_date = payslip.check_date;
-                        tx_amount = Decimal::ZERO;
-                        tx_payee = backend.payslip_payee.clone();
-                    } else {
-                        let acct = match resolved_net_zero_acct {
-                            Some(acct) => acct,
-                            None => {
-                                println! {
-                                    "  {STYLE_ERROR}❌ Failed to resolve net-zero account name '{}'{STYLE_ERROR:#}",
-                                    account_name
-                                };
-                                continue;
-                            }
+                        continue;
+                    }
+                    println! {
+                        "  {STYLE_WARNING}⏳ [Dry Run] Matched pending Plaid transaction: ID = {}, Date = {}, Amount = {}, Payee = \"{}\". A real run will skip Page {} until it posts.{STYLE_WARNING:#}",
+                        tx.id, tx.date, tx.amount, tx.payee, payslip.page_num
+                    };
+                    matched_pending = true;
+                    tx_id = tx.id;
+                    tx_date = tx.date;
+                    tx_amount = tx.amount;
+                    tx_payee = tx.payee.clone();
+                }
+                CheckingMatch::Overlap(tx) => {
+                    tx_id = tx.id;
+                    tx_date = tx.date;
+                    tx_amount = tx.amount;
+                    tx_payee = tx.payee.clone();
+                }
+                CheckingMatch::None => {
+                    // If no matching transaction is found and this is a net-zero check, create a synthetic transaction
+                    if payslip.net_pay.is_zero() {
+                        let account_name = &backend.net_zero_account;
+                        let synthetic_key = MatchKey::Synthetic {
+                            date: payslip.check_date,
+                            account: account_name.clone(),
                         };
 
-                        // Categorize the synthetic parent with the page's
-                        // primary earning category (largest-magnitude current
-                        // earning), mirroring the RSU helper so the parent is
-                        // never left uncategorized if a child split fails.
-                        let parent_cat_id = payslip
-                            .earnings
-                            .iter()
-                            .filter(|e| {
-                                !e.values
-                                    .get("Amount")
-                                    .copied()
-                                    .unwrap_or(Decimal::ZERO)
-                                    .is_zero()
-                            })
-                            .max_by_key(|e| {
-                                e.values
-                                    .get("Amount")
-                                    .copied()
-                                    .unwrap_or(Decimal::ZERO)
-                                    .abs()
-                            })
-                            .and_then(|e| {
-                                lookup_category(&e.description, resolved_cats).map(|(_, id)| id)
-                            })
-                            .unwrap_or(CategoryId(0));
-
-                        if cli.interactive {
-                            // Defer creation until the split plan is printed and
-                            // confirmed below, so the user reviews the whole
-                            // operation before any transaction is created.
+                        if matched_tx_records.contains_key(&synthetic_key) {
+                            tx_id = TransactionId(0);
+                            tx_date = payslip.check_date;
+                            tx_amount = Decimal::ZERO;
+                            tx_payee = backend.payslip_payee.clone();
+                        } else if cx.dry_run {
                             println! {
-                                "  {STYLE_INFO}ℹ️ No match found. Would create synthetic $0.00 transaction for Page {} in account '{}' (pending confirmation).{STYLE_INFO:#}",
+                                "  {STYLE_INFO}ℹ️ [Dry Run] No match found. Would create synthetic $0.00 transaction for Page {} in account '{}'.{STYLE_INFO:#}",
                                 payslip.page_num, account_name
                             };
-                            pending_zero_pay = Some((*acct, parent_cat_id));
                             tx_id = TransactionId(0);
                             tx_date = payslip.check_date;
                             tx_amount = Decimal::ZERO;
                             tx_payee = backend.payslip_payee.clone();
                         } else {
-                            println! {
-                                "  {STYLE_INFO}ℹ️ No match found. Creating synthetic $0.00 transaction for Page {} in account '{}'...{STYLE_INFO:#}",
-                                payslip.page_num, account_name
+                            let acct = match resolved_net_zero_acct {
+                                Some(acct) => acct,
+                                None => {
+                                    println! {
+                                        "  {STYLE_ERROR}❌ Failed to resolve net-zero account name '{}'{STYLE_ERROR:#}",
+                                        account_name
+                                    };
+                                    continue;
+                                }
                             };
 
-                            let insert_tx = insert_transaction_for_zero_pay(
-                                payslip.check_date,
-                                acct,
-                                backend.payslip_payee.clone(),
-                                parent_cat_id,
-                                resolved_tag_id,
-                            )?;
-                            let insert_resp = client_ref
-                                .insert_transactions::<serde_json::Value, String, serde_json::Value, String>(&[insert_tx])
-                                .await
-                                .context("Failed to insert synthetic zero-dollar transaction")?;
+                            // Categorize the synthetic parent with the page's
+                            // primary earning category (largest-magnitude current
+                            // earning), mirroring the RSU helper so the parent is
+                            // never left uncategorized if a child split fails.
+                            let parent_cat_id = payslip
+                                .earnings
+                                .iter()
+                                .filter(|e| {
+                                    !e.values
+                                        .get("Amount")
+                                        .copied()
+                                        .unwrap_or(Decimal::ZERO)
+                                        .is_zero()
+                                })
+                                .max_by_key(|e| {
+                                    e.values
+                                        .get("Amount")
+                                        .copied()
+                                        .unwrap_or(Decimal::ZERO)
+                                        .abs()
+                                })
+                                .and_then(|e| {
+                                    lookup_category(&e.description, resolved_cats).map(|(_, id)| id)
+                                })
+                                .unwrap_or(CategoryId(0));
 
-                            if insert_resp.transactions.is_empty() {
+                            if cli.interactive {
+                                // Defer creation until the split plan is printed and
+                                // confirmed below, so the user reviews the whole
+                                // operation before any transaction is created.
                                 println! {
-                                    "  {STYLE_ERROR}❌ Failed to create synthetic zero-dollar transaction: no transactions returned in response.{STYLE_ERROR:#}"
+                                    "  {STYLE_INFO}ℹ️ No match found. Would create synthetic $0.00 transaction for Page {} in account '{}' (pending confirmation).{STYLE_INFO:#}",
+                                    payslip.page_num, account_name
                                 };
-                                continue;
+                                pending_zero_pay = Some((*acct, parent_cat_id));
+                                tx_id = TransactionId(0);
+                                tx_date = payslip.check_date;
+                                tx_amount = Decimal::ZERO;
+                                tx_payee = backend.payslip_payee.clone();
+                            } else {
+                                println! {
+                                    "  {STYLE_INFO}ℹ️ No match found. Creating synthetic $0.00 transaction for Page {} in account '{}'...{STYLE_INFO:#}",
+                                    payslip.page_num, account_name
+                                };
+
+                                let insert_tx = insert_transaction_for_zero_pay(
+                                    payslip.check_date,
+                                    acct,
+                                    backend.payslip_payee.clone(),
+                                    parent_cat_id,
+                                    resolved_tag_id,
+                                )?;
+                                let insert_resp = client_ref
+                                    .insert_transactions::<serde_json::Value, String, serde_json::Value, String>(&[insert_tx])
+                                    .await
+                                    .context("Failed to insert synthetic zero-dollar transaction")?;
+
+                                if insert_resp.transactions.is_empty() {
+                                    println! {
+                                        "  {STYLE_ERROR}❌ Failed to create synthetic zero-dollar transaction: no transactions returned in response.{STYLE_ERROR:#}"
+                                    };
+                                    continue;
+                                }
+
+                                let new_tx = &insert_resp.transactions[0];
+                                println! {
+                                    "  {STYLE_SUCCESS}✅ Created synthetic zero-dollar transaction: ID = {}, Date = {}, Payee = \"{}\"{STYLE_SUCCESS:#}",
+                                    new_tx.id, new_tx.date, new_tx.payee
+                                };
+
+                                tx_id = new_tx.id;
+                                tx_date = new_tx.date;
+                                tx_amount = new_tx.amount;
+                                tx_payee = new_tx.payee.clone();
                             }
-
-                            let new_tx = &insert_resp.transactions[0];
-                            println! {
-                                "  {STYLE_SUCCESS}✅ Created synthetic zero-dollar transaction: ID = {}, Date = {}, Payee = \"{}\"{STYLE_SUCCESS:#}",
-                                new_tx.id, new_tx.date, new_tx.payee
-                            };
-
-                            tx_id = new_tx.id;
-                            tx_date = new_tx.date;
-                            tx_amount = new_tx.amount;
-                            tx_payee = new_tx.payee.clone();
                         }
+                    } else if cli.assume_tx_exists {
+                        println! {
+                            "  {STYLE_INFO}ℹ️ [Dry Run] No matching Lunch Money transaction found for Page {}. Assuming it exists / will appear (Date: {}, Amount: {}, Payee: \"{}\").{STYLE_INFO:#}",
+                            payslip.page_num, tx_date, tx_amount, tx_payee
+                        };
+                        assumed_tx = true;
+                    } else {
+                        println! {
+                            "  {STYLE_ERROR}❌ No matching Lunch Money transaction found for Page {}.{STYLE_ERROR:#}",
+                            payslip.page_num
+                        };
+                        continue;
                     }
-                } else {
-                    println! {
-                        "  {STYLE_ERROR}❌ No matching Lunch Money transaction found for Page {}.{STYLE_ERROR:#}",
-                        payslip.page_num
-                    };
-                    continue;
                 }
             }
         } else {
@@ -1339,6 +1430,16 @@ pub(crate) async fn run_import(
                     "\n  {STYLE_HEADER}Plan: Create synthetic $0.00 transaction (Date: {}, Payee: {}), then split it{STYLE_HEADER:#}",
                     tx_date, tx_payee
                 };
+            } else if matched_pending {
+                println! {
+                    "\n  {STYLE_HEADER}Plan (preview once posted): Split pending transaction ID {} (Date: {}, Amount: {}, Payee: {}){STYLE_HEADER:#}",
+                    tx_id, tx_date, tx_amount, tx_payee
+                };
+            } else if assumed_tx {
+                println! {
+                    "\n  {STYLE_HEADER}Plan: Split assumed transaction (Date: {}, Amount: {}, Payee: {}){STYLE_HEADER:#}",
+                    tx_date, tx_amount, tx_payee
+                };
             } else {
                 println! {
                     "\n  {STYLE_HEADER}Plan: Split transaction ID {} (Date: {}, Amount: {}, Payee: {}){STYLE_HEADER:#}",
@@ -1356,6 +1457,12 @@ pub(crate) async fn run_import(
                     comp.amount, comp.category_name, comp.description
                 };
             }
+        }
+
+        // Pending Plaid transactions are never mutated (and only reach here
+        // under --dry-run to preview the future split), so skip prompting.
+        if matched_pending {
+            continue;
         }
 
         // A plain dry run (no interactive prompt) just prints the plan and
@@ -1863,5 +1970,87 @@ fn optimize_split_ordering(child_txs: &mut [SplitTransactionObject], target_deci
         if sum == target {
             return;
         }
+    }
+}
+
+/// Result of matching a payslip page against fetched checking transactions.
+#[derive(Debug)]
+enum CheckingMatch<'a> {
+    /// Unclaimed posted (non-pending) transaction matching date window, account, and amount.
+    Posted(&'a lunch_money::transactions::schemas::Transaction),
+    /// Unclaimed pending Plaid transaction matching date window, account, and amount
+    /// (returned only when no unclaimed posted match exists).
+    Pending(&'a lunch_money::transactions::schemas::Transaction),
+    /// A matching transaction that was already claimed by an earlier page in this run.
+    Overlap(&'a lunch_money::transactions::schemas::Transaction),
+    /// No matching transaction found.
+    None,
+}
+
+/// Match a payslip page's net pay against `checking_txs` within `[start_window, end_window]`.
+///
+/// Precedence:
+/// 1. Unclaimed posted (non-pending) transaction.
+/// 2. Unclaimed pending Plaid transaction.
+/// 3. Already-claimed transaction (for duplicate/overlap reporting), preferring posted over pending.
+fn find_checking_match<'a>(
+    checking_txs: &'a [lunch_money::transactions::schemas::Transaction],
+    start_window: Date,
+    end_window: Date,
+    resolved_acct: Option<ResolvedAccount>,
+    net_pay: Decimal,
+    matched_tx_records: &HashMap<MatchKey, MatchedTransactionRecord>,
+) -> CheckingMatch<'a> {
+    let mut pending_match = None;
+    let mut posted_overlap = None;
+    let mut pending_overlap = None;
+
+    for tx in checking_txs {
+        if tx.date < start_window || tx.date > end_window {
+            continue;
+        }
+
+        let matches_acct = match resolved_acct {
+            Some(ResolvedAccount::Plaid(id)) => tx.plaid_account_id == Some(id),
+            Some(ResolvedAccount::Manual(id)) => tx.manual_account_id == Some(id),
+            None => false,
+        };
+        if !matches_acct {
+            continue;
+        }
+
+        // In Lunch Money, credit amounts are negative.
+        let tx_amount_abs = tx.amount.abs();
+        if (tx_amount_abs - net_pay).abs() >= Decimal::new(1, 2) {
+            continue;
+        }
+
+        let already_claimed = matched_tx_records.contains_key(&MatchKey::Transaction(tx.id));
+        match (tx.is_pending, already_claimed) {
+            (false, false) => return CheckingMatch::Posted(tx),
+            (true, false) => {
+                if pending_match.is_none() {
+                    pending_match = Some(tx);
+                }
+            }
+            (false, true) => {
+                if posted_overlap.is_none() {
+                    posted_overlap = Some(tx);
+                }
+            }
+            (true, true) => {
+                if pending_overlap.is_none() {
+                    pending_overlap = Some(tx);
+                }
+            }
+        }
+    }
+
+    if let Some(tx) = pending_match {
+        CheckingMatch::Pending(tx)
+    } else if let Some(tx) = posted_overlap.or(pending_overlap) {
+        CheckingMatch::Overlap(tx)
+    } else {
+        CheckingMatch::None
     }
 }
